@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ABOUT YOU price sorter
 // @namespace    local.aboutyou.price-sort
-// @version      0.1.0
+// @version      0.1.5
 // @description  Sort ABOUT YOU product grids by current price or lowest prior price, highlight products where current price is at least the last lowest price, and export prices to CSV.
 // @match        *://www.aboutyou.lt/*
 // @match        *://aboutyou.lt/*
@@ -21,6 +21,15 @@
   window.__ABOUTYOU_PRICE_SORTER_LOADED__ = true;
 
   const PRODUCT_PATH_RE = /\/p\/[^?#]+-(\d+)(?:[?#]|$)/;
+  const TADARIDA_HOST_RE = /:\/\/tadarida-web\.aboutyou\.com\b/;
+  const PRODUCT_STREAM_SERVICE = "aysa_api.services.category_page.v1.stream.CategoryStreamService";
+  const PRODUCT_STREAM_INITIAL_METHOD = "GetProductStreamV2";
+  const PRODUCT_STREAM_INITIAL_PATH = `${PRODUCT_STREAM_SERVICE}/${PRODUCT_STREAM_INITIAL_METHOD}`;
+  const PRODUCT_STREAM_PAGE_METHOD = "GetProductStreamPageV2";
+  const PRODUCT_STREAM_PAGE_PATH = `${PRODUCT_STREAM_SERVICE}/${PRODUCT_STREAM_PAGE_METHOD}`;
+  const CATEGORY_STREAM_MODULE_FALLBACK = "https://assets.aboutstatic.com/assets/service.grpc-DpEGTlTl.js";
+  const DIRECT_ALL_MAX_PAGES = 200;
+  const MISSING_LPL_PRICE = 0;
   const STATE = {
     products: new Map(),
     cards: [],
@@ -29,6 +38,20 @@
     loadingAll: false,
     stopLoading: false,
     applyingDomChanges: false,
+    pageKey: getPageKey(),
+    initialPageKey: getPageKey(),
+    stream: {
+      nextState: null,
+      total: null,
+      basketToken: null,
+      preferredProductImageType: undefined,
+      sortingChannel: undefined,
+      moduleUrl: "",
+      modulePromise: null,
+      learnedRequest: null,
+      directError: "",
+    },
+    staticConfig: null,
   };
 
   const css = `
@@ -88,6 +111,55 @@
     #ay-price-tools .ay-status {
       color: #555;
       min-height: 16px;
+    }
+    #ay-price-tools details {
+      border-top: 1px solid #e4e4e4;
+      padding-top: 6px;
+    }
+    #ay-price-tools summary {
+      cursor: pointer;
+      font-weight: 700;
+    }
+    #ay-price-results {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 360px;
+      overflow: auto;
+      padding-top: 6px;
+    }
+    #ay-price-results a {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 4px 8px;
+      padding: 6px;
+      color: inherit;
+      text-decoration: none;
+      border: 1px solid #e2e2e2;
+      border-radius: 4px;
+      background: #fff;
+    }
+    #ay-price-results a:hover {
+      background: #f7f7f7;
+    }
+    #ay-price-results .ay-result-name {
+      grid-column: 1 / -1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 700;
+    }
+    #ay-price-results .ay-result-brand,
+    #ay-price-results .ay-result-lpl {
+      color: #666;
+    }
+    #ay-price-results .ay-result-delta[data-good="true"] {
+      color: #0a7a24;
+      font-weight: 700;
+    }
+    #ay-price-results .ay-result-delta[data-good="false"] {
+      color: #b00020;
+      font-weight: 700;
     }
     .ay-lpl-badge {
       position: absolute;
@@ -155,10 +227,89 @@
     return match ? Number(match[1]) : null;
   }
 
+  function normalizeLplPrice(value) {
+    return Number.isFinite(value) ? value : MISSING_LPL_PRICE;
+  }
+
+  function getPageKey() {
+    return `${location.pathname}${location.search}`;
+  }
+
+  function ensurePageContext() {
+    const pageKey = getPageKey();
+    if (STATE.pageKey === pageKey) return false;
+    resetCollectedState();
+    STATE.pageKey = pageKey;
+    updateStatus("Naujas puslapis aptiktas, rezultatai isvalyti.");
+    return true;
+  }
+
+  function resetCollectedState() {
+    STATE.stopLoading = true;
+    STATE.loadingAll = false;
+    STATE.products.clear();
+    STATE.cards = [];
+    STATE.grid = null;
+    STATE.filterCheaperThanLpl = false;
+    STATE.stream.nextState = null;
+    STATE.stream.total = null;
+    STATE.stream.basketToken = null;
+    STATE.stream.preferredProductImageType = undefined;
+    STATE.stream.sortingChannel = undefined;
+    STATE.stream.moduleUrl = "";
+    STATE.stream.modulePromise = null;
+    STATE.stream.learnedRequest = null;
+    STATE.stream.directError = "";
+
+    for (const badge of document.querySelectorAll(".ay-lpl-badge")) {
+      badge.remove();
+    }
+    for (const element of document.querySelectorAll(".ay-hidden-by-lpl-filter")) {
+      element.classList.remove("ay-hidden-by-lpl-filter");
+    }
+
+    renderResults();
+    updateActiveButtons();
+  }
+
+  function installFetchObserver() {
+    if (window.__ABOUTYOU_PRICE_SORTER_FETCH_OBSERVER__) return;
+    window.__ABOUTYOU_PRICE_SORTER_FETCH_OBSERVER__ = true;
+    const originalFetch = window.fetch;
+    if (typeof originalFetch !== "function") return;
+
+    window.fetch = function ayObservedFetch(input, init) {
+      try {
+        rememberTadaridaRequest(input, init);
+      } catch (_) {
+        // Observing network shape should never affect the shop.
+      }
+      return originalFetch.apply(this, arguments);
+    };
+  }
+
+  function rememberTadaridaRequest(input, init) {
+    const request = input instanceof Request ? input : null;
+    const url = request ? request.url : String(input || "");
+    if (!TADARIDA_HOST_RE.test(url)) return;
+
+    const headers = new Headers(request?.headers || init?.headers || {});
+    STATE.stream.learnedRequest = {
+      url,
+      headers: Array.from(headers.entries()),
+      credentials: init?.credentials || request?.credentials || "include",
+      mode: init?.mode || request?.mode || "cors",
+      referrerPolicy: init?.referrerPolicy || request?.referrerPolicy || "strict-origin-when-cross-origin",
+    };
+  }
+
+  installFetchObserver();
+
   function upsertProduct(product) {
     if (!product || !product.productId) return;
     const existing = STATE.products.get(product.productId) || {};
     STATE.products.set(product.productId, { ...existing, ...compact(product) });
+    scheduleRenderResults();
   }
 
   function compact(object) {
@@ -177,9 +328,10 @@
     const originalPrice =
       tracker.fullPrice ??
       parsePriceText(priceV2.original?.text);
-    const lplPrice =
+    const lplPrice = normalizeLplPrice(
       parsePriceText(priceV2.lpl30d?.value?.text) ??
-      parsePriceText(tile.price?.lpl30);
+      parsePriceText(tile.price?.lpl30)
+    );
 
     return {
       productId: tile.productId,
@@ -193,19 +345,52 @@
   }
 
   function parseInitialState() {
+    ensurePageContext();
+    if (STATE.pageKey !== STATE.initialPageKey) return;
+
     for (const script of document.querySelectorAll('script[data-tadarida-initial-state="true"]')) {
       let entries;
       try {
-        entries = JSON.parse(script.textContent || "[]");
+        entries = JSON.parse(script.textContent || "[]", reviveTadaridaValue);
       } catch (_) {
         continue;
       }
 
       if (!Array.isArray(entries)) continue;
       for (const entry of entries) {
+        const key = String(entry?.[0] || "");
         const payload = entry?.[1];
-        collectProductTiles(payload, (tile) => upsertProduct(productFromTile(tile)));
+        const data = payload?.data || payload;
+        if (!key.includes(PRODUCT_STREAM_INITIAL_PATH)) continue;
+        collectProductTiles(data, (tile) => upsertProduct(productFromTile(tile)));
+        rememberProductStreamState(data);
       }
+    }
+  }
+
+  function reviveTadaridaValue(_key, value) {
+    if (value?.__type === "_Uint8Array_" && Array.isArray(value.data)) {
+      return new Uint8Array(value.data);
+    }
+    return value;
+  }
+
+  function rememberProductStreamState(data) {
+    if (!data || typeof data !== "object") return;
+    if (data.nextState instanceof Uint8Array && data.nextState.length > 0) {
+      STATE.stream.nextState = data.nextState;
+    }
+    if (Number.isFinite(data.pagination?.total)) {
+      STATE.stream.total = data.pagination.total;
+    }
+    if (data.basketToken) {
+      STATE.stream.basketToken = data.basketToken;
+    }
+    if (data.preferredProductImageType !== undefined) {
+      STATE.stream.preferredProductImageType = data.preferredProductImageType;
+    }
+    if (data.trackingData?.sortingChannel) {
+      STATE.stream.sortingChannel = data.trackingData.sortingChannel;
     }
   }
 
@@ -256,7 +441,7 @@
       url: productUrl(href),
       currentPrice: resolveDomCurrentPrice(prices, originalMatch, lplMatch),
       originalPrice: originalMatch ? parsePriceText(originalMatch[0]) : null,
-      lplPrice: lplMatch ? parsePriceText(lplMatch[0]) : null,
+      lplPrice: normalizeLplPrice(lplMatch ? parsePriceText(lplMatch[0]) : null),
       name: guessName(card),
     };
   }
@@ -284,6 +469,7 @@
   }
 
   function scanCards() {
+    if (ensurePageContext()) return;
     const seenCards = new Set();
     const cards = [];
 
@@ -374,7 +560,59 @@
     return product.currentPrice - product.lplPrice;
   }
 
+  async function loadProductsByScroll(targetCount) {
+    let stableRounds = 0;
+    let previousCount = 0;
+    const maxRounds = Number.isFinite(targetCount) ? 40 : 120;
+    for (let round = 0; round < maxRounds && stableRounds < 5; round += 1) {
+      if (STATE.stopLoading) break;
+      scanCards();
+      const count = Math.max(STATE.cards.length, STATE.products.size);
+      if (Number.isFinite(targetCount) && count >= targetCount) break;
+      stableRounds = count === previousCount ? stableRounds + 1 : 0;
+      previousCount = count;
+      window.scrollTo(0, document.documentElement.scrollHeight);
+      updateStatus(`Scroll fallback: ${STATE.products.size} duomenu, ${STATE.cards.length} DOM...`);
+      await sleep(450);
+    }
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function loadProductsFast(targetCount) {
+    parseInitialState();
+    scanCards();
+    if (!(STATE.stream.nextState instanceof Uint8Array) || STATE.stream.nextState.length === 0) {
+      throw new Error("Product stream nextState nerastas initial-state duomenyse.");
+    }
+
+    let page = 0;
+    const initialCount = STATE.products.size;
+    if (Number.isFinite(targetCount) && initialCount >= targetCount) return true;
+    const maxPages = Number.isFinite(targetCount)
+      ? Math.max(1, Math.ceil(Math.max(0, targetCount - initialCount) / 24) + 12)
+      : DIRECT_ALL_MAX_PAGES;
+
+    while (!STATE.stopLoading && STATE.stream.nextState && page < maxPages) {
+      if (Number.isFinite(targetCount) && STATE.products.size >= targetCount) break;
+      page += 1;
+      const response = await fetchNextProductStreamPage();
+      if (!response?.items?.length) break;
+      collectProductTiles(response, (tile) => upsertProduct(productFromTile(tile)));
+      if (!(response.nextState instanceof Uint8Array) || response.nextState.length === 0) {
+        STATE.stream.nextState = null;
+      }
+      rememberProductStreamState(response);
+      renderResults();
+      updateStatus(`Direct stream: ${STATE.products.size} duomenu, ${STATE.cards.length} DOM...`);
+      await sleep(60);
+    }
+
+    return STATE.products.size > initialCount;
+  }
+
   async function loadProducts(targetCount) {
+    ensurePageContext();
     if (STATE.loadingAll) return;
     STATE.loadingAll = true;
     STATE.stopLoading = false;
@@ -385,21 +623,19 @@
     const targetLabel = Number.isFinite(targetCount) ? `${targetCount}` : "visos";
     updateStatus(`Kraunama iki ${targetLabel}...`);
 
-    let stableRounds = 0;
-    let previousCount = 0;
-    const maxRounds = Number.isFinite(targetCount) ? 40 : 120;
-    for (let round = 0; round < maxRounds && stableRounds < 5; round += 1) {
-      if (STATE.stopLoading) break;
-      scanCards();
-      const count = STATE.cards.length;
-      if (Number.isFinite(targetCount) && count >= targetCount) break;
-      stableRounds = count === previousCount ? stableRounds + 1 : 0;
-      previousCount = count;
-      window.scrollTo(0, document.documentElement.scrollHeight);
-      await sleep(850);
+    let usedFallback = false;
+    try {
+      await loadProductsFast(targetCount);
+    } catch (error) {
+      usedFallback = true;
+      STATE.stream.modulePromise = null;
+      STATE.stream.directError = error?.message || String(error);
+      console.warn("[ABOUT YOU price sorter] direct stream failed, falling back to scroll", error);
+      updateStatus(`Direct nepavyko, jungiamas scroll fallback...`);
+      await sleep(400);
+      if (!STATE.stopLoading) await loadProductsByScroll(targetCount);
     }
 
-    window.scrollTo({ top: 0, behavior: "smooth" });
     const wasStopped = STATE.stopLoading;
     STATE.loadingAll = false;
     STATE.stopLoading = false;
@@ -407,11 +643,483 @@
     updateActiveButtons();
     scanCards();
     applyFilter();
-    updateStatus(wasStopped ? "Krovimas sustabdytas." : undefined);
+    renderResults();
+    if (wasStopped) {
+      updateStatus("Krovimas sustabdytas.");
+    } else if (usedFallback) {
+      updateStatus(`Baigta per scroll fallback. ${STATE.stream.directError}`);
+    } else {
+      updateStatus();
+    }
+  }
+
+  async function fetchNextProductStreamPage() {
+    const service = await loadCategoryStreamService();
+    let response;
+    const client = {
+      unary(descriptor, request, options) {
+        return callGrpcWebUnary(descriptor, request, options);
+      },
+    };
+
+    response = await service(client, {
+      session: getSessionPayload(),
+      reductionsState: {},
+      basketToken: STATE.stream.basketToken || undefined,
+      streamState: STATE.stream.nextState,
+      preferredProductImageType: STATE.stream.preferredProductImageType,
+      sortingChannel: STATE.stream.sortingChannel,
+    });
+
+    return response;
+  }
+
+  async function loadCategoryStreamService() {
+    if (!STATE.stream.modulePromise) {
+      STATE.stream.modulePromise = (async () => {
+        const moduleUrl = await resolveCategoryStreamModuleUrl();
+        STATE.stream.moduleUrl = moduleUrl;
+        const mod = await import(moduleUrl);
+        const service = mod.CategoryStreamService_GetProductStreamPageV2;
+        if (typeof service !== "function") {
+          throw new Error("CategoryStreamService_GetProductStreamPageV2 export nerastas.");
+        }
+        return service;
+      })();
+    }
+    return STATE.stream.modulePromise;
+  }
+
+  async function resolveCategoryStreamModuleUrl() {
+    if (STATE.stream.moduleUrl) return STATE.stream.moduleUrl;
+    const indexScript = Array.from(document.scripts)
+      .map((script) => script.src)
+      .find((src) => /\/assets\/index-[^/]+\.js/.test(src));
+    if (!indexScript) return CATEGORY_STREAM_MODULE_FALLBACK;
+
+    try {
+      const code = await fetch(indexScript, { credentials: "omit" }).then((response) => response.text());
+      const match = code.match(/import\("\.\/(service\.grpc-[^"]+\.js)"\)[\s\S]{0,260}?CategoryStreamService_GetProductStreamPageV2/);
+      if (match) return new URL(match[1], indexScript).href;
+      const categoryMatch = code.match(/assets\/CategoryLegacy\.eager-[^"]+\.js/);
+      if (categoryMatch) {
+        const categoryUrl = new URL(categoryMatch[0].replace(/^assets\//, ""), indexScript).href;
+        const categoryCode = await fetch(categoryUrl, { credentials: "omit" }).then((response) => response.text());
+        const serviceMatch = categoryCode.match(/import\("\.\/(service\.grpc-[^"]+\.js)"\)[\s\S]{0,320}?CategoryStreamService_GetProductStreamPageV2/);
+        if (serviceMatch) return new URL(serviceMatch[1], categoryUrl).href;
+      }
+    } catch (error) {
+      console.warn("[ABOUT YOU price sorter] failed to discover category stream module", error);
+    }
+    return CATEGORY_STREAM_MODULE_FALLBACK;
+  }
+
+  async function callGrpcWebUnary(descriptor, request, options) {
+    const requestPayload = {
+      ...request,
+      config: getGrpcConfig(),
+      session: request.session || getSessionPayload(),
+      reductionsState: request.reductionsState || {},
+    };
+    const writer = ProtoWriter.create();
+    descriptor.encodeRequest(writer, requestPayload);
+    const requestBytes = writer.finish();
+    const response = await fetch(resolveGrpcUrl(descriptor), {
+      method: "POST",
+      credentials: STATE.stream.learnedRequest?.credentials || "include",
+      mode: STATE.stream.learnedRequest?.mode || "cors",
+      referrerPolicy: STATE.stream.learnedRequest?.referrerPolicy || "strict-origin-when-cross-origin",
+      headers: buildGrpcHeaders(options),
+      body: encodeGrpcWebFrame(requestBytes),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Tadarida ${descriptor.methodName} HTTP ${response.status}`);
+    }
+
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const messageBytes = decodeGrpcWebResponse(bytes);
+    if (!messageBytes.length) {
+      throw new Error(`Tadarida ${descriptor.methodName} atsakymas tuscias.`);
+    }
+    return descriptor.decodeResponse(new ProtoReader(messageBytes), messageBytes.length);
+  }
+
+  function resolveGrpcUrl(descriptor) {
+    const learned = STATE.stream.learnedRequest?.url;
+    if (learned && learned.includes(PRODUCT_STREAM_PAGE_PATH)) return learned;
+    if (learned) {
+      const serviceIndex = learned.indexOf("/aysa_api.services.");
+      if (serviceIndex !== -1) {
+        return `${learned.slice(0, serviceIndex)}/${descriptor.serviceName}/${descriptor.methodName}`;
+      }
+    }
+    const config = getStaticConfig();
+    const host = config?.hostConfig?.tadaridaUrl || "https://tadarida-web.aboutyou.com";
+    return `${host}/${descriptor.serviceName}/${descriptor.methodName}`;
+  }
+
+  function buildGrpcHeaders(options) {
+    const headers = new Headers();
+    for (const [key, value] of STATE.stream.learnedRequest?.headers || []) {
+      const normalized = key.toLowerCase();
+      if (["accept", "authorization", "x-ay-active-ab-tests", "x-customer-token", "x-tadarida-considered-ab-tests"].includes(normalized)) {
+        headers.set(key, value);
+      }
+    }
+    headers.set("content-type", "application/grpc-web+proto");
+    headers.set("accept", "application/grpc-web+proto");
+    headers.set("x-grpc-web", "1");
+    headers.set("x-user-agent", "grpc-web-javascript/0.1");
+    const metadata = options?.metadata;
+    if (metadata && typeof metadata.forEach === "function") {
+      metadata.forEach((value, key) => headers.set(key, value));
+    }
+    return headers;
+  }
+
+  function getStaticConfig() {
+    if (STATE.staticConfig) return STATE.staticConfig;
+    const script = document.querySelector("[data-tadarida-static-config]");
+    if (!script) return null;
+    try {
+      STATE.staticConfig = JSON.parse(script.textContent || "{}");
+      return STATE.staticConfig;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function getGrpcConfig() {
+    const grpcConfig = getStaticConfig()?.grpcConfig || {};
+    return {
+      country: grpcConfig.country ?? 13,
+      language: grpcConfig.language ?? 11,
+      device: grpcConfig.device ?? 1,
+      clientVersion: grpcConfig.clientVersion || document.querySelector('meta[name="version"]')?.content || "",
+      abTests: Array.isArray(grpcConfig.abTests) ? grpcConfig.abTests : [],
+    };
+  }
+
+  function getSessionPayload() {
+    return {};
+  }
+
+  function encodeGrpcWebFrame(messageBytes) {
+    const frame = new Uint8Array(5 + messageBytes.length);
+    frame[0] = 0;
+    frame[1] = (messageBytes.length >>> 24) & 255;
+    frame[2] = (messageBytes.length >>> 16) & 255;
+    frame[3] = (messageBytes.length >>> 8) & 255;
+    frame[4] = messageBytes.length & 255;
+    frame.set(messageBytes, 5);
+    return frame;
+  }
+
+  function decodeGrpcWebResponse(bytes) {
+    if (bytes.length < 5) return bytes;
+    let offset = 0;
+    const chunks = [];
+    while (offset + 5 <= bytes.length) {
+      const flags = bytes[offset];
+      const length =
+        bytes[offset + 1] * 16777216 +
+        bytes[offset + 2] * 65536 +
+        bytes[offset + 3] * 256 +
+        bytes[offset + 4];
+      offset += 5;
+      if (length < 0 || offset + length > bytes.length) break;
+      if ((flags & 128) === 0) {
+        chunks.push(bytes.slice(offset, offset + length));
+      }
+      offset += length;
+    }
+    if (chunks.length === 0) return new Uint8Array();
+    if (chunks.length === 1) return chunks[0];
+    const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+    const merged = new Uint8Array(total);
+    let position = 0;
+    for (const chunk of chunks) {
+      merged.set(chunk, position);
+      position += chunk.length;
+    }
+    return merged;
+  }
+
+  class ProtoWriter {
+    constructor() {
+      this.chunks = [];
+      this.stack = [];
+    }
+
+    static create() {
+      return new ProtoWriter();
+    }
+
+    uint32(value) {
+      this.writeVarint(BigInt(value >>> 0));
+      return this;
+    }
+
+    int32(value) {
+      this.writeVarint(BigInt(value >>> 0));
+      return this;
+    }
+
+    sint32(value) {
+      const number = Number(value || 0);
+      return this.uint32((number << 1) ^ (number >> 31));
+    }
+
+    int64(value) {
+      this.writeVarint(BigInt(value || 0));
+      return this;
+    }
+
+    uint64(value) {
+      return this.int64(value);
+    }
+
+    sint64(value) {
+      const number = BigInt(value || 0);
+      const encoded = (number << 1n) ^ (number >> 63n);
+      this.writeVarint(encoded);
+      return this;
+    }
+
+    bool(value) {
+      return this.uint32(value ? 1 : 0);
+    }
+
+    string(value) {
+      const bytes = new TextEncoder().encode(String(value || ""));
+      this.uint32(bytes.length);
+      this.raw(bytes);
+      return this;
+    }
+
+    bytes(value) {
+      const bytes = value instanceof Uint8Array ? value : new Uint8Array(value || []);
+      this.uint32(bytes.length);
+      this.raw(bytes);
+      return this;
+    }
+
+    fork() {
+      this.stack.push(this.chunks);
+      this.chunks = [];
+      return this;
+    }
+
+    ldelim() {
+      const child = this.finish();
+      this.chunks = this.stack.pop() || [];
+      this.uint32(child.length);
+      this.raw(child);
+      return this;
+    }
+
+    finish() {
+      const total = this.chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+      const output = new Uint8Array(total);
+      let offset = 0;
+      for (const chunk of this.chunks) {
+        output.set(chunk, offset);
+        offset += chunk.length;
+      }
+      return output;
+    }
+
+    raw(bytes) {
+      this.chunks.push(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes));
+      return this;
+    }
+
+    writeVarint(value) {
+      let current = BigInt.asUintN(64, value);
+      const bytes = [];
+      while (current > 127n) {
+        bytes.push(Number((current & 127n) | 128n));
+        current >>= 7n;
+      }
+      bytes.push(Number(current));
+      this.raw(new Uint8Array(bytes));
+    }
+  }
+
+  class ProtoReader {
+    constructor(bytes) {
+      this.buf = bytes;
+      this.pos = 0;
+      this.len = bytes.length;
+    }
+
+    uint32() {
+      return Number(this.readVarint());
+    }
+
+    int32() {
+      return this.uint32() | 0;
+    }
+
+    int64() {
+      const value = this.readVarint();
+      return { toNumber: () => Number(value) };
+    }
+
+    uint64() {
+      return this.int64();
+    }
+
+    sint32() {
+      const value = this.uint32();
+      return (value >>> 1) ^ -(value & 1);
+    }
+
+    sint64() {
+      const value = this.readVarint();
+      const decoded = (value >> 1n) ^ (-(value & 1n));
+      return { toNumber: () => Number(decoded) };
+    }
+
+    bool() {
+      return this.uint32() !== 0;
+    }
+
+    string() {
+      const length = this.uint32();
+      const start = this.pos;
+      this.pos += length;
+      return new TextDecoder().decode(this.buf.slice(start, start + length));
+    }
+
+    bytes() {
+      const length = this.uint32();
+      const start = this.pos;
+      this.pos += length;
+      return this.buf.slice(start, start + length);
+    }
+
+    double() {
+      const view = new DataView(this.buf.buffer, this.buf.byteOffset + this.pos, 8);
+      const value = view.getFloat64(0, true);
+      this.pos += 8;
+      return value;
+    }
+
+    float() {
+      const view = new DataView(this.buf.buffer, this.buf.byteOffset + this.pos, 4);
+      const value = view.getFloat32(0, true);
+      this.pos += 4;
+      return value;
+    }
+
+    fixed32() {
+      const view = new DataView(this.buf.buffer, this.buf.byteOffset + this.pos, 4);
+      const value = view.getUint32(0, true);
+      this.pos += 4;
+      return value;
+    }
+
+    skipType(wireType) {
+      if (wireType === 0) {
+        this.readVarint();
+        return;
+      }
+      if (wireType === 1) {
+        this.pos += 8;
+        return;
+      }
+      if (wireType === 2) {
+        this.pos += this.uint32();
+        return;
+      }
+      if (wireType === 3) {
+        while (this.pos < this.len) {
+          const tag = this.uint32();
+          if ((tag & 7) === 4) break;
+          this.skipType(tag & 7);
+        }
+        return;
+      }
+      if (wireType === 5) {
+        this.pos += 4;
+      }
+    }
+
+    readVarint() {
+      let shift = 0n;
+      let result = 0n;
+      while (this.pos < this.len) {
+        const byte = this.buf[this.pos++];
+        result |= BigInt(byte & 127) << shift;
+        if ((byte & 128) === 0) return result;
+        shift += 7n;
+      }
+      return result;
+    }
   }
 
   function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  let renderResultsTimer = null;
+
+  function scheduleRenderResults() {
+    if (renderResultsTimer) return;
+    renderResultsTimer = setTimeout(() => {
+      renderResultsTimer = null;
+      renderResults();
+    }, 120);
+  }
+
+  function renderResults() {
+    const list = document.getElementById("ay-price-results");
+    if (!list) return;
+    const products = Array.from(STATE.products.values())
+      .filter((product) => product.productId && Number.isFinite(product.currentPrice))
+      .filter((product) => {
+        if (!STATE.filterCheaperThanLpl) return true;
+        return Number.isFinite(product.lplPrice) && product.currentPrice <= product.lplPrice;
+      })
+      .sort((left, right) => {
+        const leftDelta = Number.isFinite(left.lplPrice) ? left.currentPrice - left.lplPrice : Infinity;
+        const rightDelta = Number.isFinite(right.lplPrice) ? right.currentPrice - right.lplPrice : Infinity;
+        return leftDelta - rightDelta;
+      })
+      .slice(0, 120);
+
+    list.innerHTML = products.map(renderResultItem).join("");
+  }
+
+  function clearResults() {
+    resetCollectedState();
+    updateStatus("Rezultatai isvalyti. Gali krauti is naujo.");
+  }
+
+  function renderResultItem(product) {
+    const delta = Number.isFinite(product.lplPrice) ? product.currentPrice - product.lplPrice : null;
+    const good = Number.isFinite(delta) && delta <= 0;
+    const deltaText = Number.isFinite(delta) ? `${delta > 0 ? "+" : ""}${formatPrice(delta)}` : "";
+    return `
+      <a href="${escapeHtml(product.url || "#")}" target="_blank" rel="noopener noreferrer">
+        <span class="ay-result-name">${escapeHtml(product.name || `#${product.productId}`)}</span>
+        <span class="ay-result-brand">${escapeHtml(product.brand || "")}</span>
+        <span>${escapeHtml(formatPrice(product.currentPrice))}</span>
+        <span class="ay-result-lpl">LPL ${escapeHtml(formatPrice(product.lplPrice))}</span>
+        <span class="ay-result-delta" data-good="${String(good)}">${escapeHtml(deltaText)}</span>
+      </a>
+    `;
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
   }
 
   function updateStatus(message) {
@@ -421,14 +1129,15 @@
       status.textContent = message;
       return;
     }
-    const productsWithLpl = STATE.cards.filter((card) => Number.isFinite(productForCard(card).lplPrice)).length;
-    const cheaperThanLpl = STATE.cards.filter((card) => {
-      const product = productForCard(card);
+    const allProducts = Array.from(STATE.products.values());
+    const productsWithLpl = allProducts.filter((product) => Number.isFinite(product.lplPrice)).length;
+    const cheaperThanLpl = allProducts.filter((product) => {
       return Number.isFinite(product.currentPrice) &&
         Number.isFinite(product.lplPrice) &&
         product.currentPrice <= product.lplPrice;
     }).length;
-    status.textContent = `${STATE.cards.length} prekių, LPL turi ${productsWithLpl}, pigiau arba lygu LPL ${cheaperThanLpl}`;
+    const total = Number.isFinite(STATE.stream.total) ? ` / ${STATE.stream.total}` : "";
+    status.textContent = `${STATE.products.size}${total} duomenu, ${STATE.cards.length} DOM, LPL ${productsWithLpl}, <= LPL ${cheaperThanLpl}`;
   }
 
   function updateActiveButtons() {
@@ -454,7 +1163,12 @@
       </div>
       <button type="button" data-action="stop-loading" disabled>STOP krovimą</button>
       <button type="button" data-action="filter-cheaper-than-lpl">Rodyti pigiau arba lygu LPL: nuo didžiausio minuso iki 0</button>
+      <button type="button" data-action="clear-results">Isvalyti rezultatus</button>
       <div class="ay-status"></div>
+      <details open>
+        <summary>Rezultatai</summary>
+        <div id="ay-price-results"></div>
+      </details>
     `;
     panel.addEventListener("click", (event) => {
       const button = event.target.closest("button");
@@ -469,8 +1183,12 @@
       if (action === "filter-cheaper-than-lpl") {
         STATE.filterCheaperThanLpl = !STATE.filterCheaperThanLpl;
         applyFilter();
+        renderResults();
         updateActiveButtons();
         updateStatus();
+      }
+      if (action === "clear-results") {
+        clearResults();
       }
     });
     document.body.appendChild(panel);
@@ -483,6 +1201,7 @@
       clearTimeout(timer);
       timer = setTimeout(() => {
         if (STATE.applyingDomChanges) return;
+        if (ensurePageContext()) return;
         parseInitialState();
         scanCards();
       }, 300);
@@ -495,6 +1214,7 @@
     installPanel();
     parseInitialState();
     scanCards();
+    renderResults();
     observeChanges();
   }
 
