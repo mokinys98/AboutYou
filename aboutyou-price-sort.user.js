@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ABOUT YOU price sorter
 // @namespace    local.aboutyou.price-sort
-// @version      0.1.6
+// @version      0.1.7
 // @description  Sort ABOUT YOU product grids by current price or lowest prior price, highlight products where current price is at least the last lowest price, and export prices to CSV.
 // @match        *://www.aboutyou.lt/*
 // @match        *://aboutyou.lt/*
@@ -231,6 +231,10 @@
     return Number.isFinite(fallbackPrice) ? fallbackPrice : 0;
   }
 
+  function isFallbackLplPrice(value) {
+    return !Number.isFinite(value);
+  }
+
   function getPageKey() {
     return `${location.pathname}${location.search}`;
   }
@@ -308,7 +312,16 @@
   function upsertProduct(product) {
     if (!product || !product.productId) return;
     const existing = STATE.products.get(product.productId) || {};
-    STATE.products.set(product.productId, { ...existing, ...compact(product) });
+    const next = { ...existing, ...compact(product) };
+    if (
+      product.lplIsFallback &&
+      existing.lplIsFallback === false &&
+      Number.isFinite(existing.lplPrice)
+    ) {
+      next.lplPrice = existing.lplPrice;
+      next.lplIsFallback = false;
+    }
+    STATE.products.set(product.productId, next);
     scheduleRenderResults();
   }
 
@@ -328,11 +341,10 @@
     const originalPrice =
       tracker.fullPrice ??
       parsePriceText(priceV2.original?.text);
-    const lplPrice = normalizeLplPrice(
+    const rawLplPrice =
       parsePriceText(priceV2.lpl30d?.value?.text) ??
-      parsePriceText(tile.price?.lpl30),
-      currentPrice
-    );
+      parsePriceText(tile.price?.lpl30);
+    const lplPrice = normalizeLplPrice(rawLplPrice, currentPrice);
 
     return {
       productId: tile.productId,
@@ -341,6 +353,7 @@
       currentPrice,
       originalPrice,
       lplPrice,
+      lplIsFallback: isFallbackLplPrice(rawLplPrice),
       brand: tile.brandName || tile.brandTracker?.name || "",
     };
   }
@@ -438,13 +451,15 @@
     const originalMatch = text.match(/Pradinė\s+kaina\D+(\d{1,4}(?:[ .]\d{3})*|\d+)(?:[,.](\d{1,2}))?\s*€/i);
 
     const currentPrice = resolveDomCurrentPrice(prices, originalMatch, lplMatch);
+    const rawLplPrice = lplMatch ? parsePriceText(lplMatch[0]) : null;
 
     return {
       productId: id,
       url: productUrl(href),
       currentPrice,
       originalPrice: originalMatch ? parsePriceText(originalMatch[0]) : null,
-      lplPrice: normalizeLplPrice(lplMatch ? parsePriceText(lplMatch[0]) : null, currentPrice),
+      lplPrice: normalizeLplPrice(rawLplPrice, currentPrice),
+      lplIsFallback: isFallbackLplPrice(rawLplPrice),
       name: guessName(card),
     };
   }
