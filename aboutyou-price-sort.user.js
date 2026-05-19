@@ -2,7 +2,7 @@
 // @name         ABOUT YOU price sorter
 // @namespace    local.aboutyou.price-sort
 // @version      0.1.0
-// @description  Sort ABOUT YOU product grids by current price or lowest prior price, highlight products that are more expensive than their last lowest price, and export prices to CSV.
+// @description  Sort ABOUT YOU product grids by current price or lowest prior price, highlight products where current price is at least the last lowest price, and export prices to CSV.
 // @match        *://www.aboutyou.lt/*
 // @match        *://aboutyou.lt/*
 // @match        *://*.aboutyou.lt/*
@@ -20,15 +20,14 @@
   console.warn("[ABOUT YOU price sorter] userscript loaded", location.href);
   window.__ABOUTYOU_PRICE_SORTER_LOADED__ = true;
 
-  const STREAM_SERVICE = "BrandHubPageService/GetStream";
   const PRODUCT_PATH_RE = /\/p\/[^?#]+-(\d+)(?:[?#]|$)/;
   const STATE = {
     products: new Map(),
     cards: [],
     grid: null,
-    filterOverLpl: false,
-    lastSort: null,
+    filterCheaperThanLpl: false,
     loadingAll: false,
+    stopLoading: false,
     applyingDomChanges: false,
   };
 
@@ -71,6 +70,15 @@
       border-color: #111;
       background: #111;
       color: #fff;
+    }
+    #ay-price-tools button[data-action="stop-loading"] {
+      border-color: #d9232a;
+      color: #d9232a;
+      font-weight: 700;
+    }
+    #ay-price-tools button[data-action="stop-loading"]:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
     }
     #ay-price-tools .ay-row {
       display: grid;
@@ -195,16 +203,21 @@
 
       if (!Array.isArray(entries)) continue;
       for (const entry of entries) {
-        const key = String(entry?.[0] || "");
         const payload = entry?.[1];
-        if (!key.includes(STREAM_SERVICE)) continue;
-        const items = payload?.data?.items || [];
-        for (const item of items) {
-          const tile = item?.type?.productSection?.productTile;
-          if (tile) upsertProduct(productFromTile(tile));
-        }
+        collectProductTiles(payload, (tile) => upsertProduct(productFromTile(tile)));
       }
     }
+  }
+
+  function collectProductTiles(value, onTile) {
+    if (!value || typeof value !== "object") return;
+    if (value.productTile?.productId) onTile(value.productTile);
+    if (value.type?.productSection?.productTile?.productId) onTile(value.type.productSection.productTile);
+    if (Array.isArray(value)) {
+      for (const item of value) collectProductTiles(item, onTile);
+      return;
+    }
+    for (const child of Object.values(value)) collectProductTiles(child, onTile);
   }
 
   function findCard(anchor) {
@@ -227,7 +240,11 @@
     const id = productIdFromUrl(href);
     if (!id) return null;
 
-    const text = card.textContent || "";
+    const cardForText = card.cloneNode(true);
+    for (const badge of cardForText.querySelectorAll(".ay-lpl-badge")) {
+      badge.remove();
+    }
+    const text = cardForText.textContent || "";
     const prices = Array.from(text.matchAll(/(\d{1,4}(?:[ .]\d{3})*|\d+)(?:[,.](\d{1,2}))?\s*€/g))
       .map((match) => parsePriceText(match[0]))
       .filter((price) => price !== null);
@@ -237,11 +254,20 @@
     return {
       productId: id,
       url: productUrl(href),
-      currentPrice: prices[0] ?? null,
+      currentPrice: resolveDomCurrentPrice(prices, originalMatch, lplMatch),
       originalPrice: originalMatch ? parsePriceText(originalMatch[0]) : null,
       lplPrice: lplMatch ? parsePriceText(lplMatch[0]) : null,
       name: guessName(card),
     };
+  }
+
+  function resolveDomCurrentPrice(prices, originalMatch, lplMatch) {
+    const originalPrice = originalMatch ? parsePriceText(originalMatch[0]) : null;
+    const lplPrice = lplMatch ? parsePriceText(lplMatch[0]) : null;
+    const uniquePrices = [...new Set(prices)];
+    const nonMetaPrices = uniquePrices.filter((price) => price !== originalPrice && price !== lplPrice);
+    if (nonMetaPrices.length > 0) return nonMetaPrices[0];
+    return prices[0] ?? null;
   }
 
   function guessName(card) {
@@ -299,8 +325,10 @@
         continue;
       }
 
-      const over = Number.isFinite(product.currentPrice) && product.currentPrice > product.lplPrice;
-      const diff = over ? ` / dabar +${formatPrice(product.currentPrice - product.lplPrice)}` : "";
+      const hasCurrentPrice = Number.isFinite(product.currentPrice);
+      const over = hasCurrentPrice && product.currentPrice >= product.lplPrice;
+      const delta = hasCurrentPrice ? product.currentPrice - product.lplPrice : null;
+      const diff = Number.isFinite(delta) ? ` / dabar ${delta > 0 ? "+" : ""}${formatPrice(delta)}` : "";
       const badge = existing || document.createElement("div");
       badge.className = "ay-lpl-badge";
       badge.dataset.over = String(over);
@@ -314,55 +342,57 @@
     applyFilter();
   }
 
-  function sortCards(kind) {
-    scanCards();
-    const sorted = [...STATE.cards].sort((left, right) => {
-      const a = productForCard(left);
-      const b = productForCard(right);
-      const av = kind === "lpl" ? a.lplPrice : a.currentPrice;
-      const bv = kind === "lpl" ? b.lplPrice : b.currentPrice;
-      const an = Number.isFinite(av);
-      const bn = Number.isFinite(bv);
-      if (an && bn) return av - bv;
-      if (an) return -1;
-      if (bn) return 1;
-      return left.productId - right.productId;
-    });
-
-    if (STATE.grid) {
-      STATE.applyingDomChanges = true;
-      for (const card of sorted) STATE.grid.appendChild(card.element);
-      STATE.cards = sorted;
-      STATE.lastSort = kind;
-      updateActiveButtons();
-      applyFilter();
-      updateStatus();
-      setTimeout(() => {
-        STATE.applyingDomChanges = false;
-      }, 0);
-    }
-  }
-
   function applyFilter() {
     for (const card of STATE.cards) {
       const product = productForCard(card);
-      const over = Number.isFinite(product.currentPrice) &&
+      const cheaper = Number.isFinite(product.currentPrice) &&
         Number.isFinite(product.lplPrice) &&
-        product.currentPrice > product.lplPrice;
-      card.element.classList.toggle("ay-hidden-by-lpl-filter", STATE.filterOverLpl && !over);
+        product.currentPrice <= product.lplPrice;
+      card.element.classList.toggle("ay-hidden-by-lpl-filter", STATE.filterCheaperThanLpl && !cheaper);
     }
+    if (STATE.filterCheaperThanLpl) sortCheaperCardsByDelta();
   }
 
-  async function loadAllProducts() {
+  function sortCheaperCardsByDelta() {
+    if (!STATE.grid) return;
+    const visibleCheaperCards = STATE.cards
+      .filter((card) => !card.element.classList.contains("ay-hidden-by-lpl-filter"))
+      .sort((left, right) => priceDelta(left) - priceDelta(right));
+
+    STATE.applyingDomChanges = true;
+    for (const card of visibleCheaperCards) {
+      STATE.grid.appendChild(card.element);
+    }
+    setTimeout(() => {
+      STATE.applyingDomChanges = false;
+    }, 0);
+  }
+
+  function priceDelta(card) {
+    const product = productForCard(card);
+    if (!Number.isFinite(product.currentPrice) || !Number.isFinite(product.lplPrice)) return Infinity;
+    return product.currentPrice - product.lplPrice;
+  }
+
+  async function loadProducts(targetCount) {
     if (STATE.loadingAll) return;
     STATE.loadingAll = true;
-    updateStatus("Kraunama...");
+    STATE.stopLoading = false;
+    const restoreFilterAfterLoad = STATE.filterCheaperThanLpl;
+    STATE.filterCheaperThanLpl = false;
+    applyFilter();
+    updateActiveButtons();
+    const targetLabel = Number.isFinite(targetCount) ? `${targetCount}` : "visos";
+    updateStatus(`Kraunama iki ${targetLabel}...`);
 
     let stableRounds = 0;
     let previousCount = 0;
-    for (let round = 0; round < 60 && stableRounds < 5; round += 1) {
+    const maxRounds = Number.isFinite(targetCount) ? 40 : 120;
+    for (let round = 0; round < maxRounds && stableRounds < 5; round += 1) {
+      if (STATE.stopLoading) break;
       scanCards();
       const count = STATE.cards.length;
+      if (Number.isFinite(targetCount) && count >= targetCount) break;
       stableRounds = count === previousCount ? stableRounds + 1 : 0;
       previousCount = count;
       window.scrollTo(0, document.documentElement.scrollHeight);
@@ -370,49 +400,18 @@
     }
 
     window.scrollTo({ top: 0, behavior: "smooth" });
+    const wasStopped = STATE.stopLoading;
     STATE.loadingAll = false;
+    STATE.stopLoading = false;
+    STATE.filterCheaperThanLpl = restoreFilterAfterLoad;
+    updateActiveButtons();
     scanCards();
-    if (STATE.lastSort) sortCards(STATE.lastSort);
-    updateStatus();
+    applyFilter();
+    updateStatus(wasStopped ? "Krovimas sustabdytas." : undefined);
   }
 
   function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
-  function exportCsv() {
-    scanCards();
-    const rows = [["productId", "name", "currentPrice", "originalPrice", "lastLowestPrice", "differenceCurrentMinusLpl", "url"]];
-    for (const card of STATE.cards) {
-      const product = productForCard(card);
-      rows.push([
-        product.productId || card.productId,
-        product.name || "",
-        formatPrice(product.currentPrice),
-        formatPrice(product.originalPrice),
-        formatPrice(product.lplPrice),
-        Number.isFinite(product.currentPrice) && Number.isFinite(product.lplPrice)
-          ? formatPrice(product.currentPrice - product.lplPrice)
-          : "",
-        product.url || "",
-      ]);
-    }
-
-    const csv = rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `aboutyou-prices-${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-  }
-
-  function csvCell(value) {
-    const text = String(value ?? "");
-    return `"${text.replace(/"/g, '""')}"`;
   }
 
   function updateStatus(message) {
@@ -423,21 +422,20 @@
       return;
     }
     const productsWithLpl = STATE.cards.filter((card) => Number.isFinite(productForCard(card).lplPrice)).length;
-    const overLpl = STATE.cards.filter((card) => {
+    const cheaperThanLpl = STATE.cards.filter((card) => {
       const product = productForCard(card);
       return Number.isFinite(product.currentPrice) &&
         Number.isFinite(product.lplPrice) &&
-        product.currentPrice > product.lplPrice;
+        product.currentPrice <= product.lplPrice;
     }).length;
-    status.textContent = `${STATE.cards.length} prekių, LPL turi ${productsWithLpl}, brangiau už LPL ${overLpl}`;
+    status.textContent = `${STATE.cards.length} prekių, LPL turi ${productsWithLpl}, pigiau arba lygu LPL ${cheaperThanLpl}`;
   }
 
   function updateActiveButtons() {
-    for (const button of document.querySelectorAll("#ay-price-tools [data-sort]")) {
-      button.dataset.active = String(button.dataset.sort === STATE.lastSort);
-    }
-    const filter = document.querySelector("#ay-price-tools [data-action='filter-over-lpl']");
-    if (filter) filter.dataset.active = String(STATE.filterOverLpl);
+    const filter = document.querySelector("#ay-price-tools [data-action='filter-cheaper-than-lpl']");
+    if (filter) filter.dataset.active = String(STATE.filterCheaperThanLpl);
+    const stop = document.querySelector("#ay-price-tools [data-action='stop-loading']");
+    if (stop) stop.disabled = !STATE.loadingAll;
   }
 
   function installPanel() {
@@ -446,28 +444,34 @@
     panel.id = "ay-price-tools";
     panel.innerHTML = `
       <strong>ABOUT YOU kainos</strong>
-      <button type="button" data-action="load-all">Užkrauti visas prekes</button>
       <div class="ay-row">
-        <button type="button" data-sort="current">Rikiuoti pagal dabartinę kainą</button>
-        <button type="button" data-sort="lpl">Rikiuoti pagal paskutinę mažiausią kainą</button>
+        <button type="button" data-load-count="100">Užkrauti 100</button>
+        <button type="button" data-load-count="200">Užkrauti 200</button>
       </div>
-      <button type="button" data-action="filter-over-lpl">Rodyti tik kai dabartinė > paskutinė mažiausia</button>
-      <button type="button" data-action="export-csv">Eksportuoti CSV</button>
+      <div class="ay-row">
+        <button type="button" data-load-count="500">Užkrauti 500</button>
+        <button type="button" data-load-count="all">Užkrauti visas</button>
+      </div>
+      <button type="button" data-action="stop-loading" disabled>STOP krovimą</button>
+      <button type="button" data-action="filter-cheaper-than-lpl">Rodyti pigiau arba lygu LPL: nuo didžiausio minuso iki 0</button>
       <div class="ay-status"></div>
     `;
     panel.addEventListener("click", (event) => {
       const button = event.target.closest("button");
       if (!button) return;
-      const sort = button.dataset.sort;
       const action = button.dataset.action;
-      if (sort) sortCards(sort);
-      if (action === "load-all") loadAllProducts();
-      if (action === "filter-over-lpl") {
-        STATE.filterOverLpl = !STATE.filterOverLpl;
+      const loadCount = button.dataset.loadCount;
+      if (loadCount) loadProducts(loadCount === "all" ? Infinity : Number(loadCount));
+      if (action === "stop-loading") {
+        STATE.stopLoading = true;
+        updateStatus("Stabdoma...");
+      }
+      if (action === "filter-cheaper-than-lpl") {
+        STATE.filterCheaperThanLpl = !STATE.filterCheaperThanLpl;
         applyFilter();
         updateActiveButtons();
+        updateStatus();
       }
-      if (action === "export-csv") exportCsv();
     });
     document.body.appendChild(panel);
   }
@@ -481,7 +485,6 @@
         if (STATE.applyingDomChanges) return;
         parseInitialState();
         scanCards();
-        if (STATE.lastSort) sortCards(STATE.lastSort);
       }, 300);
     });
     observer.observe(document.body, { childList: true, subtree: true });
