@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ABOUT YOU price sorter
 // @namespace    local.aboutyou.price-sort
-// @version      0.1.5
+// @version      0.1.6
 // @description  Sort ABOUT YOU product grids by current price or lowest prior price, highlight products where current price is at least the last lowest price, and export prices to CSV.
 // @match        *://www.aboutyou.lt/*
 // @match        *://aboutyou.lt/*
@@ -29,7 +29,6 @@
   const PRODUCT_STREAM_PAGE_PATH = `${PRODUCT_STREAM_SERVICE}/${PRODUCT_STREAM_PAGE_METHOD}`;
   const CATEGORY_STREAM_MODULE_FALLBACK = "https://assets.aboutstatic.com/assets/service.grpc-DpEGTlTl.js";
   const DIRECT_ALL_MAX_PAGES = 200;
-  const MISSING_LPL_PRICE = 0;
   const STATE = {
     products: new Map(),
     cards: [],
@@ -227,8 +226,9 @@
     return match ? Number(match[1]) : null;
   }
 
-  function normalizeLplPrice(value) {
-    return Number.isFinite(value) ? value : MISSING_LPL_PRICE;
+  function normalizeLplPrice(value, fallbackPrice) {
+    if (Number.isFinite(value)) return value;
+    return Number.isFinite(fallbackPrice) ? fallbackPrice : 0;
   }
 
   function getPageKey() {
@@ -330,7 +330,8 @@
       parsePriceText(priceV2.original?.text);
     const lplPrice = normalizeLplPrice(
       parsePriceText(priceV2.lpl30d?.value?.text) ??
-      parsePriceText(tile.price?.lpl30)
+      parsePriceText(tile.price?.lpl30),
+      currentPrice
     );
 
     return {
@@ -436,12 +437,14 @@
     const lplMatch = text.match(/Paskutinė\s+mažiausia\s+kaina\D+(\d{1,4}(?:[ .]\d{3})*|\d+)(?:[,.](\d{1,2}))?\s*€/i);
     const originalMatch = text.match(/Pradinė\s+kaina\D+(\d{1,4}(?:[ .]\d{3})*|\d+)(?:[,.](\d{1,2}))?\s*€/i);
 
+    const currentPrice = resolveDomCurrentPrice(prices, originalMatch, lplMatch);
+
     return {
       productId: id,
       url: productUrl(href),
-      currentPrice: resolveDomCurrentPrice(prices, originalMatch, lplMatch),
+      currentPrice,
       originalPrice: originalMatch ? parsePriceText(originalMatch[0]) : null,
-      lplPrice: normalizeLplPrice(lplMatch ? parsePriceText(lplMatch[0]) : null),
+      lplPrice: normalizeLplPrice(lplMatch ? parsePriceText(lplMatch[0]) : null, currentPrice),
       name: guessName(card),
     };
   }
