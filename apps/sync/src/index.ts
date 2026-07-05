@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { AboutYouRateLimitError, collectAboutYouTarget, enrichMissingProductMetadata } from "@catalog/aboutyou-provider";
 import { expandClothingCategoryPath, normalizeColor, normalizeColorShade, type Product } from "@catalog/shared";
+import { inferFallbackCategories } from "./category-classifier";
 
 const EnvSchema = z.object({
   SUPABASE_URL: z.string().url(),
@@ -78,16 +79,17 @@ try {
       const products = metadataResult.products.map((product) => {
         const sourceCategories = product.categories;
         const targetCategories = target.kind === "category" ? [target.label] : [];
-        const fallbackCategories = [
+        const exactCategories = expandClothingCategoryPath([...sourceCategories, ...targetCategories]);
+        const fallbackCategories = expandClothingCategoryPath([
           ...targetCategories,
-          ...inferClothingCategories(product.name)
-        ];
+          ...inferFallbackCategories(product.name, product.productTypes)
+        ]);
         return {
           ...product,
           // A category target is itself an authoritative membership. Keep it even
           // when ABOUT YOU only exposes a more specific breadcrumb leaf.
-          categories: expandClothingCategoryPath(sourceCategories.length ? [...sourceCategories, ...targetCategories] : fallbackCategories),
-          categoriesExact: sourceCategories.length > 0
+          categories: exactCategories.length ? exactCategories : fallbackCategories,
+          categoriesExact: sourceCategories.length > 0 && exactCategories.length > 0
         };
       });
       log(`„${target.label}“: surinkta ${products.length} produktų iš ${pages} psl.; pradedamas saugojimas.`);
@@ -193,24 +195,6 @@ async function restoreKnownColors(sourceId: string, products: Product[]): Promis
       colorShade: normalizeColorShade(colorOriginal)
     } : product;
   });
-}
-
-function inferClothingCategories(name: string): string[] {
-  const value = name.toLocaleLowerCase("lt");
-  const rules: Array<[string, RegExp]> = [
-    ["Marškinėliai", /marškinėl|polo|berankov/],
-    ["Džinsai", /džins/],
-    ["Apatiniai", /apatin|kojin|naktin|chalatas|trumpik/],
-    ["Striukės", /striuk|parka|bomber|liemenė/],
-    ["Marškiniai", /marškiniai/],
-    ["Treningo dalys", /džemper|trening|sportinės kelnės/],
-    ["Maudymosi drabužiai", /maudym|glaud/],
-    ["Megztiniai", /megztin|kardigan/],
-    ["Kostiumai ir švarkai", /kostium|švark/],
-    ["Paltai", /palt|lietpalt/],
-    ["Kelnės", /keln|šort/]
-  ];
-  return rules.filter(([, pattern]) => pattern.test(value)).map(([category]) => category).slice(0, 2);
 }
 
 function safeError(error: unknown): string {
