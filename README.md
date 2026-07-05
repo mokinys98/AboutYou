@@ -40,6 +40,8 @@ išpakuoja vieną kartą ir pašalina kartotinius matcher'io skaičiavimus.
 Galiausiai paleiskite `202607050006_protect_catalog_from_empty_sync.sql` ir
 `202607050007_reconcile_source_categories.sql`. Pastaroji leidžia tiksliam ABOUT
 YOU kategorijų keliui pakeisti anksčiau heuristiškai priskirtas kategorijas.
+Po jos paleiskite `202607050008_delete_sync_targets.sql`, kuri saugiai pašalina
+sinchronizavimo grupes ir perskaičiuoja paveiktų produktų matomumą.
 
 Sinchronizavimo metu kas 5 s spausdinamas surinktų produktų ir srauto puslapių progresas. Vienai grupei taikomas 8 min. rinkimo timeout ir iki 4 bandymų kiekvienai nutrūkusiai srauto puslapio užklausai.
 

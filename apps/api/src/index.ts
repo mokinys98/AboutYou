@@ -189,10 +189,21 @@ app.post("/v1/sync-targets", requireAdmin, async (c) => {
 });
 
 app.patch("/v1/sync-targets/:id", requireAdmin, async (c) => {
+  const id = z.string().uuid().safeParse(c.req.param("id"));
+  if (!id.success) return c.json({ error: "Neteisingas grupės ID" }, 400);
   const input = TargetInput.partial().safeParse(await c.req.json().catch(() => null));
   if (!input.success || (input.data.url && !isAllowedAboutYouUrl(input.data.url))) return c.json({ error: "Neteisingi duomenys" }, 400);
-  const { data, error } = await c.get("db").from("sync_targets").update(input.data).eq("id", c.req.param("id")).select().single();
-  return error ? c.json({ error: error.message }, 400) : c.json(data);
+  const { data, error } = await c.get("db").from("sync_targets").update(input.data).eq("id", id.data).select().maybeSingle();
+  if (error) return c.json({ error: error.message }, 400);
+  return data ? c.json(data) : c.json({ error: "Grupė nerasta" }, 404);
+});
+
+app.delete("/v1/sync-targets/:id", requireAdmin, async (c) => {
+  const id = z.string().uuid().safeParse(c.req.param("id"));
+  if (!id.success) return c.json({ error: "Neteisingas grupės ID" }, 400);
+  const { data, error } = await c.get("db").rpc("delete_sync_target", { p_target_id: id.data });
+  if (error) return c.json({ error: error.message }, 500);
+  return data ? c.json({ deleted: true }) : c.json({ error: "Grupė nerasta" }, 404);
 });
 
 app.get("/v1/sync-runs", requireAdmin, async (c) => {
