@@ -1,0 +1,10 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "aboutyou-private-catalog-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-05",
+  "vars": {
+    "ALLOWED_ORIGIN": "http://localhost:3000"
+  }
+}
+

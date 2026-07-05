@@ -1,0 +1,14 @@
+ay_assets/
+chrome-profile/
+node_modules/
+.nuxt/
+.output/
+dist/
+coverage/
+playwright-report/
+test-results/
+.env
+.env.*
+!.env.example
+.wrangler/
+apps/web/127.0.0.1/

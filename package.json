@@ -1,0 +1,25 @@
+{
+  "name": "aboutyou-private-catalog",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "dev:web": "npm run dev --workspace @catalog/web",
+    "dev:api": "npm run dev --workspace @catalog/api",
+    "sync": "npm run sync --workspace @catalog/sync",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "@vitest/coverage-v8": "latest",
+    "typescript": "latest",
+    "vitest": "latest",
+    "wrangler": "^4.107.0"
+  }
+}

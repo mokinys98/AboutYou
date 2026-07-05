@@ -1,0 +1,21 @@
+{
+  "name": "@catalog/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "generate": "nuxt generate",
+    "typecheck": "nuxt typecheck"
+  },
+  "dependencies": {
+    "@catalog/shared": "*",
+    "@supabase/supabase-js": "latest",
+    "nuxt": "latest",
+    "vue": "latest",
+    "vue-router": "latest"
+  },
+  "devDependencies": { "typescript": "latest", "vue-tsc": "latest" }
+}
+

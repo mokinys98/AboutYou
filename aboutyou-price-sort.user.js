@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ABOUT YOU price sorter
 // @namespace    local.aboutyou.price-sort
-// @version      0.1.7
+// @version      0.1.8
 // @description  Sort ABOUT YOU product grids by current price or lowest prior price, highlight products where current price is at least the last lowest price, and export prices to CSV.
 // @match        *://www.aboutyou.lt/*
 // @match        *://aboutyou.lt/*
@@ -382,8 +382,14 @@
     }
   }
 
-  function reviveTadaridaValue(_key, value) {
-    if (value?.__type === "_Uint8Array_" && Array.isArray(value.data)) {
+  function reviveTadaridaValue(key, value) {
+    const isLegacyByteArray = value?.__type === "_Uint8Array_";
+    const isCurrentNextState = key === "nextState" && value && !value.__type;
+    if (
+      (isLegacyByteArray || isCurrentNextState) &&
+      Array.isArray(value.data) &&
+      value.data.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255)
+    ) {
       return new Uint8Array(value.data);
     }
     return value;
