@@ -21,6 +21,9 @@ app.get("/health", (c) => c.json({ ok: true }));
 app.use("/v1/*", async (c, next) => {
   const token = c.req.header("Authorization")?.replace(/^Bearer\s+/i, "");
   if (!token) return c.json({ error: "Prisijungimas būtinas" }, 401);
+  if (!c.env.SUPABASE_URL || !c.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return c.json({ error: "API autentifikacija nesukonfigūruota" }, 503);
+  }
   let userId: string;
   try {
     let keySet = jwks.get(c.env.SUPABASE_URL);

@@ -20,4 +20,16 @@ describe("catalog API", () => {
     });
     expect(response.status).toBe(401);
   });
+
+  it("reports missing authentication configuration separately from an invalid session", async () => {
+    const response = await app.request("/v1/catalog", {
+      headers: { Authorization: "Bearer test-token" }
+    }, {
+      SUPABASE_URL: "",
+      SUPABASE_SERVICE_ROLE_KEY: "",
+      ALLOWED_ORIGIN: "http://localhost:3000"
+    });
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({ error: "API autentifikacija nesukonfigūruota" });
+  });
 });
