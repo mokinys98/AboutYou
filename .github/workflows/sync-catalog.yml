@@ -2,7 +2,7 @@ name: Sync catalog
 
 on:
   schedule:
-    - cron: "17 */6 * * *"
+    - cron: "17 * * * *"
   workflow_dispatch:
 
 concurrency:
@@ -29,4 +29,3 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run sync
-
