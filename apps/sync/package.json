@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "sync": "tsx src/index.ts",
+    "sync": "node --env-file=../../.env --import tsx src/index.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -16,4 +16,3 @@
   },
   "devDependencies": { "tsx": "latest", "typescript": "latest" }
 }
-

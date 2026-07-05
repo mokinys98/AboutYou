@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cents, isAllowedAboutYouUrl, normalizeColor, ProductSchema } from "./index";
+import { cents, isAllowedAboutYouUrl, normalizeColor, normalizeColorShade, ProductSchema } from "./index";
 
 describe("shared catalog rules", () => {
   it("parses localized euro prices", () => {
@@ -12,6 +12,16 @@ describe("shared catalog rules", () => {
     expect(normalizeColor("Smėlio spalva")).toBe("beige");
   });
 
+  it("keeps specific marketed shades separate", () => {
+    expect(normalizeColorShade("Teal")).toBe("teal");
+    expect(normalizeColorShade("Alyvuogių žalia")).toBe("olive");
+    expect(normalizeColorShade("Rust")).toBe("rust");
+    expect(normalizeColorShade("Vario spalva")).toBe("copper");
+    expect(normalizeColorShade("Visiškai nežinoma")).toBe("other");
+    expect(normalizeColor("Teal")).toBe("green");
+    expect(normalizeColor("Rust")).toBe("orange");
+  });
+
   it("restricts sync URLs", () => {
     expect(isAllowedAboutYouUrl("https://www.aboutyou.lt/c/moterims-20201")).toBe(true);
     expect(isAllowedAboutYouUrl("https://example.com/aboutyou.lt")).toBe(false);
@@ -21,4 +31,3 @@ describe("shared catalog rules", () => {
     expect(ProductSchema.safeParse({ externalId: "1" }).success).toBe(false);
   });
 });
-

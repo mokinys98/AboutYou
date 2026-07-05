@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ABOUT YOU price sorter
 // @namespace    local.aboutyou.price-sort
-// @version      0.1.8
+// @version      0.1.9
 // @description  Sort ABOUT YOU product grids by current price or lowest prior price, highlight products where current price is at least the last lowest price, and export prices to CSV.
 // @match        *://www.aboutyou.lt/*
 // @match        *://aboutyou.lt/*
@@ -17,6 +17,7 @@
 (function () {
   "use strict";
 
+  if (window.__ABOUTYOU_PRICE_SORTER_LOADED__) return;
   console.warn("[ABOUT YOU price sorter] userscript loaded", location.href);
   window.__ABOUTYOU_PRICE_SORTER_LOADED__ = true;
 
@@ -49,6 +50,7 @@
       modulePromise: null,
       learnedRequest: null,
       directError: "",
+      pages: 0,
     },
     staticConfig: null,
   };
@@ -264,6 +266,7 @@
     STATE.stream.modulePromise = null;
     STATE.stream.learnedRequest = null;
     STATE.stream.directError = "";
+    STATE.stream.pages = 0;
 
     for (const badge of document.querySelectorAll(".ay-lpl-badge")) {
       badge.remove();
@@ -313,6 +316,10 @@
     if (!product || !product.productId) return;
     const existing = STATE.products.get(product.productId) || {};
     const next = { ...existing, ...compact(product) };
+    if (existing.name && !product.brand) next.name = existing.name;
+    if (existing.imageUrls?.length || product.imageUrls?.length) {
+      next.imageUrls = Array.from(new Set([...(existing.imageUrls || []), ...(product.imageUrls || [])])).slice(0, 6);
+    }
     if (
       product.lplIsFallback &&
       existing.lplIsFallback === false &&
@@ -355,7 +362,67 @@
       lplPrice,
       lplIsFallback: isFallbackLplPrice(rawLplPrice),
       brand: tile.brandName || tile.brandTracker?.name || "",
+      imageUrls: findImageUrls(tile),
+      colorOriginal: findString(tile, ["colorLabel", "colorName", "color", "displayColor", "baseColor"]) || null,
+      sizes: findStrings(tile, ["availableSizes", "sizeLabels", "sizes"]),
+      otherSizes: findStrings(tile, ["otherSizes", "specialSizes", "sizeGroups"]),
+      materials: findStrings(tile, ["material", "materials", "materialName", "materialComposition"]),
+      patterns: findStrings(tile, ["pattern", "patterns", "patternName"]),
+      features: findStrings(tile, ["features", "productFeatures", "attributes"]),
+      styles: findStrings(tile, ["style", "styles", "styleName"]),
+      productTypes: findStrings(tile, ["productType", "productTypes", "productTypeName"]),
     };
+  }
+
+  function findString(value, keys) {
+    if (!value || typeof value !== "object") return "";
+    for (const key of keys) {
+      if (typeof value[key] === "string") return value[key];
+    }
+    for (const child of Object.values(value)) {
+      const found = findString(child, keys);
+      if (found) return found;
+    }
+    return "";
+  }
+
+  function findStrings(value, keys) {
+    const wanted = new Set(keys);
+    const values = new Set();
+    const add = (item) => {
+      if (typeof item === "string") {
+        const text = item.replace(/\s+/g, " ").trim();
+        if (text && text.length <= 100 && !/^https?:/i.test(text)) values.add(text);
+      } else if (Array.isArray(item)) {
+        item.forEach(add);
+      } else if (item && typeof item === "object") {
+        add(item.label ?? item.name ?? item.value ?? item.text);
+      }
+    };
+    const visit = (item) => {
+      if (!item || typeof item !== "object") return;
+      for (const [key, child] of Object.entries(item)) {
+        if (wanted.has(key)) add(child);
+        if (child && typeof child === "object") visit(child);
+      }
+    };
+    visit(value);
+    return Array.from(values).slice(0, 30);
+  }
+
+  function findImageUrls(value) {
+    const urls = new Set();
+    const visit = (item) => {
+      if (typeof item === "string" && /^https:\/\//.test(item) && /\.(?:jpe?g|webp|avif)(?:\?|$)/i.test(item)) {
+        urls.add(item);
+      } else if (Array.isArray(item)) {
+        item.forEach(visit);
+      } else if (item && typeof item === "object") {
+        Object.values(item).forEach(visit);
+      }
+    };
+    visit(value);
+    return Array.from(urls).slice(0, 6);
   }
 
   function parseInitialState() {
@@ -487,7 +554,12 @@
         element.getAttribute("alt") ||
         element.textContent;
       const cleaned = String(value || "").replace(/\s+/g, " ").trim();
-      if (cleaned && !cleaned.includes("€") && cleaned.length > 3) return cleaned;
+      if (
+        cleaned &&
+        !cleaned.includes("€") &&
+        !/^Pereiti prie detalaus aprašymo$/i.test(cleaned) &&
+        cleaned.length > 3
+      ) return cleaned;
     }
     return "";
   }
@@ -611,24 +683,47 @@
     }
 
     let page = 0;
+    let stablePages = 0;
     const initialCount = STATE.products.size;
     if (Number.isFinite(targetCount) && initialCount >= targetCount) return true;
-    const maxPages = Number.isFinite(targetCount)
-      ? Math.max(1, Math.ceil(Math.max(0, targetCount - initialCount) / 24) + 12)
+    const effectiveTarget = Number.isFinite(targetCount) && Number.isFinite(STATE.stream.total)
+      ? Math.min(targetCount, STATE.stream.total)
+      : targetCount;
+    const maxPages = Number.isFinite(effectiveTarget)
+      ? Math.max(1, Math.ceil(Math.max(0, effectiveTarget - initialCount) / 24) + 12)
       : DIRECT_ALL_MAX_PAGES;
 
     while (!STATE.stopLoading && STATE.stream.nextState && page < maxPages) {
       if (Number.isFinite(targetCount) && STATE.products.size >= targetCount) break;
       page += 1;
-      const response = await fetchNextProductStreamPage();
+      STATE.stream.pages = page;
+      let response;
+      let pageError;
+      for (let attempt = 1; attempt <= 4; attempt += 1) {
+        try {
+          response = await fetchNextProductStreamPage();
+          pageError = null;
+          break;
+        } catch (error) {
+          pageError = error;
+          if (attempt < 4) await sleep(500 * 2 ** (attempt - 1));
+        }
+      }
+      if (pageError) throw pageError;
       if (!response?.items?.length) break;
+      const countBeforePage = STATE.products.size;
       collectProductTiles(response, (tile) => upsertProduct(productFromTile(tile)));
+      stablePages = STATE.products.size === countBeforePage ? stablePages + 1 : 0;
       if (!(response.nextState instanceof Uint8Array) || response.nextState.length === 0) {
         STATE.stream.nextState = null;
       }
       rememberProductStreamState(response);
       renderResults();
       updateStatus(`Direct stream: ${STATE.products.size} duomenu, ${STATE.cards.length} DOM...`);
+      if (stablePages >= 3) {
+        STATE.stream.nextState = null;
+        break;
+      }
       await sleep(60);
     }
 
@@ -676,6 +771,35 @@
       updateStatus();
     }
   }
+
+  function collectionSnapshot() {
+    const expectedTotal = Number.isFinite(STATE.stream.total) ? STATE.stream.total : null;
+    const requestedTotal = Number.isFinite(STATE.collectionTarget) ? STATE.collectionTarget : expectedTotal;
+    const targetTotal = Number.isFinite(requestedTotal) && Number.isFinite(expectedTotal)
+      ? Math.min(requestedTotal, expectedTotal)
+      : requestedTotal;
+    return {
+      products: Array.from(STATE.products.values()),
+      productCount: STATE.products.size,
+      expectedTotal,
+      pages: STATE.stream.pages,
+      loading: STATE.loadingAll,
+      mode: STATE.stream.directError ? "scroll-fallback" : "direct-stream",
+      complete: Number.isFinite(targetTotal)
+        ? STATE.products.size >= targetTotal || !STATE.stream.nextState
+        : !STATE.stream.nextState,
+      error: STATE.stream.directError || null,
+    };
+  }
+
+  window.__ABOUTYOU_CATALOG_COLLECTOR__ = {
+    snapshot: collectionSnapshot,
+    async collect(targetCount) {
+      STATE.collectionTarget = targetCount;
+      await loadProducts(targetCount);
+      return collectionSnapshot();
+    },
+  };
 
   async function fetchNextProductStreamPage() {
     const service = await loadCategoryStreamService();

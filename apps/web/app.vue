@@ -8,6 +8,7 @@ const { user, signOut } = useAuth();
       <NuxtLink to="/" class="brand">KAINORAŠTIS</NuxtLink>
       <nav>
         <NuxtLink to="/">Katalogas</NuxtLink>
+        <NuxtLink to="/watchlist">Stebimos prekės</NuxtLink>
         <NuxtLink to="/admin">Valdymas</NuxtLink>
         <button class="link-button" @click="signOut">Atsijungti</button>
       </nav>
@@ -15,4 +16,3 @@ const { user, signOut } = useAuth();
     <NuxtPage />
   </div>
 </template>
-

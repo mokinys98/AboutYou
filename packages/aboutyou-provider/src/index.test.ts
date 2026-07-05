@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodeGrpcWebFrames, normalizeRawProduct } from "./index";
+import { decodeGrpcWebFrames, extractColorFromProductHtml, normalizeRawProduct } from "./index";
 
 describe("ABOUT YOU provider", () => {
   it("decodes data frames and skips trailer frames", () => {
@@ -14,5 +14,18 @@ describe("ABOUT YOU provider", () => {
       originalPrice: 5999, sourceLpl30: 4499
     });
     expect(product?.colorFamily).toBe("blue");
+    expect(product?.colorShade).toBe("navy");
+  });
+
+  it("extracts the selected color from product JSON-LD", () => {
+    const html = `<script type="application/ld+json">{
+      "@type":"ProductGroup","hasVariant":[{"@type":"Product","color":"smėlio spalva","size":"M"}]
+    }</script>`;
+    expect(extractColorFromProductHtml(html)).toBe("smėlio spalva");
+  });
+
+  it("falls back to the rendered selected color", () => {
+    const html = `<span data-testid="productColorInfoSelectedOptionName">tamsiai m&amp;ėlyna</span>`;
+    expect(extractColorFromProductHtml(html)).toBe("tamsiai m&ėlyna");
   });
 });

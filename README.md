@@ -11,7 +11,7 @@ Nuxt 3, Hono, Supabase ir Playwright monorepo, periodiškai surenkantis pasirink
 - `packages/shared` – Zod schemos ir bendri tipai.
 - `supabase/migrations` – duomenų bazės schema, RPC ir RLS.
 
-Esamas `aboutyou-price-sort.user.js` paliktas kaip nepriklausomas diagnostikos įrankis.
+`aboutyou-price-sort.user.js` veikia kaip diagnostikos įrankis naršyklėje, o jo tiesioginio ABOUT YOU produktų srauto kolektorius taip pat naudojamas `apps/sync`. Jei tiesioginis srautas pasikeičia, provideris automatiškai bando DOM slinkimo fallback ir nepilno rezultato nežymi sėkmingu.
 
 ## Paleidimas
 
@@ -23,7 +23,32 @@ Esamas `aboutyou-price-sort.user.js` paliktas kaip nepriklausomas diagnostikos �
 6. Admin puslapyje pridėkite 5–10 `https://www.aboutyou.lt/...` kategorijų ar brandų URL.
 7. Vietinei sinchronizacijai paleiskite `npm run sync`.
 
+Jei duomenų bazė jau buvo sukurta anksčiau, papildomai paleiskite
+`supabase/migrations/202607050002_product_attributes.sql`. Migracija iš karto
+priskiria jau turimus produktus jų kategorijų sync grupėms ir atkuria prekės
+rūšį iš pavadinimo. Dydžiai, medžiagos, raštai, savybės ir stiliai užsipildo per
+kitą sinchronizavimą, kai šiuos laukus pateikia ABOUT YOU produktų srautas.
+
+Po jos paleiskite `supabase/migrations/202607050003_catalog_filters_watchlist.sql`.
+Ši migracija prideda detalius spalvų atspalvius, asmenines stebimas prekes,
+Šaltinio LPL palyginimą ir kontekstinius katalogo facet'us.
+Jei `003` migracija jau buvo pritaikyta, papildomai paleiskite
+`supabase/migrations/202607050004_optimize_catalog_facets.sql`, kuri pašalina
+pakartotinius katalogo view skenavimus facet'ų užklausoje. Po jos paleiskite
+`supabase/migrations/202607050005_speed_up_contextual_facets.sql`, kuri filtrus
+išpakuoja vieną kartą ir pašalina kartotinius matcher'io skaičiavimus.
+
+Sinchronizavimo metu kas 5 s spausdinamas surinktų produktų ir srauto puslapių progresas. Vienai grupei taikomas 8 min. rinkimo timeout ir iki 4 bandymų kiekvienai nutrūkusiai srauto puslapio užklausai.
+
 Pagrindinis prisijungimo būdas yra el. paštas ir slaptažodis. Magic link paliktas kaip alternatyva: Supabase Auth URL Configuration pridėkite vietinį `http://localhost:3000/auth/callback` ir produkcinį Cloudflare Pages callback URL. Viešą naudotojų registraciją išjunkite. Produkciniam magic-link laiškų siuntimui sukonfigūruokite nuosavą SMTP tiekėją, nes numatytasis Supabase siuntimas yra skirtas tik bandymams ir turi griežtus limitus.
+
+Jei katalogo srautas nepateikia spalvos, sinchronizatorius ją papildo iš produkto
+puslapio JSON-LD. Vienu paleidimu pagal nutylėjimą praturtinama iki 100 dar spalvos
+neturinčių produktų, siunčiant po vieną užklausą ne dažniau kaip kas 750 ms. Ribas
+galima keisti per `SYNC_COLOR_ENRICHMENT_LIMIT`,
+`SYNC_COLOR_ENRICHMENT_CONCURRENCY` ir `SYNC_COLOR_ENRICHMENT_DELAY_MS`; jau
+surinktos spalvos iš DB atkuriamos ir pakartotinai nebesiunčiamos. Didesnis tempas
+gali sukelti laikiną ABOUT YOU Cloudflare 1015 blokavimą.
 
 ## Diegimas
 
