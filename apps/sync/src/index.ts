@@ -77,13 +77,16 @@ try {
       }
       const products = metadataResult.products.map((product) => {
         const sourceCategories = product.categories;
+        const targetCategories = target.kind === "category" ? [target.label] : [];
         const fallbackCategories = [
-          ...(target.kind === "category" ? [target.label] : []),
+          ...targetCategories,
           ...inferClothingCategories(product.name)
         ];
         return {
           ...product,
-          categories: expandClothingCategoryPath(sourceCategories.length ? sourceCategories : fallbackCategories),
+          // A category target is itself an authoritative membership. Keep it even
+          // when ABOUT YOU only exposes a more specific breadcrumb leaf.
+          categories: expandClothingCategoryPath(sourceCategories.length ? [...sourceCategories, ...targetCategories] : fallbackCategories),
           categoriesExact: sourceCategories.length > 0
         };
       });

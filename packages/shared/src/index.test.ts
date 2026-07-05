@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cents, expandClothingCategoryPath, isAllowedAboutYouUrl, normalizeColor, normalizeColorShade, ProductSchema } from "./index";
+import { catalogRootCategories, cents, expandClothingCategoryPath, isAllowedAboutYouUrl, normalizeColor, normalizeColorShade, ProductSchema } from "./index";
 
 describe("shared catalog rules", () => {
   it("parses localized euro prices", () => {
@@ -31,6 +31,13 @@ describe("shared catalog rules", () => {
     expect(expandClothingCategoryPath(["Kasdieniniai marškiniai"])).toEqual([
       "Drabužiai", "Marškiniai", "Kasdieniniai marškiniai"
     ]);
+  });
+
+  it("keeps non-clothing root categories available to the catalog menu", () => {
+    expect(expandClothingCategoryPath(["Vyrams", "Batai", "Sportbačiai"])).toEqual([
+      "Batai", "Sportbačiai"
+    ]);
+    expect(catalogRootCategories).toContain("Batai");
   });
 
   it("rejects invalid product data", () => {

@@ -156,6 +156,15 @@ export const clothingCategoryTree = [
 
 export const clothingCategories = clothingCategoryTree.map((category) => category.name);
 
+/** Top-level catalog sections that are shown when at least one active product uses them. */
+export const catalogRootCategories = [
+  "Batai",
+  "Sportas",
+  "Aksesuarai",
+  "Streetwear",
+  "Premium"
+] as const;
+
 export function expandClothingCategoryPath(values: readonly string[]): string[] {
   const normalized = new Map<string, string>();
   for (const value of values) {

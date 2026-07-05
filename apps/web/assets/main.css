@@ -896,7 +896,19 @@ td small {
 
 .category-root {
     color: #555;
-    margin-top: 16px !important
+    margin-top: 8px;
+    font-size: 16px !important;
+    font-weight: 700
+}
+
+.category-root:disabled {
+    color: #aaa;
+    cursor: default
+}
+
+.category-root:disabled:hover {
+    background: transparent;
+    font-weight: 700
 }
 
 .results {
