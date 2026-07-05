@@ -23,16 +23,18 @@ export interface CollectionProgress {
   mode: CollectionResult["mode"];
 }
 
-export interface ColorEnrichmentProgress {
+export interface ProductMetadataEnrichmentProgress {
   processed: number;
   total: number;
-  found: number;
+  foundColors: number;
+  foundCategories: number;
 }
 
-export interface ColorEnrichmentResult {
+export interface ProductMetadataEnrichmentResult {
   products: Product[];
   attempted: number;
-  found: number;
+  foundColors: number;
+  foundCategories: number;
 }
 
 type RawProduct = {
@@ -85,30 +87,41 @@ export function normalizeRawProduct(raw: RawProduct): Product | null {
 }
 
 export function extractColorFromProductHtml(html: string): string | null {
+  return extractProductMetadataFromHtml(html).colorOriginal;
+}
+
+export function extractProductMetadataFromHtml(html: string): {
+  colorOriginal: string | null;
+  categories: string[];
+} {
+  let colorOriginal: string | null = null;
+  let categories: string[] = [];
   const scriptPattern = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
   for (const match of html.matchAll(scriptPattern)) {
     if (!/\btype\s*=\s*["']application\/ld\+json["']/i.test(match[1] ?? "")) continue;
     try {
-      const color = findStructuredColor(JSON.parse(match[2] ?? ""));
-      if (color) return color;
+      const value = JSON.parse(match[2] ?? "");
+      colorOriginal ??= findStructuredColor(value);
+      if (!categories.length) categories = findBreadcrumbCategories(value);
+      if (!categories.length) categories = findStructuredProductCategory(value);
     } catch { /* ignore unrelated or malformed structured data */ }
   }
 
-  const selected = html.match(/data-testid=["']productColorInfoSelectedOptionName["'][^>]*>([\s\S]*?)<\/span>/i)?.[1];
-  if (selected) {
+  const selected = colorOriginal ? null : html.match(/data-testid=["']productColorInfoSelectedOptionName["'][^>]*>([\s\S]*?)<\/span>/i)?.[1];
+  if (!colorOriginal && selected) {
     const color = decodeHtml(selected.replace(/<[^>]+>/g, " ")).trim();
-    if (color) return color;
+    if (color) colorOriginal = color;
   }
 
-  const colorLabel = html.match(/"colorLabel"\s*:\s*"((?:\\.|[^"\\])*)"/i)?.[1];
-  if (colorLabel) {
-    try { return JSON.parse(`"${colorLabel}"`); }
+  const colorLabel = colorOriginal ? null : html.match(/"colorLabel"\s*:\s*"((?:\\.|[^"\\])*)"/i)?.[1];
+  if (!colorOriginal && colorLabel) {
+    try { colorOriginal = JSON.parse(`"${colorLabel}"`); }
     catch { /* ignore malformed JSON string */ }
   }
-  return null;
+  return { colorOriginal, categories };
 }
 
-export async function enrichMissingProductColors(
+export async function enrichMissingProductMetadata(
   page: Page,
   products: Product[],
   options: {
@@ -116,21 +129,24 @@ export async function enrichMissingProductColors(
     concurrency?: number;
     delayMs?: number;
     timeoutMs?: number;
-    onProgress?: (progress: ColorEnrichmentProgress) => void;
+    onProgress?: (progress: ProductMetadataEnrichmentProgress) => void;
   } = {}
-): Promise<ColorEnrichmentResult> {
+): Promise<ProductMetadataEnrichmentResult> {
   const limit = Math.max(0, Math.min(options.limit ?? 100, products.length));
-  const missingIndexes = products.flatMap((product, index) => product.colorOriginal ? [] : [index]).slice(0, limit);
-  if (!missingIndexes.length) return { products, attempted: 0, found: 0 };
+  const missingIndexes = products.flatMap((product, index) =>
+    product.colorOriginal && product.categories.length ? [] : [index]
+  ).slice(0, limit);
+  if (!missingIndexes.length) return { products, attempted: 0, foundColors: 0, foundCategories: 0 };
 
   const enriched = [...products];
   const concurrency = Math.max(1, Math.min(options.concurrency ?? 1, 12, missingIndexes.length));
   const delayMs = Math.max(0, options.delayMs ?? 750);
   let cursor = 0;
   let processed = 0;
-  let found = 0;
+  let foundColors = 0;
+  let foundCategories = 0;
   let nextRequestAt = Date.now();
-  const report = () => options.onProgress?.({ processed, total: missingIndexes.length, found });
+  const report = () => options.onProgress?.({ processed, total: missingIndexes.length, foundColors, foundCategories });
   const waitForRequestSlot = async () => {
     const now = Date.now();
     const scheduledAt = Math.max(now, nextRequestAt);
@@ -152,15 +168,19 @@ export async function enrichMissingProductColors(
           timeout: options.timeoutMs ?? 20_000
         });
         if (response.ok()) {
-          const colorOriginal = extractColorFromProductHtml(await response.text());
-          if (colorOriginal) {
+          const metadata = extractProductMetadataFromHtml(await response.text());
+          if (metadata.colorOriginal || metadata.categories.length) {
             enriched[productIndex] = {
               ...product,
-              colorOriginal,
-              colorFamily: normalizeColor(colorOriginal),
-              colorShade: normalizeColorShade(colorOriginal)
+              categories: metadata.categories.length ? metadata.categories : product.categories,
+              ...(metadata.colorOriginal ? {
+                colorOriginal: metadata.colorOriginal,
+                colorFamily: normalizeColor(metadata.colorOriginal),
+                colorShade: normalizeColorShade(metadata.colorOriginal)
+              } : {})
             };
-            found += 1;
+            if (metadata.colorOriginal && !product.colorOriginal) foundColors += 1;
+            if (metadata.categories.length && !product.categories.length) foundCategories += 1;
           }
         }
       } catch { /* a failed detail page must not fail the catalog sync */ }
@@ -170,7 +190,7 @@ export async function enrichMissingProductColors(
   };
 
   await Promise.all(Array.from({ length: concurrency }, () => worker()));
-  return { products: enriched, attempted: missingIndexes.length, found };
+  return { products: enriched, attempted: missingIndexes.length, foundColors, foundCategories };
 }
 
 function findStructuredColor(value: unknown): string | null {
@@ -184,6 +204,65 @@ function findStructuredColor(value: unknown): string | null {
     if (color) return color;
   }
   return null;
+}
+
+function findBreadcrumbCategories(value: unknown): string[] {
+  if (!value || typeof value !== "object") return [];
+  const objectValue = value as Record<string, unknown>;
+  const type = objectValue["@type"];
+  if (type === "BreadcrumbList" || (Array.isArray(type) && type.includes("BreadcrumbList"))) {
+    const elements = Array.isArray(objectValue.itemListElement) ? objectValue.itemListElement : [];
+    return elements
+      .flatMap((element): Array<{ position: number; name: string }> => {
+        if (!element || typeof element !== "object") return [];
+        const listItem = element as Record<string, unknown>;
+        const item = listItem.item;
+        if (!item || typeof item !== "object") return [];
+        const category = item as Record<string, unknown>;
+        const name = typeof category.name === "string" ? category.name.trim() : "";
+        const id = typeof category["@id"] === "string" ? category["@id"] : "";
+        if (!name || !isPrimaryCategoryUrl(id) || /^(vyrams|moterims|vaikams)$/i.test(name)) return [];
+        return [{ position: typeof listItem.position === "number" ? listItem.position : Number.MAX_SAFE_INTEGER, name }];
+      })
+      .sort((left, right) => left.position - right.position)
+      .map((item) => item.name);
+  }
+  for (const child of Array.isArray(value) ? value : Object.values(objectValue)) {
+    const categories = findBreadcrumbCategories(child);
+    if (categories.length) return categories;
+  }
+  return [];
+}
+
+function findStructuredProductCategory(value: unknown): string[] {
+  if (!value || typeof value !== "object") return [];
+  const objectValue = value as Record<string, unknown>;
+  const type = objectValue["@type"];
+  const isProduct = type === "Product" || type === "ProductGroup" ||
+    (Array.isArray(type) && (type.includes("Product") || type.includes("ProductGroup")));
+  if (isProduct) {
+    const category = objectValue.category;
+    if (typeof category === "string" && category.trim()) return [category.trim()];
+    if (category && typeof category === "object") {
+      const name = (category as Record<string, unknown>).name;
+      if (typeof name === "string" && name.trim()) return [name.trim()];
+    }
+  }
+  for (const child of Array.isArray(value) ? value : Object.values(objectValue)) {
+    const categories = findStructuredProductCategory(child);
+    if (categories.length) return categories;
+  }
+  return [];
+}
+
+function isPrimaryCategoryUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (url.hostname === "aboutyou.lt" || url.hostname.endsWith(".aboutyou.lt")) &&
+      url.pathname.startsWith("/c/") && !url.search;
+  } catch {
+    return false;
+  }
 }
 
 function decodeHtml(value: string): string {
@@ -320,7 +399,7 @@ export async function collectAboutYouTarget(
     pages: Math.max(1, rounds),
     expectedTotal: initial.total,
     mode: rounds ? "initial-state+scroll" : "initial-state",
-    complete: raw.size >= targetTotal || (initial.total === null && stable >= 6)
+    complete: raw.size > 0 && (raw.size >= targetTotal || (initial.total === null && stable >= 6))
   };
 }
 
@@ -332,6 +411,7 @@ type BrowserCollection = {
     url?: string;
     imageUrls?: string[];
     colorOriginal?: string | null;
+    categories?: string[];
     sizes?: string[];
     otherSizes?: string[];
     materials?: string[];
@@ -414,7 +494,7 @@ async function collectFromDirectStream(
       productUrl: item.url,
       imageUrls: item.imageUrls ?? [],
       colorOriginal: item.colorOriginal ?? null,
-      categories: [],
+      categories: item.categories ?? [],
       sizes: item.sizes ?? [],
       otherSizes: item.otherSizes ?? [],
       materials: item.materials ?? [],
@@ -470,7 +550,7 @@ function rawFromTile(tile: Record<string, unknown>, baseUrl: string): RawProduct
     productUrl: new URL(relative, baseUrl).href,
     imageUrls,
     colorOriginal: colorOriginal || null,
-    categories: findStrings(tile, ["categoryName", "categoryNames", "categories"]),
+    categories: findStrings(tile, ["category", "categoryName", "categoryNames", "categories"]),
     sizes: findStrings(tile, ["availableSizes", "sizeLabels", "sizes"]),
     otherSizes: findStrings(tile, ["otherSizes", "specialSizes", "sizeGroups"]),
     materials: findStrings(tile, ["material", "materials", "materialName", "materialComposition"]),

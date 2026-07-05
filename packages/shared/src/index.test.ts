@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cents, isAllowedAboutYouUrl, normalizeColor, normalizeColorShade, ProductSchema } from "./index";
+import { cents, expandClothingCategoryPath, isAllowedAboutYouUrl, normalizeColor, normalizeColorShade, ProductSchema } from "./index";
 
 describe("shared catalog rules", () => {
   it("parses localized euro prices", () => {
@@ -25,6 +25,12 @@ describe("shared catalog rules", () => {
   it("restricts sync URLs", () => {
     expect(isAllowedAboutYouUrl("https://www.aboutyou.lt/c/moterims-20201")).toBe(true);
     expect(isAllowedAboutYouUrl("https://example.com/aboutyou.lt")).toBe(false);
+  });
+
+  it("expands an ABOUT YOU leaf category to the left-menu hierarchy", () => {
+    expect(expandClothingCategoryPath(["Kasdieniniai marškiniai"])).toEqual([
+      "Drabužiai", "Marškiniai", "Kasdieniniai marškiniai"
+    ]);
   });
 
   it("rejects invalid product data", () => {

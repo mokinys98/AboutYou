@@ -37,14 +37,18 @@ Jei `003` migracija jau buvo pritaikyta, papildomai paleiskite
 pakartotinius katalogo view skenavimus facet'ų užklausoje. Po jos paleiskite
 `supabase/migrations/202607050005_speed_up_contextual_facets.sql`, kuri filtrus
 išpakuoja vieną kartą ir pašalina kartotinius matcher'io skaičiavimus.
+Galiausiai paleiskite `202607050006_protect_catalog_from_empty_sync.sql` ir
+`202607050007_reconcile_source_categories.sql`. Pastaroji leidžia tiksliam ABOUT
+YOU kategorijų keliui pakeisti anksčiau heuristiškai priskirtas kategorijas.
 
 Sinchronizavimo metu kas 5 s spausdinamas surinktų produktų ir srauto puslapių progresas. Vienai grupei taikomas 8 min. rinkimo timeout ir iki 4 bandymų kiekvienai nutrūkusiai srauto puslapio užklausai.
 
 Pagrindinis prisijungimo būdas yra el. paštas ir slaptažodis. Magic link paliktas kaip alternatyva: Supabase Auth URL Configuration pridėkite vietinį `http://localhost:3000/auth/callback` ir produkcinį Cloudflare Pages callback URL. Viešą naudotojų registraciją išjunkite. Produkciniam magic-link laiškų siuntimui sukonfigūruokite nuosavą SMTP tiekėją, nes numatytasis Supabase siuntimas yra skirtas tik bandymams ir turi griežtus limitus.
 
-Jei katalogo srautas nepateikia spalvos, sinchronizatorius ją papildo iš produkto
-puslapio JSON-LD. Vienu paleidimu pagal nutylėjimą praturtinama iki 100 dar spalvos
-neturinčių produktų, siunčiant po vieną užklausą ne dažniau kaip kas 750 ms. Ribas
+Jei katalogo srautas nepateikia spalvos arba kategorijos, sinchronizatorius jas
+papildo iš produkto puslapio JSON-LD. Kategorijos breadcrumb išplečiamas iki
+kairiojo meniu tėvinės struktūros. Vienu paleidimu pagal nutylėjimą praturtinama
+iki 100 produktų, siunčiant po vieną užklausą ne dažniau kaip kas 750 ms. Ribas
 galima keisti per `SYNC_COLOR_ENRICHMENT_LIMIT`,
 `SYNC_COLOR_ENRICHMENT_CONCURRENCY` ir `SYNC_COLOR_ENRICHMENT_DELAY_MS`; jau
 surinktos spalvos iš DB atkuriamos ir pakartotinai nebesiunčiamos. Didesnis tempas

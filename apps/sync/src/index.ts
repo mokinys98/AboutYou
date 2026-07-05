@@ -1,8 +1,8 @@
 import { chromium } from "playwright";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
-import { AboutYouRateLimitError, collectAboutYouTarget, enrichMissingProductColors } from "@catalog/aboutyou-provider";
-import { normalizeColor, normalizeColorShade, type Product } from "@catalog/shared";
+import { AboutYouRateLimitError, collectAboutYouTarget, enrichMissingProductMetadata } from "@catalog/aboutyou-provider";
+import { expandClothingCategoryPath, normalizeColor, normalizeColorShade, type Product } from "@catalog/shared";
 
 const EnvSchema = z.object({
   SUPABASE_URL: z.string().url(),
@@ -57,29 +57,36 @@ try {
         (attempt, error) => log(`„${target.label}“: ${attempt} bandymas nepavyko (${safeError(error)}), bus kartojama.`)
       ));
       pages = result.pages;
+      if (result.products.length === 0) {
+        throw new Error("Rinkimas negrąžino nė vieno produkto; tuščias rezultatas negali būti pažymėtas sėkmingu.");
+      }
       if (!result.complete) {
         throw new Error(`Rinkimas nutrūko nepasiekęs tikslo: ${result.products.length}/${Math.min(result.expectedTotal ?? env.SYNC_MAX_PRODUCTS, env.SYNC_MAX_PRODUCTS)} produktų.`);
       }
       const productsWithKnownColors = await restoreKnownColors(target.source_id, result.products);
-      const colorResult = await enrichMissingProductColors(page, productsWithKnownColors, {
+      const metadataResult = await enrichMissingProductMetadata(page, productsWithKnownColors, {
         limit: env.SYNC_COLOR_ENRICHMENT_LIMIT,
         concurrency: env.SYNC_COLOR_ENRICHMENT_CONCURRENCY,
         delayMs: env.SYNC_COLOR_ENRICHMENT_DELAY_MS,
-        onProgress: ({ processed, total, found }) => log(
-          `„${target.label}“: spalvos ${processed}/${total}, rastos ${found}.`
+        onProgress: ({ processed, total, foundColors, foundCategories }) => log(
+          `„${target.label}“: metaduomenys ${processed}/${total}, spalvos ${foundColors}, kategorijų keliai ${foundCategories}.`
         )
       });
-      if (colorResult.attempted) {
-        log(`„${target.label}“: spalvų praturtinimas baigtas, rasta ${colorResult.found}/${colorResult.attempted}.`);
+      if (metadataResult.attempted) {
+        log(`„${target.label}“: metaduomenų praturtinimas baigtas, spalvos ${metadataResult.foundColors}, kategorijų keliai ${metadataResult.foundCategories}/${metadataResult.attempted}.`);
       }
-      const products = colorResult.products.map((product) => ({
-        ...product,
-        categories: Array.from(new Set([
-          ...product.categories,
+      const products = metadataResult.products.map((product) => {
+        const sourceCategories = product.categories;
+        const fallbackCategories = [
           ...(target.kind === "category" ? [target.label] : []),
           ...inferClothingCategories(product.name)
-        ]))
-      }));
+        ];
+        return {
+          ...product,
+          categories: expandClothingCategoryPath(sourceCategories.length ? sourceCategories : fallbackCategories),
+          categoriesExact: sourceCategories.length > 0
+        };
+      });
       log(`„${target.label}“: surinkta ${products.length} produktų iš ${pages} psl.; pradedamas saugojimas.`);
       for (const batch of chunks(products, 200)) {
         const { data: saved, error } = await db.rpc("record_catalog_batch", {

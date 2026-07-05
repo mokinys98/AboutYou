@@ -364,6 +364,7 @@
       brand: tile.brandName || tile.brandTracker?.name || "",
       imageUrls: findImageUrls(tile),
       colorOriginal: findString(tile, ["colorLabel", "colorName", "color", "displayColor", "baseColor"]) || null,
+      categories: findStrings(tile, ["category", "categoryName", "categoryNames", "categories"]),
       sizes: findStrings(tile, ["availableSizes", "sizeLabels", "sizes"]),
       otherSizes: findStrings(tile, ["otherSizes", "specialSizes", "sizeGroups"]),
       materials: findStrings(tile, ["material", "materials", "materialName", "materialComposition"]),

@@ -156,6 +156,35 @@ export const clothingCategoryTree = [
 
 export const clothingCategories = clothingCategoryTree.map((category) => category.name);
 
+export function expandClothingCategoryPath(values: readonly string[]): string[] {
+  const normalized = new Map<string, string>();
+  for (const value of values) {
+    const name = value.replace(/\s+/g, " ").trim();
+    if (name) normalized.set(name.toLocaleLowerCase("lt"), name);
+  }
+
+  const result = new Set<string>();
+  const add = (value: string) => result.add(value);
+  const hasExplicitParent = clothingCategoryTree.some((category) =>
+    normalized.has(category.name.toLocaleLowerCase("lt"))
+  );
+  for (const category of clothingCategoryTree) {
+    const parentSelected = normalized.has(category.name.toLocaleLowerCase("lt"));
+    if (hasExplicitParent && !parentSelected) continue;
+    const selectedChildren = category.children.filter((child) => normalized.has(child.toLocaleLowerCase("lt")));
+    if (!parentSelected && selectedChildren.length === 0) continue;
+    add("Drabužiai");
+    add(category.name);
+    selectedChildren.forEach(add);
+  }
+
+  for (const [key, value] of normalized) {
+    if (key === "vyrams") continue;
+    if (![...result].some((item) => item.toLocaleLowerCase("lt") === key)) add(value);
+  }
+  return [...result];
+}
+
 export function cents(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return Math.round(value);
   if (typeof value !== "string") return null;
