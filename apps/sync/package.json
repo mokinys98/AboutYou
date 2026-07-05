@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "sync": "node --env-file=../../.env --import tsx src/index.ts",
+    "sync": "node --env-file-if-exists=../../.env --import tsx src/index.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
