@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import app, { catalogCacheUrl, parseFilters, priceComparisonColumn } from "./index";
+import app, { catalogCacheUrl, newestCatalogCutoff, parseFilters, priceComparisonColumn } from "./index";
 
 describe("catalog API", () => {
   it("exposes an unauthenticated health check", async () => {
@@ -50,5 +50,11 @@ describe("catalog API", () => {
     const second = catalogCacheUrl("https://api.example/v1/catalog?sort=newest", "user-b").toString();
     expect(first).not.toBe(second);
     expect(first).toContain("watchlist_user=user-a");
+  });
+
+  it("parses the news filter and uses a stable 30-day cutoff", () => {
+    const parsed = parseFilters({ new_only: "true" });
+    expect(parsed.success && parsed.data.newOnly).toBe(true);
+    expect(newestCatalogCutoff(new Date("2026-07-06T12:00:00.000Z"))).toBe("2026-06-06T12:00:00.000Z");
   });
 });

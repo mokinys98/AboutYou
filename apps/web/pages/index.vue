@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { catalogRootCategories, clothingCategoryTree, type CatalogFacets, type CatalogResponse } from "@catalog/shared";
+definePageMeta({ alias: ["/naujienos"] });
 const route = useRoute(); const router = useRouter(); const api = useApi();
+const isNews = computed(() => route.path === "/naujienos");
 const products = ref<CatalogResponse["items"]>([]); const facets = ref<CatalogFacets | null>(null);
 const nextCursor = ref<string | null>(null); const loading = ref(true); const error = ref(""); const filtersOpen = ref(false);
 let lastFacetsKey = "";
@@ -17,6 +19,10 @@ const catalogSection = computed(() => catalogRootCategories.includes(filters.val
 
 function apiParams(value: Record<string, string>) {
   const query = new URLSearchParams(value);
+  if (isNews.value) {
+    query.set("new_only", "true");
+    if (!query.has("sort") || query.get("sort") === "newest") query.set("sort", "first_seen");
+  }
   if (query.has("price_min")) query.set("price_min", String(Math.round(Number(query.get("price_min")) * 100)));
   if (query.has("price_max")) query.set("price_max", String(Math.round(Number(query.get("price_max")) * 100)));
   return query;
@@ -74,10 +80,10 @@ onMounted(() => { void Promise.all([loadFacets(), load()]); });
 
 <template>
   <main class="catalog-page">
-    <section class="catalog-hero"><p class="catalog-breadcrumbs">Vyrams <span>›</span> {{ catalogSection }}</p><div class="catalog-title-row"><div><h1>{{ filters.categories || "Drabužiai" }}</h1><p>{{ products.length }} rodomų prekių</p></div></div></section>
+    <section class="catalog-hero"><p class="catalog-breadcrumbs">Vyrams <span>›</span> {{ isNews ? "Naujienos" : catalogSection }}</p><div class="catalog-title-row"><div><h1>{{ isNews ? "Naujienos" : (filters.categories || "Drabužiai") }}</h1><p>{{ isNews ? "Per paskutines 30 dienų pirmą kartą aptiktos prekės" : `${products.length} rodomų prekių` }}</p></div></div></section>
     <div class="catalog-toolbar"><button class="filter-trigger" @click="filtersOpen = true">Filtrai</button><span class="toolbar-spacer" /><label class="sort-control">Rūšiuoti <select :value="filters.sort || 'newest'" @change="updateFilters({ ...filters, sort: ($event.target as HTMLSelectElement).value })"><option value="newest">Naujausi</option><option value="price_asc">Kaina: mažiausia</option><option value="price_desc">Kaina: didžiausia</option><option value="discount_desc">Didžiausia nuolaida</option></select></label></div>
     <div class="catalog-layout">
-      <aside class="category-nav" aria-label="Prekių kategorijos"><a class="category-sale">IŠPARDAVIMAS</a><h2>Drabužiai</h2><details v-for="category in clothingCategoryTree" :key="category.name" class="category-group" :open="openCategory === category.name"><summary :class="{ active: filters.categories === category.name }" @click.prevent="selectCategory(category.name)"><span>{{ category.name }}</span><small v-if="categoryCount(category.name)">{{ categoryCount(category.name) }}</small><i>⌄</i></summary><button v-for="child in category.children" :key="child" :class="{ active: filters.categories === child }" @click="selectCategory(child)"><span>{{ child }}</span><small v-if="categoryCount(child)">{{ categoryCount(child) }}</small></button></details><button v-for="category in catalogRootCategories" :key="category" class="category-root" :class="{ active: filters.categories === category }" :disabled="categoryCount(category) === 0" @click="selectCategory(category)"><span>{{ category }}</span><small v-if="categoryCount(category)">{{ categoryCount(category) }}</small></button></aside>
+      <aside class="category-nav" aria-label="Prekių kategorijos"><NuxtLink to="/naujienos" class="category-news" :class="{ active: isNews }">NAUJIENOS</NuxtLink><a class="category-sale">IŠPARDAVIMAS</a><h2>Drabužiai</h2><details v-for="category in clothingCategoryTree" :key="category.name" class="category-group" :open="openCategory === category.name"><summary :class="{ active: filters.categories === category.name }" @click.prevent="selectCategory(category.name)"><span>{{ category.name }}</span><small v-if="categoryCount(category.name)">{{ categoryCount(category.name) }}</small><i>⌄</i></summary><button v-for="child in category.children" :key="child" :class="{ active: filters.categories === child }" @click="selectCategory(child)"><span>{{ child }}</span><small v-if="categoryCount(child)">{{ categoryCount(child) }}</small></button></details><button v-for="category in catalogRootCategories" :key="category" class="category-root" :class="{ active: filters.categories === category }" :disabled="categoryCount(category) === 0" @click="selectCategory(category)"><span>{{ category }}</span><small v-if="categoryCount(category)">{{ categoryCount(category) }}</small></button></aside>
       <section class="results"><CatalogFilters :model-value="filters" :facets="facets" :open="filtersOpen" @update:model-value="updateFilters" @update:open="filtersOpen = $event" /><p v-if="error" class="error-state">{{ error }}</p><div v-else-if="loading && !products.length" class="loading-grid"><div v-for="n in 8" :key="n" /></div><div v-else-if="products.length" class="product-grid"><ProductCard v-for="product in products" :key="product.id" :product="product" @watch-changed="updateWatch" /></div><div v-else class="empty-state"><h2>Produktų nerasta</h2><p>Pakeiskite filtrus arba paleiskite naują sinchronizavimą.</p></div><button v-if="nextCursor" class="load-more" :disabled="loading" @click="load(false)">{{ loading ? "Kraunama…" : "Rodyti daugiau" }}</button></section>
     </div>
   </main>

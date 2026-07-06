@@ -20,10 +20,13 @@ describe("ABOUT YOU provider", () => {
   it("extracts the selected color from product JSON-LD", () => {
     const html = `<script type="application/ld+json">{
       "@type":"ProductGroup","category":"Kasdieniniai marškiniai",
-      "hasVariant":[{"@type":"Product","color":"smėlio spalva","size":"M"}]
+      "hasVariant":[{"@type":"Product","color":"smėlio spalva","size":"M","material":"Medvilnė","pattern":"Vienspalvis"}]
     }</script>`;
     expect(extractColorFromProductHtml(html)).toBe("smėlio spalva");
     expect(extractProductMetadataFromHtml(html).categories).toEqual(["Kasdieniniai marškiniai"]);
+    expect(extractProductMetadataFromHtml(html)).toMatchObject({
+      sizes: ["M"], materials: ["Medvilnė"], patterns: ["Vienspalvis"]
+    });
   });
 
   it("falls back to the rendered selected color", () => {

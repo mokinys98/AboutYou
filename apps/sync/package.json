@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "sync": "node --env-file-if-exists=../../.env --import tsx src/index.ts",
+    "sync:metadata": "node --env-file-if-exists=../../.env --import tsx src/metadata.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

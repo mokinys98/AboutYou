@@ -11,6 +11,7 @@
     "dev:web": "npm run dev --workspace @catalog/web",
     "dev:api": "npm run dev --workspace @catalog/api",
     "sync": "npm run sync --workspace @catalog/sync",
+    "sync:metadata": "npm run sync:metadata --workspace @catalog/sync",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "npm run typecheck --workspaces --if-present"

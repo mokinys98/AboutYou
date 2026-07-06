@@ -62,7 +62,7 @@ export const SyncTargetSchema = z.object({
 });
 export type SyncTarget = z.infer<typeof SyncTargetSchema>;
 
-export const CatalogSortSchema = z.enum(["price_asc", "price_desc", "discount_desc", "newest"]);
+export const CatalogSortSchema = z.enum(["price_asc", "price_desc", "discount_desc", "newest", "first_seen"]);
 export const PriceComparisonSchema = z.enum(["observed", "source_lpl"]);
 export const CatalogFiltersSchema = z.object({
   brands: z.array(z.string()).default([]),
@@ -81,6 +81,7 @@ export const CatalogFiltersSchema = z.object({
   priceMax: z.number().int().nonnegative().optional(),
   discountMin: z.number().min(0).max(100).optional(),
   belowObserved30d: z.boolean().default(false),
+  newOnly: z.boolean().default(false),
   priceComparison: PriceComparisonSchema.default("observed"),
   sort: CatalogSortSchema.default("newest"),
   cursor: z.string().optional(),
@@ -113,6 +114,7 @@ export const CatalogItemSchema = z.object({
   observedMin30d: z.number().int().nullable(),
   currency: z.string(),
   updatedAt: z.string(),
+  firstSeenAt: z.string(),
   isWatched: z.boolean().default(false)
 });
 export type CatalogItem = z.infer<typeof CatalogItemSchema>;

@@ -80,6 +80,7 @@ app.get("/v1/catalog", async (c) => {
   if (filters.belowObserved30d) {
     query = query.eq(priceComparisonColumn(filters.priceComparison), true);
   }
+  if (filters.newOnly) query = query.gte("first_seen_at", newestCatalogCutoff());
 
   const cursor = decodeCursor(filters.cursor);
   const sort = sortDefinition(filters.sort);
@@ -115,7 +116,8 @@ app.get("/v1/catalog/facets", async (c) => {
   const cached = await edgeCache.match(cacheKey);
   if (cached) return cached;
   const { sort: _sort, cursor: _cursor, limit: _limit, ...facetFilters } = parsed.data;
-  const { data, error } = await c.get("db").rpc("catalog_facets", { p_filters: facetFilters });
+  const facetFunction = facetFilters.newOnly ? "catalog_news_facets" : "catalog_facets";
+  const { data, error } = await c.get("db").rpc(facetFunction, { p_filters: facetFilters });
   if (error) {
     console.error("[catalog/facets]", { code: error.code, message: error.message, details: error.details, hint: error.hint });
     return c.json({ error: error.message }, 500);
@@ -226,6 +228,7 @@ export function parseFilters(query: Record<string, string>) {
     productTypes: list(query.product_types),
     priceMin: query.price_min ? Number(query.price_min) : undefined, priceMax: query.price_max ? Number(query.price_max) : undefined,
     discountMin: query.discount_min ? Number(query.discount_min) : undefined, belowObserved30d: query.below_observed_30d === "true",
+    newOnly: query.new_only === "true",
     priceComparison: query.price_comparison,
     sort: query.sort, cursor: query.cursor, limit: query.limit ? Number(query.limit) : undefined
   });
@@ -247,7 +250,14 @@ function sortDefinition(sort: string) {
   if (sort === "price_asc") return { column: "current_price", ascending: true } as const;
   if (sort === "price_desc") return { column: "current_price", ascending: false } as const;
   if (sort === "discount_desc") return { column: "discount_pct", ascending: false } as const;
+  if (sort === "first_seen") return { column: "first_seen_at", ascending: false } as const;
   return { column: "updated_at", ascending: false } as const;
+}
+
+export function newestCatalogCutoff(now = new Date()): string {
+  const cutoff = new Date(now);
+  cutoff.setUTCDate(cutoff.getUTCDate() - 30);
+  return cutoff.toISOString();
 }
 
 function mapCatalogItem(row: Record<string, any>, isWatched = false) {
@@ -256,7 +266,8 @@ function mapCatalogItem(row: Record<string, any>, isWatched = false) {
     sizes: row.sizes ?? [], otherSizes: row.other_sizes ?? [], materials: row.materials ?? [], patterns: row.patterns ?? [],
     features: row.features ?? [], styles: row.styles ?? [], productTypes: row.product_types ?? [],
     source: row.source, currentPrice: row.current_price, originalPrice: row.original_price, sourceLpl30: row.source_lpl_30,
-    observedMin30d: row.observed_min_30d, currency: row.currency, updatedAt: row.updated_at, isWatched };
+    observedMin30d: row.observed_min_30d, currency: row.currency, updatedAt: row.updated_at,
+    firstSeenAt: row.first_seen_at, isWatched };
 }
 
 async function watchedProductIds(db: SupabaseClient, userId: string, productIds: string[]): Promise<Set<string>> {

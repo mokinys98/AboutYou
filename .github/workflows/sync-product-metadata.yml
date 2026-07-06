@@ -1,25 +1,28 @@
-name: Sync catalog
+name: Sync product metadata
 
 on:
   schedule:
-    - cron: "17 */6 * * *"
+    - cron: "47 * * * *"
   workflow_dispatch:
 
 concurrency:
+  # Serialize both workflows so ABOUT YOU is never crawled by two jobs at once.
   group: catalog-sync
   cancel-in-progress: false
 
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 75
     permissions:
       contents: read
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       SYNC_HEADLESS: "true"
-      SYNC_MAX_PRODUCTS: "10000"
+      METADATA_SYNC_MAX_PRODUCTS: "10000"
+      METADATA_SYNC_CONCURRENCY: "3"
+      METADATA_SYNC_DELAY_MS: "250"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -28,4 +31,4 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: npm run sync
+      - run: npm run sync:metadata

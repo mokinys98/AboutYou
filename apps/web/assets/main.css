@@ -894,6 +894,21 @@ td small {
     margin-bottom: 14px
 }
 
+.category-news {
+    display: block;
+    color: #111;
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 10px;
+    padding: 6px 8px;
+    text-decoration: none
+}
+
+.category-news:hover,
+.category-news.active {
+    background: #f2f2f2
+}
+
 .category-root {
     color: #555;
     margin-top: 8px;

@@ -33,6 +33,8 @@ export interface ProductMetadataEnrichmentProgress {
 export interface ProductMetadataEnrichmentResult {
   products: Product[];
   attempted: number;
+  refreshed: number;
+  refreshedExternalIds: string[];
   foundColors: number;
   foundCategories: number;
 }
@@ -93,9 +95,20 @@ export function extractColorFromProductHtml(html: string): string | null {
 export function extractProductMetadataFromHtml(html: string): {
   colorOriginal: string | null;
   categories: string[];
+  sizes: string[];
+  otherSizes: string[];
+  materials: string[];
+  patterns: string[];
+  features: string[];
+  styles: string[];
+  productTypes: string[];
 } {
   let colorOriginal: string | null = null;
   let categories: string[] = [];
+  const attributes = {
+    sizes: [] as string[], otherSizes: [] as string[], materials: [] as string[],
+    patterns: [] as string[], features: [] as string[], styles: [] as string[], productTypes: [] as string[]
+  };
   const scriptPattern = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
   for (const match of html.matchAll(scriptPattern)) {
     if (!/\btype\s*=\s*["']application\/ld\+json["']/i.test(match[1] ?? "")) continue;
@@ -104,6 +117,13 @@ export function extractProductMetadataFromHtml(html: string): {
       colorOriginal ??= findStructuredColor(value);
       if (!categories.length) categories = findBreadcrumbCategories(value);
       if (!categories.length) categories = findStructuredProductCategory(value);
+      mergeUnique(attributes.sizes, findStrings(value, ["size", "sizes", "availableSizes", "sizeLabels"]));
+      mergeUnique(attributes.otherSizes, findStrings(value, ["otherSizes", "specialSizes", "sizeGroups"]));
+      mergeUnique(attributes.materials, findStrings(value, ["material", "materials", "materialName", "materialComposition"]));
+      mergeUnique(attributes.patterns, findStrings(value, ["pattern", "patterns", "patternName"]));
+      mergeUnique(attributes.features, findStrings(value, ["features", "productFeatures", "additionalProperty"]));
+      mergeUnique(attributes.styles, findStrings(value, ["style", "styles", "styleName"]));
+      mergeUnique(attributes.productTypes, findStrings(value, ["productType", "productTypes", "productTypeName"]));
     } catch { /* ignore unrelated or malformed structured data */ }
   }
 
@@ -118,7 +138,7 @@ export function extractProductMetadataFromHtml(html: string): {
     try { colorOriginal = JSON.parse(`"${colorLabel}"`); }
     catch { /* ignore malformed JSON string */ }
   }
-  return { colorOriginal, categories };
+  return { colorOriginal, categories, ...attributes };
 }
 
 export async function enrichMissingProductMetadata(
@@ -129,14 +149,16 @@ export async function enrichMissingProductMetadata(
     concurrency?: number;
     delayMs?: number;
     timeoutMs?: number;
+    onlyMissing?: boolean;
+    failOnRateLimit?: boolean;
     onProgress?: (progress: ProductMetadataEnrichmentProgress) => void;
   } = {}
 ): Promise<ProductMetadataEnrichmentResult> {
   const limit = Math.max(0, Math.min(options.limit ?? 100, products.length));
   const missingIndexes = products.flatMap((product, index) =>
-    product.colorOriginal && product.categories.length ? [] : [index]
+    options.onlyMissing !== false && product.colorOriginal && product.categories.length ? [] : [index]
   ).slice(0, limit);
-  if (!missingIndexes.length) return { products, attempted: 0, foundColors: 0, foundCategories: 0 };
+  if (!missingIndexes.length) return { products, attempted: 0, refreshed: 0, refreshedExternalIds: [], foundColors: 0, foundCategories: 0 };
 
   const enriched = [...products];
   const concurrency = Math.max(1, Math.min(options.concurrency ?? 1, 12, missingIndexes.length));
@@ -145,6 +167,7 @@ export async function enrichMissingProductMetadata(
   let processed = 0;
   let foundColors = 0;
   let foundCategories = 0;
+  const refreshedExternalIds: string[] = [];
   let nextRequestAt = Date.now();
   const report = () => options.onProgress?.({ processed, total: missingIndexes.length, foundColors, foundCategories });
   const waitForRequestSlot = async () => {
@@ -167,30 +190,50 @@ export async function enrichMissingProductMetadata(
           headers: { accept: "text/html,application/xhtml+xml" },
           timeout: options.timeoutMs ?? 20_000
         });
+        if (options.failOnRateLimit && (response.status() === 429 || response.status() === 403)) {
+          throw new AboutYouRateLimitError(`ABOUT YOU laikinai riboja produkto detalių užklausas (HTTP ${response.status()}).`);
+        }
         if (response.ok()) {
           const metadata = extractProductMetadataFromHtml(await response.text());
-          if (metadata.colorOriginal || metadata.categories.length) {
+          if (metadata.colorOriginal || metadata.categories.length || metadata.sizes.length || metadata.otherSizes.length ||
+              metadata.materials.length || metadata.patterns.length || metadata.features.length || metadata.styles.length || metadata.productTypes.length) {
             enriched[productIndex] = {
               ...product,
               categories: metadata.categories.length ? metadata.categories : product.categories,
+              sizes: metadata.sizes.length ? metadata.sizes : product.sizes,
+              otherSizes: metadata.otherSizes.length ? metadata.otherSizes : product.otherSizes,
+              materials: metadata.materials.length ? metadata.materials : product.materials,
+              patterns: metadata.patterns.length ? metadata.patterns : product.patterns,
+              features: metadata.features.length ? metadata.features : product.features,
+              styles: metadata.styles.length ? metadata.styles : product.styles,
+              productTypes: metadata.productTypes.length ? metadata.productTypes : product.productTypes,
               ...(metadata.colorOriginal ? {
                 colorOriginal: metadata.colorOriginal,
                 colorFamily: normalizeColor(metadata.colorOriginal),
                 colorShade: normalizeColorShade(metadata.colorOriginal)
               } : {})
             };
+            refreshedExternalIds.push(product.externalId);
             if (metadata.colorOriginal && !product.colorOriginal) foundColors += 1;
             if (metadata.categories.length && !product.categories.length) foundCategories += 1;
           }
         }
-      } catch { /* a failed detail page must not fail the catalog sync */ }
+      } catch (error) {
+        if (error instanceof AboutYouRateLimitError) throw error;
+        /* a failed detail page must not fail the complete metadata run */
+      }
       processed += 1;
       if (processed === missingIndexes.length || processed % 25 === 0) report();
     }
   };
 
   await Promise.all(Array.from({ length: concurrency }, () => worker()));
-  return { products: enriched, attempted: missingIndexes.length, foundColors, foundCategories };
+  return { products: enriched, attempted: missingIndexes.length, refreshed: refreshedExternalIds.length, refreshedExternalIds, foundColors, foundCategories };
+}
+
+function mergeUnique(target: string[], values: string[]): void {
+  const known = new Set(target);
+  for (const value of values) if (!known.has(value)) { known.add(value); target.push(value); }
 }
 
 function findStructuredColor(value: unknown): string | null {

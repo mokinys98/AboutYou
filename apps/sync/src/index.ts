@@ -1,17 +1,14 @@
 import { chromium } from "playwright";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
-import { AboutYouRateLimitError, collectAboutYouTarget, enrichMissingProductMetadata } from "@catalog/aboutyou-provider";
-import { expandClothingCategoryPath, normalizeColor, normalizeColorShade, type Product } from "@catalog/shared";
+import { AboutYouRateLimitError, collectAboutYouTarget } from "@catalog/aboutyou-provider";
+import { expandClothingCategoryPath } from "@catalog/shared";
 import { inferFallbackCategories } from "./category-classifier";
 
 const EnvSchema = z.object({
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(20),
   SYNC_MAX_PRODUCTS: z.coerce.number().int().min(1).max(10_000).default(10_000),
-  SYNC_COLOR_ENRICHMENT_LIMIT: z.coerce.number().int().min(0).max(10_000).default(100),
-  SYNC_COLOR_ENRICHMENT_CONCURRENCY: z.coerce.number().int().min(1).max(12).default(1),
-  SYNC_COLOR_ENRICHMENT_DELAY_MS: z.coerce.number().int().min(250).max(60_000).default(750),
   SYNC_HEADLESS: z.string().default("true").transform((value) => value !== "false")
 });
 
@@ -64,19 +61,7 @@ try {
       if (!result.complete) {
         throw new Error(`Rinkimas nutrūko nepasiekęs tikslo: ${result.products.length}/${Math.min(result.expectedTotal ?? env.SYNC_MAX_PRODUCTS, env.SYNC_MAX_PRODUCTS)} produktų.`);
       }
-      const productsWithKnownColors = await restoreKnownColors(target.source_id, result.products);
-      const metadataResult = await enrichMissingProductMetadata(page, productsWithKnownColors, {
-        limit: env.SYNC_COLOR_ENRICHMENT_LIMIT,
-        concurrency: env.SYNC_COLOR_ENRICHMENT_CONCURRENCY,
-        delayMs: env.SYNC_COLOR_ENRICHMENT_DELAY_MS,
-        onProgress: ({ processed, total, foundColors, foundCategories }) => log(
-          `„${target.label}“: metaduomenys ${processed}/${total}, spalvos ${foundColors}, kategorijų keliai ${foundCategories}.`
-        )
-      });
-      if (metadataResult.attempted) {
-        log(`„${target.label}“: metaduomenų praturtinimas baigtas, spalvos ${metadataResult.foundColors}, kategorijų keliai ${metadataResult.foundCategories}/${metadataResult.attempted}.`);
-      }
-      const products = metadataResult.products.map((product) => {
+      const products = result.products.map((product) => {
         const sourceCategories = product.categories;
         const targetCategories = target.kind === "category" ? [target.label] : [];
         const exactCategories = expandClothingCategoryPath([...sourceCategories, ...targetCategories]);
@@ -174,27 +159,6 @@ function chunks<T>(items: T[], size: number): T[][] {
   const result: T[][] = [];
   for (let index = 0; index < items.length; index += size) result.push(items.slice(index, index + size));
   return result;
-}
-
-async function restoreKnownColors(sourceId: string, products: Product[]): Promise<Product[]> {
-  const known = new Map<string, string>();
-  for (const batch of chunks(products.map((product) => product.externalId), 200)) {
-    const { data, error } = await db.from("products").select("external_id,color_original")
-      .eq("source_id", sourceId).in("external_id", batch).not("color_original", "is", null);
-    if (error) throw error;
-    for (const row of data ?? []) {
-      if (row.color_original) known.set(row.external_id, row.color_original);
-    }
-  }
-  return products.map((product) => {
-    const colorOriginal = product.colorOriginal ?? known.get(product.externalId);
-    return colorOriginal ? {
-      ...product,
-      colorOriginal,
-      colorFamily: normalizeColor(colorOriginal),
-      colorShade: normalizeColorShade(colorOriginal)
-    } : product;
-  });
 }
 
 function safeError(error: unknown): string {
