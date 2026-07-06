@@ -1,16 +1,16 @@
 import { chromium } from "playwright";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
-import { enrichMissingProductMetadata } from "@catalog/aboutyou-provider";
+import { AboutYouRateLimitError, enrichMissingProductMetadata } from "@catalog/aboutyou-provider";
 import { expandClothingCategoryPath, type Product } from "@catalog/shared";
 import { inferFallbackCategories } from "./category-classifier";
 
 const EnvSchema = z.object({
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(20),
-  METADATA_SYNC_MAX_PRODUCTS: z.coerce.number().int().min(1).max(50_000).default(10_000),
+  METADATA_SYNC_MAX_PRODUCTS: z.coerce.number().int().min(1).max(50_000).default(500),
   METADATA_SYNC_CONCURRENCY: z.coerce.number().int().min(1).max(12).default(3),
-  METADATA_SYNC_DELAY_MS: z.coerce.number().int().min(250).max(60_000).default(250),
+  METADATA_SYNC_DELAY_MS: z.coerce.number().int().min(250).max(60_000).default(750),
   SYNC_HEADLESS: z.string().default("true").transform((value) => value !== "false")
 });
 
@@ -22,7 +22,7 @@ const db = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
 const startedAt = Date.now();
 log(`Metaduomenų sync pradėtas (maxProducts=${env.METADATA_SYNC_MAX_PRODUCTS}).`);
 const products = await loadActiveProducts();
-log(`Rasta ${products.length} aktyvių produktų; kiekvienas bus aplankytas vieną kartą.`);
+log(`Rasta ${products.length} aktyvių produktų, kurių detalūs metaduomenys dar nepatikrinti.`);
 
 const browser = await chromium.launch({ headless: env.SYNC_HEADLESS });
 let attempted = 0;
@@ -30,46 +30,51 @@ let refreshed = 0;
 try {
   const context = await browser.newContext({ locale: "lt-LT", timezoneId: "Europe/Vilnius" });
   const page = await context.newPage();
-  for (const sourceProducts of groupBySource(products).values()) {
-    const sourceByExternalId = new Map(sourceProducts.map((row) => [row.external_id, row]));
-    const result = await enrichMissingProductMetadata(page, sourceProducts.map(toProduct), {
-      limit: sourceProducts.length,
-      onlyMissing: false,
-      failOnRateLimit: true,
-      concurrency: env.METADATA_SYNC_CONCURRENCY,
-      delayMs: env.METADATA_SYNC_DELAY_MS,
-      onProgress: ({ processed, total, foundColors, foundCategories }) =>
-        log(`Apdorota ${attempted + processed}/${products.length}; naujų spalvų ${foundColors}, kategorijų kelių ${foundCategories} (${processed}/${total} šaltinyje).`)
-    });
-    attempted += result.attempted;
-    const refreshedIds = new Set(result.refreshedExternalIds);
-    const updates = result.products.flatMap((product) => {
-      if (!refreshedIds.has(product.externalId)) return [];
-      const row = sourceByExternalId.get(product.externalId);
-      if (!row) return [];
-      const exactCategories = expandClothingCategoryPath(product.categories);
-      return [{
-        id: row.id,
-        colorOriginal: product.colorOriginal,
-        colorFamily: product.colorFamily,
-        categories: exactCategories.length ? exactCategories : inferFallbackCategories(product.name, product.productTypes),
-        categoriesExact: exactCategories.length > 0,
-        sizes: product.sizes,
-        otherSizes: product.otherSizes,
-        materials: product.materials,
-        patterns: product.patterns,
-        features: product.features,
-        styles: product.styles,
-        productTypes: product.productTypes
-      }];
-    });
-    for (const batch of chunks(updates, 200)) {
-      const { data, error } = await db.rpc("record_product_metadata_batch", { p_products: batch });
-      if (error) throw error;
-      refreshed += Number(data ?? batch.length);
+  try {
+    for (const sourceProducts of groupBySource(products).values()) {
+      for (const productBatch of chunks(sourceProducts, 25)) {
+        const sourceByExternalId = new Map(productBatch.map((row) => [row.external_id, row]));
+        const result = await enrichMissingProductMetadata(page, productBatch.map(toProduct), {
+          limit: productBatch.length,
+          onlyMissing: false,
+          failOnRateLimit: true,
+          concurrency: env.METADATA_SYNC_CONCURRENCY,
+          delayMs: env.METADATA_SYNC_DELAY_MS
+        });
+        attempted += result.attempted;
+        const refreshedIds = new Set(result.refreshedExternalIds);
+        const updates = result.products.flatMap((product) => {
+          if (!refreshedIds.has(product.externalId)) return [];
+          const row = sourceByExternalId.get(product.externalId);
+          if (!row) return [];
+          const exactCategories = expandClothingCategoryPath(product.categories);
+          return [{
+            id: row.id,
+            colorOriginal: product.colorOriginal,
+            colorFamily: product.colorFamily,
+            categories: exactCategories.length ? exactCategories : inferFallbackCategories(product.name, product.productTypes),
+            categoriesExact: exactCategories.length > 0,
+            sizes: product.sizes,
+            otherSizes: product.otherSizes,
+            materials: product.materials,
+            patterns: product.patterns,
+            features: product.features,
+            styles: product.styles,
+            productTypes: product.productTypes
+          }];
+        });
+        const { data, error } = await db.rpc("record_product_metadata_batch", { p_products: updates });
+        if (error) throw error;
+        refreshed += Number(data ?? updates.length);
+        log(`Patikrinta ${attempted}/${products.length}, išsaugota ${refreshed}; paskutinis 25 produktų checkpoint įrašytas.`);
+      }
     }
+  } catch (error) {
+    if (!(error instanceof AboutYouRateLimitError)) throw error;
+    log(`ABOUT YOU pasiektas užklausų limitas. Išsaugoti checkpoint'ai lieka DB; kitas valandinis paleidimas tęs nuo likusių produktų.`);
+  } finally {
+    await context.close();
   }
-  await context.close();
 } finally {
   await browser.close();
 }
@@ -103,7 +108,7 @@ async function loadActiveProducts(): Promise<ProductRow[]> {
     const to = Math.min(from + pageSize, env.METADATA_SYNC_MAX_PRODUCTS) - 1;
     const { data, error } = await db.from("products")
       .select("id,source_id,external_id,name,brand,product_url,image_urls,color_original,color_family,color_shade,sizes,other_sizes,materials,patterns,features,styles,product_types")
-      .eq("active", true).order("id").range(from, to);
+      .eq("active", true).is("metadata_updated_at", null).order("source_id").order("id").range(from, to);
     if (error) throw error;
     rows.push(...(data as ProductRow[] ?? []));
     if ((data?.length ?? 0) < to - from + 1) break;
