@@ -1,7 +1,7 @@
 import { chromium } from "playwright";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
-import { AboutYouRateLimitError, enrichMissingProductMetadata } from "@catalog/aboutyou-provider";
+import { enrichMissingProductMetadata } from "@catalog/aboutyou-provider";
 import { normalizeCategoryPath, type Product } from "@catalog/shared";
 import { inferFallbackCategories } from "./category-classifier";
 
@@ -22,7 +22,7 @@ const db = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
 const startedAt = Date.now();
 log(`Metaduomenų sync pradėtas (maxProducts=${env.METADATA_SYNC_MAX_PRODUCTS}).`);
 const products = await loadActiveProducts();
-log(`Rasta ${products.length} aktyvių produktų, kurių detalūs metaduomenys dar nepatikrinti.`);
+log(`Atrinkta ${products.length} aktyvių produktų pagal seniausią detalės patikrinimą.`);
 
 const browser = await chromium.launch({ headless: env.SYNC_HEADLESS });
 let attempted = 0;
@@ -31,7 +31,7 @@ try {
   const context = await browser.newContext({ locale: "lt-LT", timezoneId: "Europe/Vilnius" });
   const page = await context.newPage();
   try {
-    for (const sourceProducts of groupBySource(products).values()) {
+    syncGroups: for (const sourceProducts of groupBySource(products).values()) {
       for (const productBatch of chunks(sourceProducts, 25)) {
         const sourceByExternalId = new Map(productBatch.map((row) => [row.external_id, row]));
         const result = await enrichMissingProductMetadata(page, productBatch.map(toProduct), {
@@ -42,16 +42,26 @@ try {
           delayMs: env.METADATA_SYNC_DELAY_MS
         });
         attempted += result.attempted;
-        const refreshedIds = new Set(result.refreshedExternalIds);
-        const updates = result.products.flatMap((product) => {
-          if (!refreshedIds.has(product.externalId)) return [];
-          const row = sourceByExternalId.get(product.externalId);
-          if (!row) return [];
-          const sourceIsExact = product.categories[0]?.toLocaleLowerCase("lt") === "vyrams" && product.categories.length >= 2;
-          const fallbackRoot = inferFallbackCategories(product.name, product.productTypes)[0];
-          const categoryPath = normalizeCategoryPath(product.categories, sourceIsExact ? undefined : fallbackRoot);
+        refreshed += result.refreshed;
+        const productByExternalId = new Map(result.products.map((product) => [product.externalId, product]));
+        const updates = result.attempts.flatMap((attempt) => {
+          const row = sourceByExternalId.get(attempt.externalId);
+          const product = productByExternalId.get(attempt.externalId);
+          if (!row || !product) return [];
+          const sourceIsExact = attempt.metadataFound && product.categories[0]?.toLocaleLowerCase("lt") === "vyrams" && product.categories.length >= 2;
+          const fallbackRoot = attempt.metadataFound ? inferFallbackCategories(product.name, product.productTypes)[0] : undefined;
+          const categoryPath = attempt.metadataFound
+            ? normalizeCategoryPath(product.categories, sourceIsExact ? undefined : fallbackRoot)
+            : [];
           return [{
             id: row.id,
+            metadataFound: attempt.metadataFound,
+            rawPayload: attempt.rawPayload,
+            payloadHash: attempt.payloadHash,
+            sourceEndpoint: attempt.sourceEndpoint,
+            parserVersion: attempt.parserVersion,
+            detailError: attempt.error,
+            imageUrls: product.imageUrls,
             colorOriginal: product.colorOriginal,
             colorFamily: product.colorFamily,
             colorShade: product.colorShade,
@@ -67,15 +77,15 @@ try {
             productTypes: product.productTypes
           }];
         });
-        const { data, error } = await db.rpc("record_product_metadata_batch", { p_products: updates });
+        const { error } = await db.rpc("record_product_metadata_batch", { p_products: updates });
         if (error) throw error;
-        refreshed += Number(data ?? updates.length);
+        if (result.rateLimited) {
+          log("ABOUT YOU pasiektas užklausų limitas. Užbaigti rezultatai išsaugoti; kitas paleidimas tęs nuo seniausiai tikrintų produktų.");
+          break syncGroups;
+        }
         log(`Patikrinta ${attempted}/${products.length}, išsaugota ${refreshed}; paskutinis 25 produktų checkpoint įrašytas.`);
       }
     }
-  } catch (error) {
-    if (!(error instanceof AboutYouRateLimitError)) throw error;
-    log(`ABOUT YOU pasiektas užklausų limitas. Išsaugoti checkpoint'ai lieka DB; kitas valandinis paleidimas tęs nuo likusių produktų.`);
   } finally {
     await context.close();
   }
@@ -111,8 +121,10 @@ async function loadActiveProducts(): Promise<ProductRow[]> {
   for (let from = 0; from < env.METADATA_SYNC_MAX_PRODUCTS; from += pageSize) {
     const to = Math.min(from + pageSize, env.METADATA_SYNC_MAX_PRODUCTS) - 1;
     const { data, error } = await db.from("products")
-      .select("id,source_id,external_id,name,brand,product_url,image_urls,color_original,color_family,color_shade,sizes,other_sizes,materials,patterns,features,styles,product_types")
-      .eq("active", true).or("metadata_updated_at.is.null,category_path_updated_at.is.null").order("source_id").order("id").range(from, to);
+      .select("id,source_id,external_id,name,brand,product_url,image_urls,color_original,color_family,color_shade,sizes,other_sizes,materials,patterns,features,styles,product_types,detail_checked_at")
+      .eq("active", true)
+      .order("detail_checked_at", { ascending: true, nullsFirst: true })
+      .order("source_id").order("id").range(from, to);
     if (error) throw error;
     rows.push(...(data as ProductRow[] ?? []));
     if ((data?.length ?? 0) < to - from + 1) break;

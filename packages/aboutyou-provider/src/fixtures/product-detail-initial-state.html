@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="lt">
+<body>
+<script data-tadarida-initial-state="true">[
+  ["aysa_api.services.campaigns.v1.CampaignsService/GetDiscounts:fixture", {"data":{"campaigns":[{"id":"not-product-data"}]}}],
+  ["aysa_api.services.article_detail_page.v1.meta.ArticleDetailMetaService/GetPageMetaData:fixture", {"data":{"title":"not-product-data"}}],
+  ["aysa_api.services.article_detail_page.v1.ArticleDetailService/GetProductBulk:fixture", {"data":{
+    "imagesSection":{
+      "images":[{"image":{"src":"https://cdn.aboutstatic.com/product-front.jpg?quality=75&amp;trim=1"}},{"image":{"src":"https://cdn.aboutstatic.com/product-back.jpg"}}],
+      "product":{"id":3935028,"name":"Marškinėliai","colorLabel":"juoda","sizes":[{"shopSize":{"size":{"$case":"twoDimension","twoDimension":{"firstDimension":"S","secondDimension":"Standartinis","label":"S Standartinis"}}}}]}
+    },
+    "sizesSection":{"sizeSelection":{"type":{"$case":"sizes","sizes":{"sizes":[{"sizeId":1,"label":"S Standartinis"},{"sizeId":2,"label":"M Standartinis"}]}}}},
+    "linksSection":{"breadcrumbs":[
+      {"url":{"url":"/c/vyrams-20202"},"label":"Vyrams"},
+      {"url":{"url":"/c/vyrams/drabuziai-20290"},"label":"Drabužiai"},
+      {"url":{"url":"/c/vyrams/drabuziai/marskineliai-20324"},"label":"Marškinėliai"},
+      {"url":{"url":"/c/vyrams/drabuziai/marskineliai-20324?brand=under-armour-189"},"label":"UNDER ARMOUR Marškinėliai"}
+    ]},
+    "productDetailsSection":{"articleDetails":{"lanes":[
+      {"label":"Dizainas ir priedai","type":{"$case":"bulletPointLane","bulletPointLane":{"bulletPoints":["Vienspalvis","Plonas trikotažas"]}}},
+      {"label":"Dydis ir forma","type":{"$case":"sizeLane","sizeLane":{"bulletPoints":["Ilgis: normalus"]}}},
+      {"label":"Medžiagos ir priežiūros priemonės","type":{"$case":"materialLane","materialLane":{"bulletPoints":["Medžiaga: 60% Medvilnė, 40% Poliesteris"]}}},
+      {"label":"Funkcionalumas","type":{"$case":"regularLane","regularLane":{"items":["Orui laidus"]}}}
+    ]}},
+    "trailers":{"grpc-status":["0"],"x-tadarida-considered-ab-tests":["experiment"]}
+  }}]
+]</script>
+</body>
+</html>

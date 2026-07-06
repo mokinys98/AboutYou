@@ -1,8 +1,11 @@
 import type { Page, Response } from "playwright";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 import { ProductSchema, cents, isAllowedAboutYouUrl, normalizeColor, normalizeColorShade, type Product } from "@catalog/shared";
 
 const PRODUCT_STREAM_PATH = "aysa_api.services.category_page.v1.stream.CategoryStreamService/GetProductStreamV2";
+export const PRODUCT_DETAIL_ENDPOINT = "aysa_api.services.article_detail_page.v1.ArticleDetailService/GetProductBulk";
+export const PRODUCT_DETAIL_PARSER_VERSION = 1;
 
 export class AboutYouRateLimitError extends Error {
   override name = "AboutYouRateLimitError";
@@ -37,6 +40,37 @@ export interface ProductMetadataEnrichmentResult {
   refreshedExternalIds: string[];
   foundColors: number;
   foundCategories: number;
+  attempts: ProductMetadataAttempt[];
+  rateLimited: boolean;
+}
+
+export interface ProductMetadataAttempt {
+  externalId: string;
+  rawPayload: Record<string, unknown> | null;
+  payloadHash: string | null;
+  sourceEndpoint: string;
+  parserVersion: number;
+  metadataFound: boolean;
+  error: string | null;
+}
+
+export type ProductDetailMetadata = {
+  colorOriginal: string | null;
+  categories: string[];
+  imageUrls: string[];
+  sizes: string[];
+  otherSizes: string[];
+  materials: string[];
+  patterns: string[];
+  features: string[];
+  styles: string[];
+  productTypes: string[];
+};
+
+export interface ProductDetailExtraction {
+  metadata: ProductDetailMetadata;
+  rawPayload: Record<string, unknown> | null;
+  payloadHash: string | null;
 }
 
 type RawProduct = {
@@ -92,17 +126,116 @@ export function extractColorFromProductHtml(html: string): string | null {
   return extractProductMetadataFromHtml(html).colorOriginal;
 }
 
-export function extractProductMetadataFromHtml(html: string): {
-  colorOriginal: string | null;
-  categories: string[];
-  sizes: string[];
-  otherSizes: string[];
-  materials: string[];
-  patterns: string[];
-  features: string[];
-  styles: string[];
-  productTypes: string[];
-} {
+export function extractProductDetailFromHtml(html: string): ProductDetailExtraction {
+  const rawPayload = extractProductDetailPayloadFromHtml(html);
+  const apiMetadata = rawPayload ? extractProductDetailMetadata(rawPayload) : emptyProductDetailMetadata();
+  const fallback = extractFallbackMetadataFromHtml(html);
+  const metadata: ProductDetailMetadata = {
+    colorOriginal: apiMetadata.colorOriginal ?? fallback.colorOriginal,
+    categories: preferValues(apiMetadata.categories, fallback.categories),
+    imageUrls: preferValues(apiMetadata.imageUrls, fallback.imageUrls),
+    sizes: preferValues(apiMetadata.sizes, fallback.sizes),
+    otherSizes: preferValues(apiMetadata.otherSizes, fallback.otherSizes),
+    materials: preferValues(apiMetadata.materials, fallback.materials),
+    patterns: preferValues(apiMetadata.patterns, fallback.patterns),
+    features: preferValues(apiMetadata.features, fallback.features),
+    styles: preferValues(apiMetadata.styles, fallback.styles),
+    productTypes: preferValues(apiMetadata.productTypes, fallback.productTypes)
+  };
+  return { metadata, rawPayload, payloadHash: rawPayload ? hashProductDetailPayload(rawPayload) : null };
+}
+
+export function extractProductMetadataFromHtml(html: string): ProductDetailMetadata {
+  return extractProductDetailFromHtml(html).metadata;
+}
+
+export function extractProductDetailPayloadFromHtml(html: string): Record<string, unknown> | null {
+  const scriptPattern = /<script\b[^>]*\bdata-tadarida-initial-state\s*=\s*["']true["'][^>]*>([\s\S]*?)<\/script>/gi;
+  for (const match of html.matchAll(scriptPattern)) {
+    try {
+      const entries = JSON.parse(decodeHtml(match[1] ?? "")) as unknown;
+      if (!Array.isArray(entries)) continue;
+      for (const entry of entries) {
+        if (!Array.isArray(entry) || typeof entry[0] !== "string" || !entry[0].startsWith(PRODUCT_DETAIL_ENDPOINT)) continue;
+        const wrapper = object(entry[1]);
+        const payload = object(wrapper?.data) ?? wrapper;
+        if (!payload) continue;
+        // Response trailers contain transport and A/B-test state, not product data.
+        const { trailers: _trailers, ...productPayload } = payload;
+        return productPayload;
+      }
+    } catch { /* ignore malformed or unrelated initial state */ }
+  }
+  return null;
+}
+
+export function hashProductDetailPayload(payload: Record<string, unknown>): string {
+  return createHash("sha256").update(canonicalJson(payload)).digest("hex");
+}
+
+function extractProductDetailMetadata(payload: Record<string, unknown>): ProductDetailMetadata {
+  const metadata = emptyProductDetailMetadata();
+  const imagesSection = object(payload.imagesSection);
+  const sizesSection = object(payload.sizesSection);
+  const product = object(imagesSection?.product) ?? object(sizesSection?.product);
+  const color = string(product?.colorLabel).trim();
+  metadata.colorOriginal = color || null;
+
+  const images = Array.isArray(imagesSection?.images) ? imagesSection.images : [];
+  mergeUnique(metadata.imageUrls, images.flatMap((item) => {
+    const src = string(object(object(item)?.image)?.src).trim();
+    return src && isHttpUrl(src) ? [src] : [];
+  }));
+
+  const sizeSelection = object(sizesSection?.sizeSelection);
+  const sizeType = object(sizeSelection?.type);
+  const sizeList = object(sizeType?.sizes);
+  const sizes = Array.isArray(sizeList?.sizes) ? sizeList.sizes : [];
+  mergeUnique(metadata.sizes, sizes.flatMap((item) => {
+    const label = string(object(item)?.label).trim();
+    return label ? [label] : [];
+  }));
+
+  const productSizes = Array.isArray(product?.sizes) ? product.sizes : [];
+  mergeUnique(metadata.otherSizes, productSizes.flatMap((item) => {
+    const size = object(object(object(item)?.shopSize)?.size);
+    const dimension = object(size?.twoDimension);
+    const label = string(dimension?.secondDimension).trim();
+    return label ? [label] : [];
+  }));
+
+  const linksSection = object(payload.linksSection);
+  const breadcrumbs = Array.isArray(linksSection?.breadcrumbs) ? linksSection.breadcrumbs : [];
+  mergeUnique(metadata.categories, breadcrumbs.flatMap((item) => {
+    const breadcrumb = object(item);
+    const label = string(breadcrumb?.label).trim();
+    const path = string(object(breadcrumb?.url)?.url);
+    return label && path.startsWith("/c/") && !path.includes("?") ? [label] : [];
+  }));
+
+  const articleDetails = object(object(payload.productDetailsSection)?.articleDetails);
+  const lanes = Array.isArray(articleDetails?.lanes) ? articleDetails.lanes : [];
+  for (const item of lanes) {
+    const lane = object(item);
+    const type = object(lane?.type);
+    const laneType = string(type?.$case);
+    if (laneType === "materialLane") {
+      const materialLane = object(type?.materialLane);
+      mergeUnique(metadata.materials, stringArray(materialLane?.bulletPoints).map(stripAttributeLabel));
+    } else if (laneType === "sizeLane") {
+      mergeUnique(metadata.styles, stringArray(object(type?.sizeLane)?.bulletPoints));
+    } else if (laneType === "bulletPointLane") {
+      mergeUnique(metadata.features, stringArray(object(type?.bulletPointLane)?.bulletPoints));
+    } else if (laneType === "regularLane") {
+      mergeUnique(metadata.features, stringArray(object(type?.regularLane)?.items));
+    }
+  }
+  const productName = string(product?.name).trim();
+  if (productName) metadata.productTypes.push(productName);
+  return metadata;
+}
+
+function extractFallbackMetadataFromHtml(html: string): ProductDetailMetadata {
   let colorOriginal: string | null = null;
   let categories: string[] = [];
   const attributes = {
@@ -138,7 +271,44 @@ export function extractProductMetadataFromHtml(html: string): {
     try { colorOriginal = JSON.parse(`"${colorLabel}"`); }
     catch { /* ignore malformed JSON string */ }
   }
-  return { colorOriginal, categories, ...attributes };
+  return { colorOriginal, categories, imageUrls: [], ...attributes };
+}
+
+function emptyProductDetailMetadata(): ProductDetailMetadata {
+  return {
+    colorOriginal: null, categories: [], imageUrls: [], sizes: [], otherSizes: [], materials: [],
+    patterns: [], features: [], styles: [], productTypes: []
+  };
+}
+
+function preferValues(primary: string[], fallback: string[]): string[] {
+  return primary.length ? primary : fallback;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.flatMap((item) => typeof item === "string" && item.trim() ? [item.trim()] : [])
+    : [];
+}
+
+function stripAttributeLabel(value: string): string {
+  const separator = value.indexOf(":");
+  return separator >= 0 ? value.slice(separator + 1).trim() : value;
+}
+
+function isHttpUrl(value: string): boolean {
+  try { return ["http:", "https:"].includes(new URL(value).protocol); }
+  catch { return false; }
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, child]) => `${JSON.stringify(key)}:${canonicalJson(child)}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
 }
 
 export async function enrichMissingProductMetadata(
@@ -158,7 +328,10 @@ export async function enrichMissingProductMetadata(
   const missingIndexes = products.flatMap((product, index) =>
     options.onlyMissing !== false && product.colorOriginal && product.categories.length ? [] : [index]
   ).slice(0, limit);
-  if (!missingIndexes.length) return { products, attempted: 0, refreshed: 0, refreshedExternalIds: [], foundColors: 0, foundCategories: 0 };
+  if (!missingIndexes.length) return {
+    products, attempted: 0, refreshed: 0, refreshedExternalIds: [], foundColors: 0, foundCategories: 0,
+    attempts: [], rateLimited: false
+  };
 
   const enriched = [...products];
   const concurrency = Math.max(1, Math.min(options.concurrency ?? 1, 12, missingIndexes.length));
@@ -168,6 +341,8 @@ export async function enrichMissingProductMetadata(
   let foundColors = 0;
   let foundCategories = 0;
   const refreshedExternalIds: string[] = [];
+  const attempts: ProductMetadataAttempt[] = [];
+  let rateLimited = false;
   let nextRequestAt = Date.now();
   const report = () => options.onProgress?.({ processed, total: missingIndexes.length, foundColors, foundCategories });
   const waitForRequestSlot = async () => {
@@ -178,7 +353,7 @@ export async function enrichMissingProductMetadata(
   };
 
   const worker = async () => {
-    while (cursor < missingIndexes.length) {
+    while (cursor < missingIndexes.length && !rateLimited) {
       const productIndex = missingIndexes[cursor++];
       if (productIndex === undefined) break;
       const product = enriched[productIndex];
@@ -190,15 +365,29 @@ export async function enrichMissingProductMetadata(
           headers: { accept: "text/html,application/xhtml+xml" },
           timeout: options.timeoutMs ?? 20_000
         });
-        if (options.failOnRateLimit && (response.status() === 429 || response.status() === 403)) {
-          throw new AboutYouRateLimitError(`ABOUT YOU laikinai riboja produkto detalių užklausas (HTTP ${response.status()}).`);
+        if (response.status() === 429 || response.status() === 403) {
+          attempts.push(metadataAttempt(product.externalId, null, null, false, `http_${response.status()}`));
+          if (options.failOnRateLimit) rateLimited = true;
+          processed += 1;
+          continue;
+        }
+        if (!response.ok()) {
+          attempts.push(metadataAttempt(product.externalId, null, null, false, `http_${response.status()}`));
+          processed += 1;
+          continue;
         }
         if (response.ok()) {
-          const metadata = extractProductMetadataFromHtml(await response.text());
-          if (metadata.colorOriginal || metadata.categories.length || metadata.sizes.length || metadata.otherSizes.length ||
-              metadata.materials.length || metadata.patterns.length || metadata.features.length || metadata.styles.length || metadata.productTypes.length) {
+          const extraction = extractProductDetailFromHtml(await response.text());
+          const metadata = extraction.metadata;
+          const metadataFound = hasProductDetailMetadata(metadata);
+          attempts.push(metadataAttempt(
+            product.externalId, extraction.rawPayload, extraction.payloadHash, metadataFound,
+            extraction.rawPayload ? null : "product_detail_payload_missing"
+          ));
+          if (metadataFound) {
             enriched[productIndex] = {
               ...product,
+              imageUrls: metadata.imageUrls.length ? metadata.imageUrls : product.imageUrls,
               categories: metadata.categories.length ? metadata.categories : product.categories,
               sizes: metadata.sizes.length ? metadata.sizes : product.sizes,
               otherSizes: metadata.otherSizes.length ? metadata.otherSizes : product.otherSizes,
@@ -219,8 +408,7 @@ export async function enrichMissingProductMetadata(
           }
         }
       } catch (error) {
-        if (error instanceof AboutYouRateLimitError) throw error;
-        /* a failed detail page must not fail the complete metadata run */
+        attempts.push(metadataAttempt(product.externalId, null, null, false, "request_failed"));
       }
       processed += 1;
       if (processed === missingIndexes.length || processed % 25 === 0) report();
@@ -228,7 +416,30 @@ export async function enrichMissingProductMetadata(
   };
 
   await Promise.all(Array.from({ length: concurrency }, () => worker()));
-  return { products: enriched, attempted: missingIndexes.length, refreshed: refreshedExternalIds.length, refreshedExternalIds, foundColors, foundCategories };
+  return {
+    products: enriched, attempted: attempts.length, refreshed: refreshedExternalIds.length,
+    refreshedExternalIds, foundColors, foundCategories, attempts, rateLimited
+  };
+}
+
+function metadataAttempt(
+  externalId: string,
+  rawPayload: Record<string, unknown> | null,
+  payloadHash: string | null,
+  metadataFound: boolean,
+  error: string | null
+): ProductMetadataAttempt {
+  return {
+    externalId, rawPayload, payloadHash, metadataFound, error,
+    sourceEndpoint: PRODUCT_DETAIL_ENDPOINT,
+    parserVersion: PRODUCT_DETAIL_PARSER_VERSION
+  };
+}
+
+function hasProductDetailMetadata(metadata: ProductDetailMetadata): boolean {
+  return Boolean(metadata.colorOriginal || metadata.categories.length || metadata.imageUrls.length || metadata.sizes.length ||
+    metadata.otherSizes.length || metadata.materials.length || metadata.patterns.length || metadata.features.length ||
+    metadata.styles.length || metadata.productTypes.length);
 }
 
 function mergeUnique(target: string[], values: string[]): void {

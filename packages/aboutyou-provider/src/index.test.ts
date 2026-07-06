@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { decodeGrpcWebFrames, extractColorFromProductHtml, extractProductMetadataFromHtml, normalizeRawProduct } from "./index";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import {
+  decodeGrpcWebFrames, extractColorFromProductHtml, extractProductDetailFromHtml,
+  extractProductMetadataFromHtml, hashProductDetailPayload, normalizeRawProduct,
+  PRODUCT_DETAIL_ENDPOINT, PRODUCT_DETAIL_PARSER_VERSION
+} from "./index";
+
+const productDetailFixture = readFileSync(
+  fileURLToPath(new URL("./fixtures/product-detail-initial-state.html", import.meta.url)), "utf8"
+);
 
 describe("ABOUT YOU provider", () => {
   it("decodes data frames and skips trailer frames", () => {
@@ -48,5 +58,50 @@ describe("ABOUT YOU provider", () => {
     expect(extractProductMetadataFromHtml(html).categories).toEqual([
       "Vyrams", "Drabužiai", "Marškiniai", "Kasdieniniai marškiniai"
     ]);
+  });
+
+  it("extracts and sanitizes the product detail API payload", () => {
+    const result = extractProductDetailFromHtml(productDetailFixture);
+
+    expect(result.rawPayload).not.toBeNull();
+    expect(result.rawPayload).not.toHaveProperty("trailers");
+    expect(result.rawPayload).not.toHaveProperty("campaigns");
+    expect(result.rawPayload).not.toHaveProperty("title");
+    expect(result.payloadHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(PRODUCT_DETAIL_ENDPOINT).toContain("ArticleDetailService/GetProductBulk");
+    expect(PRODUCT_DETAIL_PARSER_VERSION).toBe(1);
+  });
+
+  it("extracts explicit product fields from a sanitized real payload fixture", () => {
+    const metadata = extractProductDetailFromHtml(productDetailFixture).metadata;
+
+    expect(metadata).toMatchObject({
+      colorOriginal: "juoda",
+      categories: ["Vyrams", "Drabužiai", "Marškinėliai"],
+      sizes: ["S Standartinis", "M Standartinis"],
+      otherSizes: ["Standartinis"],
+      materials: ["60% Medvilnė, 40% Poliesteris"],
+      features: ["Vienspalvis", "Plonas trikotažas", "Orui laidus"],
+      styles: ["Ilgis: normalus"],
+      productTypes: ["Marškinėliai"]
+    });
+    expect(metadata.imageUrls[0]).toBe("https://cdn.aboutstatic.com/product-front.jpg?quality=75&trim=1");
+  });
+
+  it("hashes equivalent JSON objects deterministically", () => {
+    expect(hashProductDetailPayload({ b: 2, a: { d: 4, c: 3 } }))
+      .toBe(hashProductDetailPayload({ a: { c: 3, d: 4 }, b: 2 }));
+    expect(hashProductDetailPayload({ availability: "in_stock" }))
+      .not.toBe(hashProductDetailPayload({ availability: "sold_out" }));
+  });
+
+  it("keeps JSON-LD metadata as fallback when the product API payload is missing", () => {
+    const html = `<script type="application/ld+json">{"@type":"Product","color":"žalia","material":"Linas"}</script>`;
+    const result = extractProductDetailFromHtml(html);
+
+    expect(result.rawPayload).toBeNull();
+    expect(result.payloadHash).toBeNull();
+    expect(result.metadata.colorOriginal).toBe("žalia");
+    expect(result.metadata.materials).toEqual(["Linas"]);
   });
 });

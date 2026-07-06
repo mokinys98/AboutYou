@@ -22,7 +22,7 @@ jobs:
       SYNC_HEADLESS: "true"
       METADATA_SYNC_MAX_PRODUCTS: "500"
       METADATA_SYNC_CONCURRENCY: "3"
-      METADATA_SYNC_DELAY_MS: "750"
+      METADATA_SYNC_DELAY_MS: "400"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

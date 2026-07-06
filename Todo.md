@@ -1,4 +1,1 @@
-Kai atsidarai kortele article class=product-card tai ji iškarto turi nuvestį about you puslapį o kad nuvesti į katalogo puslapį mes padarysime dar vieną <button class="watch-button" aria-label="Produkto puslapis" aria-pressed="false">"Shopingbagicon"</button>
-
-Kiek kainuotu DB vietos jeigu mes saugutumeme raw api callback apie produktą?
-Pvz jeigu veliau norėtume gauti kažkokių nors ypatybių ?
+GitHub Actions supports the workflow_dispatch trigger (see Events that trigger workflows on GitHub Docs), so if you manually trigger a workflow, it will be queued to run soon-ish. This means that you can use a third-party cron scheduling service like IFTTT, Google Cloud Scheduler, Jenkins, Cronhub, etc., to make a request to the GitHub API to trigger the workflow.
