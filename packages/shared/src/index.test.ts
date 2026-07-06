@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { catalogRootCategories, cents, expandClothingCategoryPath, isAllowedAboutYouUrl, normalizeColor, normalizeColorShade, ProductSchema } from "./index";
+import { buildCategoryTree, catalogRootCategories, cents, expandClothingCategoryPath, isAllowedAboutYouUrl, normalizeCategoryPath, normalizeColor, normalizeColorShade, ProductSchema } from "./index";
 
 describe("shared catalog rules", () => {
   it("parses localized euro prices", () => {
@@ -38,6 +38,25 @@ describe("shared catalog rules", () => {
       "Batai", "Sportbačiai"
     ]);
     expect(catalogRootCategories).toContain("Batai");
+  });
+
+  it("preserves an exact four-level breadcrumb and creates a provisional root path", () => {
+    expect(normalizeCategoryPath(["Vyrams", "Drabužiai", "Marškiniai", "Kasdieniniai marškiniai"])).toEqual([
+      "Vyrams", "Drabužiai", "Marškiniai", "Kasdieniniai marškiniai"
+    ]);
+    expect(normalizeCategoryPath(["Sportbačiai"], "Batai")).toEqual(["Vyrams", "Batai", "Sportbačiai"]);
+  });
+
+  it("groups duplicate labels by parent and prioritizes catalog roots", () => {
+    const tree = buildCategoryTree([
+      { id: "accessories", parentId: null, name: "Aksesuarai", level: 2, path: "vyrams>aksesuarai", count: 2 },
+      { id: "clothes", parentId: null, name: "Drabužiai", level: 2, path: "vyrams>drabužiai", count: 4 },
+      { id: "sports", parentId: "clothes", name: "Sportiniai", level: 3, path: "vyrams>drabužiai>sportiniai", count: 1 },
+      { id: "sports-accessories", parentId: "accessories", name: "Sportiniai", level: 3, path: "vyrams>aksesuarai>sportiniai", count: 1 }
+    ]);
+    expect(tree.map((item) => item.name)).toEqual(["Drabužiai", "Aksesuarai"]);
+    expect(tree[0]?.children[0]?.id).toBe("sports");
+    expect(tree[1]?.children[0]?.id).toBe("sports-accessories");
   });
 
   it("rejects invalid product data", () => {

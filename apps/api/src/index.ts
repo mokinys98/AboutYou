@@ -66,7 +66,8 @@ app.get("/v1/catalog", async (c) => {
   if (filters.sources.length) query = query.in("source", filters.sources);
   if (filters.colors.length) query = query.in("color_family", filters.colors);
   if (filters.colorShades.length) query = query.in("color_shade", filters.colorShades);
-  if (filters.categories.length) query = query.overlaps("categories", filters.categories);
+  if (filters.categoryPath) query = query.overlaps("category_paths", [filters.categoryPath]);
+  else if (filters.categories.length) query = query.overlaps("categories", filters.categories);
   if (filters.sizes.length) query = query.overlaps("sizes", filters.sizes);
   if (filters.otherSizes.length) query = query.overlaps("other_sizes", filters.otherSizes);
   if (filters.materials.length) query = query.overlaps("materials", filters.materials);
@@ -117,12 +118,23 @@ app.get("/v1/catalog/facets", async (c) => {
   if (cached) return cached;
   const { sort: _sort, cursor: _cursor, limit: _limit, ...facetFilters } = parsed.data;
   const facetFunction = facetFilters.newOnly ? "catalog_news_facets" : "catalog_facets";
-  const { data, error } = await c.get("db").rpc(facetFunction, { p_filters: facetFilters });
+  const effectiveFacetFilters = {
+    ...facetFilters,
+    categories: facetFilters.categoryPath ? [facetFilters.categoryPath] : facetFilters.categories
+  };
+  const [{ data, error }, { data: categoryFacets, error: categoryError }] = await Promise.all([
+    c.get("db").rpc(facetFunction, { p_filters: effectiveFacetFilters }),
+    c.get("db").rpc("catalog_category_facets", { p_filters: effectiveFacetFilters })
+  ]);
   if (error) {
     console.error("[catalog/facets]", { code: error.code, message: error.message, details: error.details, hint: error.hint });
     return c.json({ error: error.message }, 500);
   }
-  const body = JSON.stringify(data);
+  if (categoryError) {
+    console.error("[catalog/category-facets]", { code: categoryError.code, message: categoryError.message, details: categoryError.details, hint: categoryError.hint });
+    return c.json({ error: categoryError.message }, 500);
+  }
+  const body = JSON.stringify({ ...(data ?? {}), categories: categoryFacets ?? [] });
   c.executionCtx.waitUntil(edgeCache.put(cacheKey, new Response(body, { headers: { "content-type": "application/json", "cache-control": "max-age=300" } })));
   return new Response(body, { headers: { "content-type": "application/json", "cache-control": "private, max-age=0" } });
 });
@@ -221,7 +233,7 @@ app.post("/v1/sync-targets/:id/request-sync", requireAdmin, async (c) => {
 export function parseFilters(query: Record<string, string>) {
   const list = (value?: string) => value ? value.split(",").map(decodeURIComponent).filter(Boolean) : [];
   return CatalogFiltersSchema.safeParse({
-    brands: list(query.brands), sources: list(query.sources), categories: list(query.categories), colors: list(query.colors),
+    brands: list(query.brands), sources: list(query.sources), categories: list(query.categories), categoryPath: query.category ? decodeURIComponent(query.category) : undefined, colors: list(query.colors),
     colorShades: list(query.color_shades),
     sizes: list(query.sizes), otherSizes: list(query.other_sizes), materials: list(query.materials),
     patterns: list(query.patterns), features: list(query.features), styles: list(query.styles),
@@ -262,7 +274,7 @@ export function newestCatalogCutoff(now = new Date()): string {
 
 function mapCatalogItem(row: Record<string, any>, isWatched = false) {
   return { id: row.id, externalId: row.external_id, name: row.name, brand: row.brand, productUrl: row.product_url,
-    imageUrls: row.image_urls ?? [], colorOriginal: row.color_original, colorFamily: row.color_family, colorShade: row.color_shade ?? "other", categories: row.categories ?? [],
+    imageUrls: row.image_urls ?? [], colorOriginal: row.color_original, colorFamily: row.color_family, colorShade: row.color_shade ?? "other", categories: row.category_names ?? row.categories ?? [], categoryPaths: row.category_paths ?? [],
     sizes: row.sizes ?? [], otherSizes: row.other_sizes ?? [], materials: row.materials ?? [], patterns: row.patterns ?? [],
     features: row.features ?? [], styles: row.styles ?? [], productTypes: row.product_types ?? [],
     source: row.source, currentPrice: row.current_price, originalPrice: row.original_price, sourceLpl30: row.source_lpl_30,

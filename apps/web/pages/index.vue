@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { catalogRootCategories, clothingCategoryTree, type CatalogFacets, type CatalogResponse } from "@catalog/shared";
+import { buildCategoryTree, type CatalogFacets, type CatalogResponse } from "@catalog/shared";
 definePageMeta({ alias: ["/naujienos"] });
 const route = useRoute(); const router = useRouter(); const api = useApi();
 const isNews = computed(() => route.path === "/naujienos");
@@ -7,15 +7,22 @@ const products = ref<CatalogResponse["items"]>([]); const facets = ref<CatalogFa
 const nextCursor = ref<string | null>(null); const loading = ref(true); const error = ref(""); const filtersOpen = ref(false);
 let lastFacetsKey = "";
 let pendingFacets: { key: string; request: Promise<CatalogFacets | null> } | null = null;
-const filterKeys = ["brands", "categories", "colors", "color_shades", "sources", "sizes", "other_sizes", "materials", "patterns", "features", "styles", "product_types", "price_min", "price_max", "discount_min", "below_observed_30d", "price_comparison", "sort"];
+const filterKeys = ["brands", "categories", "category", "colors", "color_shades", "sources", "sizes", "other_sizes", "materials", "patterns", "features", "styles", "product_types", "price_min", "price_max", "discount_min", "below_observed_30d", "price_comparison", "sort"];
 const filters = computed<Record<string, string>>(() => Object.fromEntries(filterKeys.flatMap((key) => typeof route.query[key] === "string" && route.query[key] ? [[key, route.query[key] as string]] : [])));
-const openCategory = computed(() => {
-  const selected = filters.value.categories;
-  return clothingCategoryTree.find((category) => category.name === selected || category.children.some((child) => child === selected))?.name ?? null;
+const categoryTree = computed(() => buildCategoryTree(facets.value?.categories ?? []));
+const selectedCategory = computed(() => facets.value?.categories.find((category) => category.path === filters.value.category) ?? null);
+const categoryTrail = computed(() => {
+  const items = facets.value?.categories ?? [];
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const trail = [] as typeof items;
+  let current = selectedCategory.value;
+  while (current) {
+    trail.unshift(current);
+    current = current.parentId ? byId.get(current.parentId) ?? null : null;
+  }
+  return trail;
 });
-const catalogSection = computed(() => catalogRootCategories.includes(filters.value.categories as typeof catalogRootCategories[number])
-  ? filters.value.categories
-  : "Drabužiai");
+const catalogTitle = computed(() => selectedCategory.value?.name || filters.value.categories || "Visos prekės");
 
 function apiParams(value: Record<string, string>) {
   const query = new URLSearchParams(value);
@@ -55,7 +62,8 @@ async function loadFacets(value = filters.value) {
 }
 async function updateFilters(value: Record<string, string>) { await router.push({ query: Object.fromEntries(Object.entries(value).filter(([, item]) => item)) }); }
 async function selectCategory(category: string) {
-  const next: Record<string, string> = { ...filters.value, categories: filters.value.categories === category ? "" : category };
+  const next: Record<string, string> = { ...filters.value, category: filters.value.category === category ? "" : category };
+  delete next.categories;
   const nextFacets = await loadFacets(next);
   if (nextFacets) {
     const contextual: Array<[string, Array<{ value: string }>]> = [
@@ -70,7 +78,6 @@ async function selectCategory(category: string) {
   }
   await updateFilters(next);
 }
-const categoryCount = (category: string) => facets.value?.categories.find((item) => item.value === category)?.count ?? 0;
 const updateWatch = ({ id, isWatched }: { id: string; isWatched: boolean }) => {
   products.value = products.value.map((product) => product.id === id ? { ...product, isWatched } : product);
 };
@@ -80,10 +87,10 @@ onMounted(() => { void Promise.all([loadFacets(), load()]); });
 
 <template>
   <main class="catalog-page">
-    <section class="catalog-hero"><p class="catalog-breadcrumbs">Vyrams <span>›</span> {{ isNews ? "Naujienos" : catalogSection }}</p><div class="catalog-title-row"><div><h1>{{ isNews ? "Naujienos" : (filters.categories || "Drabužiai") }}</h1><p>{{ isNews ? "Per paskutines 30 dienų pirmą kartą aptiktos prekės" : `${products.length} rodomų prekių` }}</p></div></div></section>
+    <section class="catalog-hero"><p class="catalog-breadcrumbs">Vyrams <template v-if="isNews"><span>›</span> Naujienos</template><template v-else v-for="category in categoryTrail" :key="category.id"><span>›</span> {{ category.name }}</template></p><div class="catalog-title-row"><div><h1>{{ isNews ? "Naujienos" : catalogTitle }}</h1><p>{{ isNews ? "Per paskutines 30 dienų pirmą kartą aptiktos prekės" : `${products.length} rodomų prekių` }}</p></div></div></section>
     <div class="catalog-toolbar"><button class="filter-trigger" @click="filtersOpen = true">Filtrai</button><span class="toolbar-spacer" /><label class="sort-control">Rūšiuoti <select :value="filters.sort || 'newest'" @change="updateFilters({ ...filters, sort: ($event.target as HTMLSelectElement).value })"><option value="newest">Naujausi</option><option value="price_asc">Kaina: mažiausia</option><option value="price_desc">Kaina: didžiausia</option><option value="discount_desc">Didžiausia nuolaida</option></select></label></div>
     <div class="catalog-layout">
-      <aside class="category-nav" aria-label="Prekių kategorijos"><NuxtLink to="/naujienos" class="category-news" :class="{ active: isNews }">NAUJIENOS</NuxtLink><a class="category-sale">IŠPARDAVIMAS</a><h2>Drabužiai</h2><details v-for="category in clothingCategoryTree" :key="category.name" class="category-group" :open="openCategory === category.name"><summary :class="{ active: filters.categories === category.name }" @click.prevent="selectCategory(category.name)"><span>{{ category.name }}</span><small v-if="categoryCount(category.name)">{{ categoryCount(category.name) }}</small><i>⌄</i></summary><button v-for="child in category.children" :key="child" :class="{ active: filters.categories === child }" @click="selectCategory(child)"><span>{{ child }}</span><small v-if="categoryCount(child)">{{ categoryCount(child) }}</small></button></details><button v-for="category in catalogRootCategories" :key="category" class="category-root" :class="{ active: filters.categories === category }" :disabled="categoryCount(category) === 0" @click="selectCategory(category)"><span>{{ category }}</span><small v-if="categoryCount(category)">{{ categoryCount(category) }}</small></button></aside>
+      <aside class="category-nav" aria-label="Prekių kategorijos"><NuxtLink to="/naujienos" class="category-news" :class="{ active: isNews }">NAUJIENOS</NuxtLink><a class="category-sale">IŠPARDAVIMAS</a><h2>Kategorijos</h2><CategoryTreeItem v-for="category in categoryTree" :key="category.id" :node="category" :selected-path="filters.category" @select="selectCategory" /></aside>
       <section class="results"><CatalogFilters :model-value="filters" :facets="facets" :open="filtersOpen" @update:model-value="updateFilters" @update:open="filtersOpen = $event" /><p v-if="error" class="error-state">{{ error }}</p><div v-else-if="loading && !products.length" class="loading-grid"><div v-for="n in 8" :key="n" /></div><div v-else-if="products.length" class="product-grid"><ProductCard v-for="product in products" :key="product.id" :product="product" @watch-changed="updateWatch" /></div><div v-else class="empty-state"><h2>Produktų nerasta</h2><p>Pakeiskite filtrus arba paleiskite naują sinchronizavimą.</p></div><button v-if="nextCursor" class="load-more" :disabled="loading" @click="load(false)">{{ loading ? "Kraunama…" : "Rodyti daugiau" }}</button></section>
     </div>
   </main>

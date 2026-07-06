@@ -34,6 +34,7 @@ export const ProductSchema = z.object({
   colorFamily: ColorFamilySchema.default("other"),
   colorShade: ColorShadeSchema.default("other"),
   categories: z.array(z.string()).default([]),
+  categoryPath: z.array(z.string()).default([]),
   sizes: AttributeValuesSchema,
   otherSizes: AttributeValuesSchema,
   materials: AttributeValuesSchema,
@@ -68,6 +69,7 @@ export const CatalogFiltersSchema = z.object({
   brands: z.array(z.string()).default([]),
   sources: z.array(z.string()).default([]),
   categories: z.array(z.string()).default([]),
+  categoryPath: z.string().trim().min(1).optional(),
   colors: z.array(ColorFamilySchema).default([]),
   colorShades: z.array(ColorShadeSchema).default([]),
   sizes: z.array(z.string()).default([]),
@@ -100,6 +102,7 @@ export const CatalogItemSchema = z.object({
   colorFamily: ColorFamilySchema,
   colorShade: ColorShadeSchema,
   categories: z.array(z.string()),
+  categoryPaths: z.array(z.string()).default([]),
   sizes: z.array(z.string()).default([]),
   otherSizes: z.array(z.string()).default([]),
   materials: z.array(z.string()).default([]),
@@ -126,7 +129,7 @@ export interface CatalogResponse {
 
 export interface CatalogFacets {
   brands: Array<{ value: string; count: number }>;
-  categories: Array<{ value: string; count: number }>;
+  categories: CatalogCategoryFacet[];
   colors: Array<{ value: ColorFamily; count: number }>;
   colorShades: Array<{ value: ColorShade; count: number }>;
   sources: Array<{ value: string; count: number }>;
@@ -138,6 +141,62 @@ export interface CatalogFacets {
   styles: Array<{ value: string; count: number }>;
   productTypes: Array<{ value: string; count: number }>;
   price: { min: number; max: number };
+}
+
+export interface CatalogCategoryFacet {
+  id: string;
+  parentId: string | null;
+  name: string;
+  level: number;
+  path: string;
+  count: number;
+}
+
+export interface CatalogCategoryNode extends CatalogCategoryFacet {
+  children: CatalogCategoryNode[];
+}
+
+const categoryRootPriority = new Map([
+  ["drabužiai", 0], ["batai", 1], ["aksesuarai", 2]
+]);
+
+export function normalizeCategoryPath(values: readonly string[], fallbackRoot?: string): string[] {
+  const cleaned = values
+    .map((value) => value.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  const genderIndex = cleaned.findIndex((value) => value.toLocaleLowerCase("lt") === "vyrams");
+  const source = genderIndex >= 0 ? cleaned.slice(genderIndex + 1) : cleaned;
+  const fallback = fallbackRoot?.replace(/\s+/g, " ").trim();
+  const path = ["Vyrams"];
+  if (fallback && source[0]?.toLocaleLowerCase("lt") !== fallback.toLocaleLowerCase("lt")) path.push(fallback);
+  for (const value of source) {
+    if (path.at(-1)?.toLocaleLowerCase("lt") !== value.toLocaleLowerCase("lt")) path.push(value);
+  }
+  return path.slice(0, 4);
+}
+
+export function buildCategoryTree(items: readonly CatalogCategoryFacet[]): CatalogCategoryNode[] {
+  const nodes = new Map(items.map((item) => [item.id, { ...item, children: [] as CatalogCategoryNode[] }]));
+  const roots: CatalogCategoryNode[] = [];
+  for (const node of nodes.values()) {
+    const parent = node.parentId ? nodes.get(node.parentId) : undefined;
+    if (parent) parent.children.push(node);
+    else roots.push(node);
+  }
+  const compare = (left: CatalogCategoryNode, right: CatalogCategoryNode) => {
+    if (left.level === 2 && right.level === 2) {
+      const priority = (categoryRootPriority.get(left.name.toLocaleLowerCase("lt")) ?? 99) -
+        (categoryRootPriority.get(right.name.toLocaleLowerCase("lt")) ?? 99);
+      if (priority) return priority;
+    }
+    return left.name.localeCompare(right.name, "lt");
+  };
+  const sort = (values: CatalogCategoryNode[]) => {
+    values.sort(compare);
+    values.forEach((value) => sort(value.children));
+  };
+  sort(roots);
+  return roots;
 }
 
 export const clothingCategoryTree = [

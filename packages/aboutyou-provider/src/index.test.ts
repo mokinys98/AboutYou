@@ -46,7 +46,7 @@ describe("ABOUT YOU provider", () => {
       ]
     }</script>`;
     expect(extractProductMetadataFromHtml(html).categories).toEqual([
-      "Drabužiai", "Marškiniai", "Kasdieniniai marškiniai"
+      "Vyrams", "Drabužiai", "Marškiniai", "Kasdieniniai marškiniai"
     ]);
   });
 });

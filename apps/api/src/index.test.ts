@@ -45,6 +45,15 @@ describe("catalog API", () => {
     expect(priceComparisonColumn("observed")).toBe("below_observed_30d");
   });
 
+  it("parses a stable category path separately from legacy category names", () => {
+    const parsed = parseFilters({ category: "vyrams%3Edrabu%C5%BEiai", categories: "Marškiniai" });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.categoryPath).toBe("vyrams>drabužiai");
+      expect(parsed.data.categories).toEqual(["Marškiniai"]);
+    }
+  });
+
   it("isolates personalized catalog cache entries by user", () => {
     const first = catalogCacheUrl("https://api.example/v1/catalog?sort=newest", "user-a").toString();
     const second = catalogCacheUrl("https://api.example/v1/catalog?sort=newest", "user-b").toString();

@@ -2,7 +2,7 @@ import { chromium } from "playwright";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { AboutYouRateLimitError, collectAboutYouTarget } from "@catalog/aboutyou-provider";
-import { expandClothingCategoryPath } from "@catalog/shared";
+import { normalizeCategoryPath } from "@catalog/shared";
 import { inferFallbackCategories } from "./category-classifier";
 
 const EnvSchema = z.object({
@@ -64,17 +64,16 @@ try {
       const products = result.products.map((product) => {
         const sourceCategories = product.categories;
         const targetCategories = target.kind === "category" ? [target.label] : [];
-        const exactCategories = expandClothingCategoryPath([...sourceCategories, ...targetCategories]);
-        const fallbackCategories = expandClothingCategoryPath([
-          ...targetCategories,
-          ...inferFallbackCategories(product.name, product.productTypes)
-        ]);
+        const sourceIsExact = sourceCategories[0]?.toLocaleLowerCase("lt") === "vyrams" && sourceCategories.length >= 2;
+        const fallbackRoot = targetCategories[0] ?? inferFallbackCategories(product.name, product.productTypes)[0];
+        const categoryPath = normalizeCategoryPath(sourceCategories, sourceIsExact ? undefined : fallbackRoot);
         return {
           ...product,
           // A category target is itself an authoritative membership. Keep it even
           // when ABOUT YOU only exposes a more specific breadcrumb leaf.
-          categories: exactCategories.length ? exactCategories : fallbackCategories,
-          categoriesExact: sourceCategories.length > 0 && exactCategories.length > 0
+          categories: categoryPath.slice(1),
+          categoryPath,
+          categoriesExact: sourceIsExact
         };
       });
       log(`„${target.label}“: surinkta ${products.length} produktų iš ${pages} psl.; pradedamas saugojimas.`);

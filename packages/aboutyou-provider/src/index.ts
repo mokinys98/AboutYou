@@ -264,7 +264,7 @@ function findBreadcrumbCategories(value: unknown): string[] {
         const category = item as Record<string, unknown>;
         const name = typeof category.name === "string" ? category.name.trim() : "";
         const id = typeof category["@id"] === "string" ? category["@id"] : "";
-        if (!name || !isPrimaryCategoryUrl(id) || /^(vyrams|moterims|vaikams)$/i.test(name)) return [];
+        if (!name || !isPrimaryCategoryUrl(id) || /^(moterims|vaikams)$/i.test(name)) return [];
         return [{ position: typeof listItem.position === "number" ? listItem.position : Number.MAX_SAFE_INTEGER, name }];
       })
       .sort((left, right) => left.position - right.position)

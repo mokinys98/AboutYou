@@ -2,7 +2,7 @@ import { chromium } from "playwright";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { AboutYouRateLimitError, enrichMissingProductMetadata } from "@catalog/aboutyou-provider";
-import { expandClothingCategoryPath, type Product } from "@catalog/shared";
+import { normalizeCategoryPath, type Product } from "@catalog/shared";
 import { inferFallbackCategories } from "./category-classifier";
 
 const EnvSchema = z.object({
@@ -47,13 +47,17 @@ try {
           if (!refreshedIds.has(product.externalId)) return [];
           const row = sourceByExternalId.get(product.externalId);
           if (!row) return [];
-          const exactCategories = expandClothingCategoryPath(product.categories);
+          const sourceIsExact = product.categories[0]?.toLocaleLowerCase("lt") === "vyrams" && product.categories.length >= 2;
+          const fallbackRoot = inferFallbackCategories(product.name, product.productTypes)[0];
+          const categoryPath = normalizeCategoryPath(product.categories, sourceIsExact ? undefined : fallbackRoot);
           return [{
             id: row.id,
             colorOriginal: product.colorOriginal,
             colorFamily: product.colorFamily,
-            categories: exactCategories.length ? exactCategories : inferFallbackCategories(product.name, product.productTypes),
-            categoriesExact: exactCategories.length > 0,
+            colorShade: product.colorShade,
+            categories: categoryPath.slice(1),
+            categoryPath,
+            categoriesExact: sourceIsExact,
             sizes: product.sizes,
             otherSizes: product.otherSizes,
             materials: product.materials,
@@ -108,7 +112,7 @@ async function loadActiveProducts(): Promise<ProductRow[]> {
     const to = Math.min(from + pageSize, env.METADATA_SYNC_MAX_PRODUCTS) - 1;
     const { data, error } = await db.from("products")
       .select("id,source_id,external_id,name,brand,product_url,image_urls,color_original,color_family,color_shade,sizes,other_sizes,materials,patterns,features,styles,product_types")
-      .eq("active", true).is("metadata_updated_at", null).order("source_id").order("id").range(from, to);
+      .eq("active", true).or("metadata_updated_at.is.null,category_path_updated_at.is.null").order("source_id").order("id").range(from, to);
     if (error) throw error;
     rows.push(...(data as ProductRow[] ?? []));
     if ((data?.length ?? 0) < to - from + 1) break;
@@ -120,7 +124,7 @@ function toProduct(row: ProductRow): Product {
   return {
     externalId: row.external_id, name: row.name, brand: row.brand, productUrl: row.product_url,
     imageUrls: row.image_urls ?? [], colorOriginal: row.color_original, colorFamily: row.color_family,
-    colorShade: row.color_shade, categories: [], sizes: row.sizes ?? [], otherSizes: row.other_sizes ?? [],
+    colorShade: row.color_shade, categories: [], categoryPath: [], sizes: row.sizes ?? [], otherSizes: row.other_sizes ?? [],
     materials: row.materials ?? [], patterns: row.patterns ?? [], features: row.features ?? [],
     styles: row.styles ?? [], productTypes: row.product_types ?? [], currentPrice: 0, originalPrice: null,
     sourceLpl30: null, currency: "EUR"
