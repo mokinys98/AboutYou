@@ -5,6 +5,8 @@ const route = useRoute(); const router = useRouter(); const api = useApi();
 const isNews = computed(() => route.path === "/naujienos");
 const products = ref<CatalogResponse["items"]>([]); const facets = ref<CatalogFacets | null>(null);
 const nextCursor = ref<string | null>(null); const loading = ref(true); const error = ref(""); const filtersOpen = ref(false);
+const totalCount = ref(0);
+const gridColumns = ref<3 | 4>(3);
 let lastFacetsKey = "";
 let pendingFacets: { key: string; request: Promise<CatalogFacets | null> } | null = null;
 const filterKeys = ["brands", "categories", "category", "colors", "color_shades", "sources", "sizes", "other_sizes", "materials", "patterns", "features", "styles", "product_types", "price_min", "price_max", "discount_min", "below_observed_30d", "price_comparison", "sort"];
@@ -23,6 +25,7 @@ const categoryTrail = computed(() => {
   return trail;
 });
 const catalogTitle = computed(() => selectedCategory.value?.name || filters.value.categories || "Visos prekės");
+const formattedCount = computed(() => new Intl.NumberFormat("lt-LT").format(totalCount.value));
 
 function apiParams(value: Record<string, string>) {
   const query = new URLSearchParams(value);
@@ -40,7 +43,9 @@ async function load(reset = true) {
     const query = apiParams(filters.value);
     if (!reset && nextCursor.value) query.set("cursor", nextCursor.value);
     const result = await api<CatalogResponse>(`/v1/catalog?${query}`);
-    products.value = reset ? result.items : [...products.value, ...result.items]; nextCursor.value = result.nextCursor;
+    products.value = reset ? result.items : [...products.value, ...result.items];
+    nextCursor.value = result.nextCursor;
+    if (reset) totalCount.value = result.totalCount ?? result.items.length;
   } catch (cause) { error.value = cause instanceof Error ? cause.message : "Katalogo užkrauti nepavyko"; }
   finally { loading.value = false; }
 }
@@ -83,15 +88,51 @@ const updateWatch = ({ id, isWatched }: { id: string; isWatched: boolean }) => {
 };
 watch(() => route.query, () => { void Promise.all([load(true), loadFacets()]); }, { deep: true });
 onMounted(() => { void Promise.all([loadFacets(), load()]); });
+onMounted(() => {
+  const saved = Number(localStorage.getItem("catalog-grid-columns"));
+  if (saved === 3 || saved === 4) gridColumns.value = saved;
+});
+watch(gridColumns, (value) => localStorage.setItem("catalog-grid-columns", String(value)));
 </script>
 
 <template>
   <main class="catalog-page">
-    <section class="catalog-hero"><p class="catalog-breadcrumbs">Vyrams <template v-if="isNews"><span>›</span> Naujienos</template><template v-else v-for="category in categoryTrail" :key="category.id"><span>›</span> {{ category.name }}</template></p><div class="catalog-title-row"><div><h1>{{ isNews ? "Naujienos" : catalogTitle }}</h1><p>{{ isNews ? "Per paskutines 30 dienų pirmą kartą aptiktos prekės" : `${products.length} rodomų prekių` }}</p></div></div></section>
-    <div class="catalog-toolbar"><button class="filter-trigger" @click="filtersOpen = true">Filtrai</button><span class="toolbar-spacer" /><label class="sort-control">Rūšiuoti <select :value="filters.sort || 'newest'" @change="updateFilters({ ...filters, sort: ($event.target as HTMLSelectElement).value })"><option value="newest">Naujausi</option><option value="price_asc">Kaina: mažiausia</option><option value="price_desc">Kaina: didžiausia</option><option value="discount_desc">Didžiausia nuolaida</option></select></label></div>
     <div class="catalog-layout">
-      <aside class="category-nav" aria-label="Prekių kategorijos"><NuxtLink to="/naujienos" class="category-news" :class="{ active: isNews }">NAUJIENOS</NuxtLink><a class="category-sale">IŠPARDAVIMAS</a><h2>Kategorijos</h2><CategoryTreeItem v-for="category in categoryTree" :key="category.id" :node="category" :selected-path="filters.category" @select="selectCategory" /></aside>
-      <section class="results"><CatalogFilters :model-value="filters" :facets="facets" :open="filtersOpen" @update:model-value="updateFilters" @update:open="filtersOpen = $event" /><p v-if="error" class="error-state">{{ error }}</p><div v-else-if="loading && !products.length" class="loading-grid"><div v-for="n in 8" :key="n" /></div><div v-else-if="products.length" class="product-grid"><ProductCard v-for="product in products" :key="product.id" :product="product" @watch-changed="updateWatch" /></div><div v-else class="empty-state"><h2>Produktų nerasta</h2><p>Pakeiskite filtrus arba paleiskite naują sinchronizavimą.</p></div><button v-if="nextCursor" class="load-more" :disabled="loading" @click="load(false)">{{ loading ? "Kraunama…" : "Rodyti daugiau" }}</button></section>
+      <aside class="category-nav" aria-label="Prekių kategorijos">
+        <NuxtLink to="/?discount_min=1" class="category-sale">IŠPARDAVIMAS</NuxtLink>
+        <NuxtLink to="/naujienos" class="category-news" :class="{ active: isNews }">Naujienos</NuxtLink>
+        <CategoryTreeItem v-for="category in categoryTree" :key="category.id" :node="category" :selected-path="filters.category" @select="selectCategory" />
+      </aside>
+      <section class="results">
+        <header class="catalog-hero">
+          <p class="catalog-breadcrumbs">Vyrams <template v-if="isNews"><span>›</span> Naujienos</template><template v-else v-for="category in categoryTrail" :key="category.id"><span>›</span> {{ category.name }}</template></p>
+          <div class="catalog-heading-row">
+            <div class="catalog-title-row">
+              <h1>{{ isNews ? "Naujienos" : catalogTitle }}</h1>
+              <span class="catalog-count">{{ formattedCount }}</span>
+            </div>
+            <div class="catalog-view-controls">
+              <label class="toolbar-select view-select">
+                <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 4h4v7H5zM15 4h4v7h-4zM5 13h4v7H5zM15 13h4v7h-4z" /></svg>
+                <span>Rodyti</span>
+                <select v-model.number="gridColumns" aria-label="Produktų skaičius eilėje"><option :value="3">3 eilėje</option><option :value="4">4 eilėje</option></select>
+              </label>
+              <label class="toolbar-select sort-control">
+                <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 4v15m0 0-4-4m4 4 4-4M16 20V5m0 0-4 4m4-4 4 4" /></svg>
+                <span>Rūšiuoti</span>
+                <select :value="filters.sort || 'newest'" aria-label="Rūšiuoti produktus" @change="updateFilters({ ...filters, sort: ($event.target as HTMLSelectElement).value })"><option value="newest">Naujausi</option><option value="price_asc">Kaina: mažiausia</option><option value="price_desc">Kaina: didžiausia</option><option value="discount_desc">Didžiausia nuolaida</option></select>
+              </label>
+            </div>
+          </div>
+        </header>
+        <div class="catalog-mobile-toolbar"><button class="filter-trigger" @click="filtersOpen = true">Filtrai</button><label>Rūšiuoti<select :value="filters.sort || 'newest'" @change="updateFilters({ ...filters, sort: ($event.target as HTMLSelectElement).value })"><option value="newest">Naujausi</option><option value="price_asc">Kaina ↑</option><option value="price_desc">Kaina ↓</option><option value="discount_desc">Nuolaida</option></select></label></div>
+        <CatalogFilters :model-value="filters" :facets="facets" :open="filtersOpen" @update:model-value="updateFilters" @update:open="filtersOpen = $event" />
+        <p v-if="error" class="error-state">{{ error }}</p>
+        <div v-else-if="loading && !products.length" class="loading-grid" :style="{ '--catalog-columns': gridColumns }"><div v-for="n in 8" :key="n" /></div>
+        <div v-else-if="products.length" class="product-grid" :style="{ '--catalog-columns': gridColumns }"><ProductCard v-for="product in products" :key="product.id" :product="product" @watch-changed="updateWatch" /></div>
+        <div v-else class="empty-state"><h2>Produktų nerasta</h2><p>Pakeiskite filtrus arba paleiskite naują sinchronizavimą.</p></div>
+        <button v-if="nextCursor" class="load-more" :disabled="loading" @click="load(false)">{{ loading ? "Kraunama…" : "Rodyti daugiau" }}</button>
+      </section>
     </div>
   </main>
 </template>

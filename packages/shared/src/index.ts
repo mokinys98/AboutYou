@@ -125,6 +125,7 @@ export type CatalogItem = z.infer<typeof CatalogItemSchema>;
 export interface CatalogResponse {
   items: CatalogItem[];
   nextCursor: string | null;
+  totalCount?: number;
 }
 
 export interface CatalogFacets {

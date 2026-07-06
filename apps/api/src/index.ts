@@ -61,7 +61,7 @@ app.get("/v1/catalog", async (c) => {
   const cached = await edgeCache.match(cacheKey);
   if (cached) return cached;
 
-  let query = c.get("db").from("catalog_items").select("*");
+  let query = c.get("db").from("catalog_items").select("*", filters.cursor ? undefined : { count: "exact" });
   if (filters.brands.length) query = query.in("brand", filters.brands);
   if (filters.sources.length) query = query.in("source", filters.sources);
   if (filters.colors.length) query = query.in("color_family", filters.colors);
@@ -90,7 +90,7 @@ app.get("/v1/catalog", async (c) => {
     const operator = sort.ascending ? "gt" : "lt";
     query = query.or(`${sort.column}.${operator}.${cursor.value},and(${sort.column}.eq.${cursor.value},id.${operator}.${cursor.id})`);
   }
-  const { data, error } = await query;
+  const { data, error, count } = await query;
   if (error) return c.json({ error: error.message }, 500);
   const rows = data ?? [];
   const hasNext = rows.length > filters.limit;
@@ -98,7 +98,11 @@ app.get("/v1/catalog", async (c) => {
   const watched = await watchedProductIds(c.get("db"), c.get("member").userId, pageRows.map((row) => row.id));
   const items = pageRows.map((row) => mapCatalogItem(row, watched.has(row.id)));
   const last = rows[Math.min(rows.length, filters.limit) - 1];
-  const body = JSON.stringify({ items, nextCursor: hasNext && last ? encodeCursor({ value: last[sort.column], id: last.id }) : null });
+  const body = JSON.stringify({
+    items,
+    nextCursor: hasNext && last ? encodeCursor({ value: last[sort.column], id: last.id }) : null,
+    ...(count === null ? {} : { totalCount: count })
+  });
   const etag = `"${await sha256(body)}"`;
   if (c.req.header("If-None-Match") === etag) return c.body(null, 304, { ETag: etag });
   const response = new Response(body, { headers: { "content-type": "application/json", "cache-control": "private, max-age=0", ETag: etag } });
