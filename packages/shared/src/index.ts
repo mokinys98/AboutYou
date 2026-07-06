@@ -159,7 +159,7 @@ export interface CatalogCategoryNode extends CatalogCategoryFacet {
 }
 
 const categoryRootPriority = new Map([
-  ["drabužiai", 0], ["batai", 1], ["aksesuarai", 2]
+  ["drabužiai", 0], ["batai", 1], ["sportas", 2], ["aksesuarai", 3], ["streetwear", 4]
 ]);
 
 export function normalizeCategoryPath(values: readonly string[], fallbackRoot?: string): string[] {
@@ -168,7 +168,25 @@ export function normalizeCategoryPath(values: readonly string[], fallbackRoot?: 
     .filter(Boolean);
   const genderIndex = cleaned.findIndex((value) => value.toLocaleLowerCase("lt") === "vyrams");
   const source = genderIndex >= 0 ? cleaned.slice(genderIndex + 1) : cleaned;
-  const fallback = fallbackRoot?.replace(/\s+/g, " ").trim();
+  const first = source[0]?.toLocaleLowerCase("lt");
+  const clothingParent = clothingCategoryTree.find((category) =>
+    category.name.toLocaleLowerCase("lt") === first ||
+    category.children.some((child) => child.toLocaleLowerCase("lt") === first)
+  );
+  if (clothingParent && first !== "drabužiai") {
+    if (clothingParent.name.toLocaleLowerCase("lt") !== first) source.unshift(clothingParent.name);
+    source.unshift("Drabužiai");
+  }
+  let fallback = fallbackRoot?.replace(/\s+/g, " ").trim();
+  if (clothingParent) fallback = undefined;
+  const fallbackClothingParent = clothingCategoryTree.find((category) =>
+    category.name.toLocaleLowerCase("lt") === fallback?.toLocaleLowerCase("lt")
+  );
+  if (!clothingParent && fallbackClothingParent) {
+    if (source[0]?.toLocaleLowerCase("lt") !== fallback?.toLocaleLowerCase("lt")) source.unshift(fallbackClothingParent.name);
+    source.unshift("Drabužiai");
+    fallback = undefined;
+  }
   const path = ["Vyrams"];
   if (fallback && source[0]?.toLocaleLowerCase("lt") !== fallback.toLocaleLowerCase("lt")) path.push(fallback);
   for (const value of source) {
@@ -183,7 +201,7 @@ export function buildCategoryTree(items: readonly CatalogCategoryFacet[]): Catal
   for (const node of nodes.values()) {
     const parent = node.parentId ? nodes.get(node.parentId) : undefined;
     if (parent) parent.children.push(node);
-    else roots.push(node);
+    else if (node.level === 2) roots.push(node);
   }
   const compare = (left: CatalogCategoryNode, right: CatalogCategoryNode) => {
     if (left.level === 2 && right.level === 2) {
@@ -224,8 +242,7 @@ export const catalogRootCategories = [
   "Batai",
   "Sportas",
   "Aksesuarai",
-  "Streetwear",
-  "Premium"
+  "Streetwear"
 ] as const;
 
 export function expandClothingCategoryPath(values: readonly string[]): string[] {

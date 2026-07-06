@@ -1826,6 +1826,12 @@ td small {
     position: relative
 }
 
+.product-card-target {
+    position: absolute;
+    inset: 0;
+    z-index: 2
+}
+
 .watch-button {
     position: absolute;
     right: 10px;
@@ -1844,6 +1850,20 @@ td small {
 
 .watch-button.active {
     color: #e11d3f
+}
+
+.product-page-button {
+    top: 54px
+}
+
+.product-page-button svg {
+    width: 20px;
+    height: 20px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round
 }
 
 .watch-button:disabled {
@@ -1956,5 +1976,9 @@ td small {
         top: 7px;
         width: 32px;
         height: 32px
+    }
+
+    .product-page-button {
+        top: 45px
     }
 }

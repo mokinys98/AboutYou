@@ -38,6 +38,7 @@ describe("shared catalog rules", () => {
       "Batai", "Sportbačiai"
     ]);
     expect(catalogRootCategories).toContain("Batai");
+    expect(catalogRootCategories).toEqual(["Batai", "Sportas", "Aksesuarai", "Streetwear"]);
   });
 
   it("preserves an exact four-level breadcrumb and creates a provisional root path", () => {
@@ -45,18 +46,39 @@ describe("shared catalog rules", () => {
       "Vyrams", "Drabužiai", "Marškiniai", "Kasdieniniai marškiniai"
     ]);
     expect(normalizeCategoryPath(["Sportbačiai"], "Batai")).toEqual(["Vyrams", "Batai", "Sportbačiai"]);
+    expect(normalizeCategoryPath(["Vyrams", "Marškiniai", "Kasdieniniai marškiniai"])).toEqual([
+      "Vyrams", "Drabužiai", "Marškiniai", "Kasdieniniai marškiniai"
+    ]);
+    expect(normalizeCategoryPath(["Apatinės kelnės"])).toEqual([
+      "Vyrams", "Drabužiai", "Apatiniai", "Apatinės kelnės"
+    ]);
+    expect(normalizeCategoryPath([], "Kelnės")).toEqual([
+      "Vyrams", "Drabužiai", "Kelnės"
+    ]);
+    expect(normalizeCategoryPath(["Marškiniai"], "Marškiniai")).toEqual([
+      "Vyrams", "Drabužiai", "Marškiniai"
+    ]);
   });
 
   it("groups duplicate labels by parent and prioritizes catalog roots", () => {
     const tree = buildCategoryTree([
       { id: "accessories", parentId: null, name: "Aksesuarai", level: 2, path: "vyrams>aksesuarai", count: 2 },
       { id: "clothes", parentId: null, name: "Drabužiai", level: 2, path: "vyrams>drabužiai", count: 4 },
+      { id: "sport-root", parentId: null, name: "Sportas", level: 2, path: "vyrams>sportas", count: 3 },
       { id: "sports", parentId: "clothes", name: "Sportiniai", level: 3, path: "vyrams>drabužiai>sportiniai", count: 1 },
       { id: "sports-accessories", parentId: "accessories", name: "Sportiniai", level: 3, path: "vyrams>aksesuarai>sportiniai", count: 1 }
     ]);
-    expect(tree.map((item) => item.name)).toEqual(["Drabužiai", "Aksesuarai"]);
+    expect(tree.map((item) => item.name)).toEqual(["Drabužiai", "Sportas", "Aksesuarai"]);
     expect(tree[0]?.children[0]?.id).toBe("sports");
-    expect(tree[1]?.children[0]?.id).toBe("sports-accessories");
+    expect(tree[2]?.children[0]?.id).toBe("sports-accessories");
+  });
+
+  it("does not promote an orphaned third-level category to a catalog root", () => {
+    const tree = buildCategoryTree([
+      { id: "clothes", parentId: null, name: "Drabužiai", level: 2, path: "vyrams>drabužiai", count: 4 },
+      { id: "orphan", parentId: "missing", name: "Kelnės", level: 3, path: "vyrams>drabužiai>kelnės", count: 1 }
+    ]);
+    expect(tree.map((item) => item.id)).toEqual(["clothes"]);
   });
 
   it("rejects invalid product data", () => {
