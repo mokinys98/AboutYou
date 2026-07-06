@@ -18,7 +18,7 @@ Nuxt 3, Hono, Supabase ir Playwright monorepo, periodiškai surenkantis pasirink
 1. Sukurkite Supabase projektą ir paleiskite `supabase/migrations/202607050001_initial_catalog.sql`.
 2. Supabase Dashboard sukurkite komandos naudotoją su slaptažodžiu, tada įrašykite jo `auth.users.id`, el. paštą ir rolę į `public.team_members`.
 3. Nukopijuokite `.env.example` į `.env` ir užpildykite reikšmes.
-4. API paslaptis sukurkite per `wrangler secret put SUPABASE_URL` ir `wrangler secret put SUPABASE_SERVICE_ROLE_KEY` iš `apps/api`.
+4. API paslaptis sukurkite per `wrangler secret put SUPABASE_URL`, `wrangler secret put SUPABASE_SERVICE_ROLE_KEY` ir `wrangler secret put GITHUB_TOKEN` iš `apps/api`. GitHub fine-grained tokenui suteikite tik šio repo `Actions: write` teisę.
 5. Paleiskite `npm install`, `npx playwright install chromium`, `npm run dev:api` ir kitame terminale `npm run dev:web`.
 6. Admin puslapyje pridėkite 5–10 `https://www.aboutyou.lt/...` kategorijų ar brandų URL.
 7. Vietinei sinchronizacijai paleiskite `npm run sync`.
@@ -60,9 +60,12 @@ gali sukelti laikiną ABOUT YOU Cloudflare 1015 blokavimą.
 
 - Cloudflare Pages build komanda: `npm run build --workspace @catalog/web`; output: `apps/web/dist`.
 - Hono API: `npm run deploy --workspace @catalog/api`.
+- Tas pats API Worker pagal UTC grafikus paleidžia GitHub Actions: katalogą `17 */6 * * *`, o produktų metaduomenis `47 * * * *`. Workflow failuose paliktas tik `workflow_dispatch`, todėl dvigubų paleidimų nėra.
 - GitHub Actions secrets: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`.
 - Web aplinkos kintamieji: `NUXT_PUBLIC_SUPABASE_URL`, `NUXT_PUBLIC_SUPABASE_ANON_KEY`, `NUXT_PUBLIC_API_BASE`.
 - API `ALLOWED_ORIGIN` pakeiskite į produkcinį Pages domeną.
+- Worker `GITHUB_TOKEN` laikykite tik Cloudflare secret; `GITHUB_OWNER`, `GITHUB_REPO` ir `GITHUB_REF` nustatyti `apps/api/wrangler.jsonc`.
+- Pirmiausia įkelkite workflow pakeitimus į `main`, tik tada diekite Worker, kad pereinant nuo GitHub `schedule` prie Cloudflare Cron nebūtų dvigubų paleidimų.
 
 ## Patikra
 

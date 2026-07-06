@@ -5,15 +5,22 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 import { CatalogFiltersSchema, isAllowedAboutYouUrl } from "@catalog/shared";
 import { z } from "zod";
 
-type Bindings = {
+type Bindings = Pick<Env, "ALLOWED_ORIGIN"> & {
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
-  ALLOWED_ORIGIN: string;
+};
+type SchedulerBindings = Bindings & Pick<Env, "GITHUB_OWNER" | "GITHUB_REPO" | "GITHUB_REF"> & {
+  GITHUB_TOKEN: string;
 };
 type Variables = { db: SupabaseClient; member: { userId: string; role: "admin" | "viewer"; email: string } };
 
-const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+export const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 const jwks = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
+
+const WORKFLOW_BY_CRON: Readonly<Record<string, string>> = {
+  "17 */6 * * *": "sync-catalog.yml",
+  "47 * * * *": "sync-product-metadata.yml"
+};
 
 app.use("*", async (c, next) => cors({ origin: c.env.ALLOWED_ORIGIN, allowHeaders: ["Authorization", "Content-Type"], exposeHeaders: ["ETag"] })(c, next));
 app.get("/health", (c) => c.json({ ok: true }));
@@ -299,4 +306,64 @@ function decodeCursor(value?: string): { value: string | number; id: string } | 
 async function sha256(value: string): Promise<string> { const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)); return Array.from(new Uint8Array(hash), (b) => b.toString(16).padStart(2, "0")).join(""); }
 function getEdgeCache(): Cache { return (caches as unknown as { default: Cache }).default; }
 
-export default app;
+export function workflowForCron(cron: string): string {
+  const workflow = WORKFLOW_BY_CRON[cron];
+  if (!workflow) throw new Error(`Nežinomas cron grafikas: ${cron}`);
+  return workflow;
+}
+
+export async function dispatchGitHubWorkflow(
+  workflow: string,
+  env: SchedulerBindings,
+  fetcher: typeof fetch = fetch
+): Promise<void> {
+  if (!env.GITHUB_TOKEN) throw new Error("Nesukonfigūruotas GITHUB_TOKEN");
+
+  const owner = encodeURIComponent(env.GITHUB_OWNER);
+  const repo = encodeURIComponent(env.GITHUB_REPO);
+  const workflowId = encodeURIComponent(workflow);
+  const response = await fetcher(`https://api.github.com/repos/${owner}/${repo}/actions/workflows/${workflowId}/dispatches`, {
+    method: "POST",
+    headers: {
+      Accept: "application/vnd.github+json",
+      Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+      "Content-Type": "application/json",
+      "User-Agent": "aboutyou-private-catalog-api",
+      "X-GitHub-Api-Version": "2026-03-10"
+    },
+    body: JSON.stringify({ ref: env.GITHUB_REF })
+  });
+
+  if (!response.ok) {
+    const details = (await response.text()).slice(0, 1_000);
+    throw new Error(`GitHub workflow ${workflow} paleisti nepavyko (${response.status}): ${details}`);
+  }
+
+  console.log(JSON.stringify({
+    event: "github_workflow_dispatched",
+    workflow,
+    repository: `${env.GITHUB_OWNER}/${env.GITHUB_REPO}`,
+    ref: env.GITHUB_REF,
+    status: response.status
+  }));
+}
+
+export default {
+  fetch(request, env, ctx) {
+    return app.fetch(request, env, ctx);
+  },
+  async scheduled(controller, env) {
+    const workflow = workflowForCron(controller.cron);
+    try {
+      await dispatchGitHubWorkflow(workflow, env);
+    } catch (error) {
+      console.error(JSON.stringify({
+        event: "github_workflow_dispatch_failed",
+        workflow,
+        cron: controller.cron,
+        error: error instanceof Error ? error.message : String(error)
+      }));
+      throw error;
+    }
+  }
+} satisfies ExportedHandler<SchedulerBindings>;

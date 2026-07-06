@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import app, { catalogCacheUrl, newestCatalogCutoff, parseFilters, priceComparisonColumn } from "./index";
+import { app, catalogCacheUrl, dispatchGitHubWorkflow, newestCatalogCutoff, parseFilters, priceComparisonColumn, workflowForCron } from "./index";
 
 describe("catalog API", () => {
   it("exposes an unauthenticated health check", async () => {
@@ -65,5 +65,47 @@ describe("catalog API", () => {
     const parsed = parseFilters({ new_only: "true" });
     expect(parsed.success && parsed.data.newOnly).toBe(true);
     expect(newestCatalogCutoff(new Date("2026-07-06T12:00:00.000Z"))).toBe("2026-06-06T12:00:00.000Z");
+  });
+
+  it("maps Cloudflare cron triggers to the expected GitHub workflows", () => {
+    expect(workflowForCron("17 */6 * * *")).toBe("sync-catalog.yml");
+    expect(workflowForCron("47 * * * *")).toBe("sync-product-metadata.yml");
+    expect(() => workflowForCron("0 0 * * *")).toThrow("Nežinomas cron grafikas");
+  });
+
+  it("dispatches a GitHub workflow on the configured ref", async () => {
+    let request: Request | undefined;
+    const fetcher: typeof fetch = async (input, init) => {
+      request = new Request(input, init);
+      return new Response(JSON.stringify({ workflow_run_id: 123 }), { status: 200 });
+    };
+
+    await dispatchGitHubWorkflow("sync-catalog.yml", {
+      SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "test-service-role-key",
+      ALLOWED_ORIGIN: "http://localhost:3000",
+      GITHUB_TOKEN: "test-token",
+      GITHUB_OWNER: "mokinys98",
+      GITHUB_REPO: "AboutYou",
+      GITHUB_REF: "main"
+    }, fetcher);
+
+    expect(request?.url).toBe("https://api.github.com/repos/mokinys98/AboutYou/actions/workflows/sync-catalog.yml/dispatches");
+    expect(request?.method).toBe("POST");
+    expect(request?.headers.get("authorization")).toBe("Bearer test-token");
+    await expect(request?.json()).resolves.toEqual({ ref: "main" });
+  });
+
+  it("fails clearly when GitHub rejects a dispatch", async () => {
+    const fetcher: typeof fetch = async () => new Response("forbidden", { status: 403 });
+    await expect(dispatchGitHubWorkflow("sync-catalog.yml", {
+      SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "test-service-role-key",
+      ALLOWED_ORIGIN: "http://localhost:3000",
+      GITHUB_TOKEN: "test-token",
+      GITHUB_OWNER: "mokinys98",
+      GITHUB_REPO: "AboutYou",
+      GITHUB_REF: "main"
+    }, fetcher)).rejects.toThrow("GitHub workflow sync-catalog.yml paleisti nepavyko (403)");
   });
 });

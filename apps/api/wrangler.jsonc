@@ -2,9 +2,24 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "aboutyou-private-catalog-api",
   "main": "src/index.ts",
-  "compatibility_date": "2026-07-05",
+  "compatibility_date": "2026-07-06",
+  "compatibility_flags": ["nodejs_compat"],
   "vars": {
-    "ALLOWED_ORIGIN": "http://localhost:3000"
+    "ALLOWED_ORIGIN": "http://localhost:3000",
+    "GITHUB_OWNER": "mokinys98",
+    "GITHUB_REPO": "AboutYou",
+    "GITHUB_REF": "main"
+  },
+  "triggers": {
+    "crons": [
+      "17 */6 * * *",
+      "47 * * * *"
+    ]
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "head_sampling_rate": 1
+    }
   }
 }
-
