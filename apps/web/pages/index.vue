@@ -7,6 +7,7 @@ const products = ref<CatalogResponse["items"]>([]); const facets = ref<CatalogFa
 const nextCursor = ref<string | null>(null); const loading = ref(true); const error = ref(""); const filtersOpen = ref(false);
 const totalCount = ref(0);
 const gridColumns = ref<3 | 4>(3);
+const expandedRootPath = ref<string | null>(null);
 let lastFacetsKey = "";
 let pendingFacets: { key: string; request: Promise<CatalogFacets | null> } | null = null;
 const filterKeys = ["brands", "categories", "category", "colors", "color_shades", "sources", "sizes", "other_sizes", "materials", "patterns", "features", "styles", "product_types", "price_min", "price_max", "discount_min", "below_observed_30d", "price_comparison", "sort"];
@@ -26,6 +27,13 @@ const categoryTrail = computed(() => {
 });
 const catalogTitle = computed(() => selectedCategory.value?.name || filters.value.categories || "Visos prekės");
 const formattedCount = computed(() => new Intl.NumberFormat("lt-LT").format(totalCount.value));
+watch([categoryTree, () => filters.value.category], ([roots, selectedPath]) => {
+  const selectedRoot = selectedPath
+    ? roots.find((root) => selectedPath === root.path || selectedPath.startsWith(`${root.path}>`))
+    : null;
+  if (selectedRoot) expandedRootPath.value = selectedRoot.path;
+  else if (!expandedRootPath.value || !roots.some((root) => root.path === expandedRootPath.value)) expandedRootPath.value = roots[0]?.path ?? null;
+}, { immediate: true });
 
 function apiParams(value: Record<string, string>) {
   const query = new URLSearchParams(value);
@@ -99,9 +107,9 @@ watch(gridColumns, (value) => localStorage.setItem("catalog-grid-columns", Strin
   <main class="catalog-page">
     <div class="catalog-layout">
       <aside class="category-nav" aria-label="Prekių kategorijos">
-        <NuxtLink to="/?discount_min=1" class="category-sale">IŠPARDAVIMAS</NuxtLink>
+        <NuxtLink to="/?discount_min=10" class="category-sale">IŠPARDAVIMAS</NuxtLink>
         <NuxtLink to="/naujienos" class="category-news" :class="{ active: isNews }">Naujienos</NuxtLink>
-        <CategoryTreeItem v-for="category in categoryTree" :key="category.id" :node="category" :selected-path="filters.category" @select="selectCategory" />
+        <CategoryTreeItem v-for="category in categoryTree" :key="category.id" :node="category" :selected-path="filters.category" :expanded="expandedRootPath === category.path" @select="selectCategory" @expand="expandedRootPath = $event" />
       </aside>
       <section class="results">
         <header class="catalog-hero">
@@ -111,18 +119,7 @@ watch(gridColumns, (value) => localStorage.setItem("catalog-grid-columns", Strin
               <h1>{{ isNews ? "Naujienos" : catalogTitle }}</h1>
               <span class="catalog-count">{{ formattedCount }}</span>
             </div>
-            <div class="catalog-view-controls">
-              <label class="toolbar-select view-select">
-                <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 4h4v7H5zM15 4h4v7h-4zM5 13h4v7H5zM15 13h4v7h-4z" /></svg>
-                <span>Rodyti</span>
-                <select v-model.number="gridColumns" aria-label="Produktų skaičius eilėje"><option :value="3">3 eilėje</option><option :value="4">4 eilėje</option></select>
-              </label>
-              <label class="toolbar-select sort-control">
-                <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 4v15m0 0-4-4m4 4 4-4M16 20V5m0 0-4 4m4-4 4 4" /></svg>
-                <span>Rūšiuoti</span>
-                <select :value="filters.sort || 'newest'" aria-label="Rūšiuoti produktus" @change="updateFilters({ ...filters, sort: ($event.target as HTMLSelectElement).value })"><option value="newest">Naujausi</option><option value="price_asc">Kaina: mažiausia</option><option value="price_desc">Kaina: didžiausia</option><option value="discount_desc">Didžiausia nuolaida</option></select>
-              </label>
-            </div>
+            <CatalogViewControls :grid-columns="gridColumns" :sort="filters.sort || 'newest'" @update:grid-columns="gridColumns = $event" @update:sort="updateFilters({ ...filters, sort: $event })" />
           </div>
         </header>
         <div class="catalog-mobile-toolbar"><button class="filter-trigger" @click="filtersOpen = true">Filtrai</button><label>Rūšiuoti<select :value="filters.sort || 'newest'" @change="updateFilters({ ...filters, sort: ($event.target as HTMLSelectElement).value })"><option value="newest">Naujausi</option><option value="price_asc">Kaina ↑</option><option value="price_desc">Kaina ↓</option><option value="discount_desc">Nuolaida</option></select></label></div>

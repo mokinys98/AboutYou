@@ -115,6 +115,7 @@ export const CatalogItemSchema = z.object({
   originalPrice: z.number().int().nullable(),
   sourceLpl30: z.number().int().nullable(),
   observedMin30d: z.number().int().nullable(),
+  discountPct: z.number().nonnegative(),
   currency: z.string(),
   updatedAt: z.string(),
   firstSeenAt: z.string(),

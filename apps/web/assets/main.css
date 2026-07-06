@@ -768,13 +768,16 @@ td small {
 
 /* Dense catalog controls based on the desktop retail reference. */
 .catalog-page {
-    max-width: 1720px;
-    padding-top: 0
+    width: calc(100% - 32px);
+    max-width: 1300px;
+    padding: 0 0 70px
 }
 
 .catalog-page .catalog-layout {
-    grid-template-columns: 230px minmax(0, 1fr);
-    gap: 30px;
+    width: calc(100% + 30px);
+    margin-left: -30px;
+    grid-template-columns: 220px minmax(0, 1fr);
+    gap: 20px;
     padding-top: 22px
 }
 
@@ -807,13 +810,26 @@ td small {
 .catalog-page .category-nav .category-tree-select {
     min-height: 30px;
     padding: 6px;
+    font-size: 12px;
     line-height: 1.25
 }
 
 .catalog-page .category-tree-row.level-2>.category-tree-select {
     margin-top: 4px;
-    font-size: 16px;
+    font-size: 14px;
     color: #4f4f4f
+}
+
+.catalog-page .category-tree-row.level-2>.category-tree-select:hover,
+.catalog-page .category-tree-row.level-2>.category-tree-select.active {
+    font-weight: 700
+}
+
+.catalog-page .category-tree-row.level-3>.category-tree-select:hover,
+.catalog-page .category-tree-row.level-3>.category-tree-select.active,
+.catalog-page .category-tree-row.level-4>.category-tree-select:hover,
+.catalog-page .category-tree-row.level-4>.category-tree-select.active {
+    font-weight: 400
 }
 
 .catalog-page .category-nav .category-tree-select small {
@@ -845,7 +861,7 @@ td small {
 
 .catalog-page .catalog-title-row h1 {
     margin: 0;
-    font-size: 21px;
+    font-size: 18px;
     line-height: 1.2
 }
 
@@ -861,6 +877,143 @@ td small {
 
 .catalog-view-controls {
     gap: 10px
+}
+
+.catalog-control {
+    position: relative
+}
+
+.catalog-control-trigger {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 36px;
+    padding: 0 11px;
+    border: 1px solid #d5d5d5;
+    border-radius: 4px;
+    background: #fff;
+    color: #111;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    transition: border-color .15s, background .15s
+}
+
+.catalog-control-trigger:hover,
+.catalog-control-trigger[aria-expanded="true"] {
+    border-color: #111;
+    background: #fafafa
+}
+
+.catalog-control-trigger>svg:first-child {
+    width: 19px;
+    height: 19px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round
+}
+
+.catalog-control-trigger>.grid-icon {
+    fill: currentColor;
+    stroke: none
+}
+
+.catalog-control-trigger .chevron {
+    width: 10px;
+    height: 7px;
+    margin-left: 5px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    transition: transform .15s
+}
+
+.catalog-control-trigger[aria-expanded="true"] .chevron {
+    transform: rotate(180deg)
+}
+
+.catalog-control-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: 60;
+    min-width: 230px;
+    padding: 8px;
+    border: 1px solid #d8d8d8;
+    border-radius: 5px;
+    background: #fff;
+    box-shadow: 0 12px 32px #0000001c
+}
+
+.catalog-control-title {
+    margin: 4px 9px 7px;
+    color: #777;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase
+}
+
+.catalog-control-menu button {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    width: 100%;
+    min-height: 40px;
+    padding: 8px 9px;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: #222;
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer
+}
+
+.catalog-control-menu button:hover {
+    background: #f5f5f5
+}
+
+.catalog-control-menu button.selected {
+    background: #f0f0f0;
+    font-weight: 700
+}
+
+.check-icon {
+    width: 15px;
+    height: 15px;
+    margin-left: auto;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round
+}
+
+.grid-preview {
+    display: grid;
+    grid-auto-flow: column;
+    gap: 2px;
+    width: 36px;
+    height: 25px;
+    flex: 0 0 36px
+}
+
+.grid-preview i {
+    border: 1px solid #888;
+    border-radius: 1px;
+    background: #fff
+}
+
+.current-sort {
+    margin: 7px 9px 4px;
+    padding-top: 9px;
+    border-top: 1px solid #eee;
+    color: #777;
+    font-size: 10px
 }
 
 .toolbar-select {
@@ -922,57 +1075,104 @@ td small {
     align-items: center
 }
 
-.catalog-page .filter-popover>summary,
-.sale-toggle {
+.catalog-page .filter-popover>summary {
     min-height: 31px;
     padding-top: 7px;
     padding-bottom: 7px;
     font-size: 12px
 }
 
-.sale-toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 9px;
-    padding: 5px 7px 5px 10px;
-    border: 1px solid #d7d7d7;
-    border-radius: 3px;
-    background: #fff;
+.discount-filter .filter-menu {
+    min-width: 310px
+}
+
+.discount-value {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 12px;
+    font-size: 12px
+}
+
+.discount-value strong {
+    font-size: 16px
+}
+
+.discount-range {
+    width: 100%;
+    accent-color: #111;
     cursor: pointer
 }
 
-.sale-toggle i {
+.discount-scale {
+    display: flex;
+    justify-content: space-between;
+    margin: 2px 2px 12px;
+    color: #777;
+    font-size: 10px
+}
+
+.filter-switch {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    width: 100%;
+    margin-bottom: 12px;
+    padding: 11px 0;
+    border: solid #e5e5e5;
+    border-width: 1px 0;
+    background: transparent;
+    color: #111;
+    text-align: left;
+    cursor: pointer
+}
+
+.filter-switch span {
+    display: grid;
+    gap: 3px
+}
+
+.filter-switch strong {
+    font-size: 12px
+}
+
+.filter-switch small {
+    color: #777;
+    font-size: 10px;
+    font-weight: 400
+}
+
+.filter-switch>i {
     position: relative;
-    width: 27px;
-    height: 16px;
+    width: 31px;
+    height: 18px;
+    flex: 0 0 31px;
     border-radius: 10px;
     background: #d8d8d8;
     transition: background .15s
 }
 
-.sale-toggle i:after {
+.filter-switch>i:after {
     content: "";
     position: absolute;
     top: 2px;
     left: 2px;
-    width: 12px;
-    height: 12px;
+    width: 14px;
+    height: 14px;
     border-radius: 50%;
     background: #fff;
     box-shadow: 0 1px 3px #0003;
     transition: transform .15s
 }
 
-.sale-toggle.active {
-    border-color: #111
-}
-
-.sale-toggle.active i {
+.filter-switch.active>i {
     background: #111
 }
 
-.sale-toggle.active i:after {
-    transform: translateX(11px)
+.filter-switch.active>i:after {
+    transform: translateX(13px)
 }
 
 .catalog-page .filter-menu {
@@ -1046,7 +1246,9 @@ td small {
 
 @media(max-width:1100px) {
     .catalog-page .catalog-layout {
-        grid-template-columns: 190px minmax(0, 1fr);
+        width: 100%;
+        margin-left: 0;
+        grid-template-columns: 165px minmax(0, 1fr);
         gap: 18px
     }
 
@@ -1061,6 +1263,10 @@ td small {
 }
 
 @media(max-width:760px) {
+    .catalog-page {
+        width: calc(100% - 24px)
+    }
+
     .catalog-page .catalog-layout {
         display: block;
         padding-top: 14px
@@ -1123,8 +1329,7 @@ td small {
         gap: 0
     }
 
-    .catalog-page .filter-popover,
-    .catalog-page .sale-toggle {
+    .catalog-page .filter-popover {
         width: 100%;
         margin: 0;
         border-width: 0 0 1px;
@@ -1132,15 +1337,9 @@ td small {
         border-radius: 0
     }
 
-    .catalog-page .filter-popover>summary,
-    .catalog-page .sale-toggle {
+    .catalog-page .filter-popover>summary {
         min-height: 50px;
         padding: 14px 34px 14px 2px
-    }
-
-    .catalog-page .sale-toggle {
-        justify-content: space-between;
-        padding-right: 2px
     }
 
     .catalog-page .filter-menu {
@@ -1366,19 +1565,6 @@ td small {
 
 .category-nav .category-tree-select small {
     margin-left: auto
-}
-
-.category-nav .category-tree-toggle {
-    width: 28px;
-    flex: 0 0 28px;
-    justify-content: center;
-    padding: 0;
-    color: #777;
-    transition: transform .15s ease
-}
-
-.category-nav .category-tree-toggle[aria-expanded="true"] {
-    transform: rotate(180deg)
 }
 
 .results {

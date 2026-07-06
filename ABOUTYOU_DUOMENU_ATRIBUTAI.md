@@ -19,7 +19,7 @@ Produkto puslapis nėra pilnai analizuojamas. Jis papildomai užklausiamas, kai 
 6. Anksčiau DB išsaugota spalva atkuriama, jei naujame katalogo atsakyme jos nėra.
 7. Daugiausia `SYNC_COLOR_ENRICHMENT_LIMIT` prekių be spalvos (pagal nutylėjimą 100 vienam target) produkto HTML puslapyje papildomai tikrinamos dėl spalvos.
 8. Kategorijos papildomos target pavadinimu ir plačiomis kategorijomis, nuspėtomis iš produkto pavadinimo.
-9. Produktai po 200 įrašomi per `record_catalog_batch`; kainos kartu įrašomos į dabartinį pasiūlymą ir dienos kainų istoriją.
+9. Produktai po 200 įrašomi per `record_catalog_batch`; kainos kartu įrašomos į dabartinį pasiūlymą, dienos kainų suvestinę ir tikslaus laiko pokyčių istoriją.
 
 Tuščias arba nepilnas rinkimas sėkmingu nelaikomas. Taip tuščias scrape nepadidina dingimo skaitiklių ir neišjungia viso katalogo.
 
@@ -123,6 +123,12 @@ Radus spalvą atnaujinami `colorOriginal`, `colorFamily` ir `colorShade`. Jokie 
 - mažiausia, didžiausia ir paskutinė tą dieną stebėta kaina;
 - ABOUT YOU LPL reikšmė;
 - stebėjimų skaičius ir atnaujinimo laikas.
+
+`price_changes` lentelėje saugomas kiekvienas pastebėtas dabartinės kainos pasikeitimas:
+
+- tiksli stebėjimo data ir laikas;
+- nauja dabartinė ir tuo metu gautos pradinė bei ABOUT YOU LPL kainos;
+- nepakitusi kaina pakartotinio sinchronizavimo metu nėra dubliuojama.
 
 ### Priskirti arba apskaičiuoti, o ne gauti iš ABOUT YOU
 

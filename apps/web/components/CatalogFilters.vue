@@ -29,6 +29,11 @@ const groups = computed<FilterGroup[]>(() => [
 const visibleGroups = computed(() => groups.value.filter((group) => group.items.length > 1 || activeCount(group.key) > 0));
 const selected = (key: string, value: string) => (local[key] || "").split(",").includes(value);
 const activeCount = (key: string) => (local[key] || "").split(",").filter(Boolean).length;
+const saleDiscount = computed({
+  get: () => Number(local.discount_min) || 10,
+  set: (value: number) => { local.discount_min = String(value); }
+});
+const belowOrEqualLpl = computed(() => local.below_observed_30d === "true" && local.price_comparison === "source_lpl");
 const filteredItems = (group: FilterGroup) => {
   const query = (searches[group.key] || "").trim().toLocaleLowerCase("lt");
   if (!query) return group.items.slice(0, 80);
@@ -42,8 +47,14 @@ const toggle = (key: string, value: string) => {
   local[key] = Array.from(values).join(",");
   apply();
 };
-const toggleSale = () => {
-  local.discount_min = local.discount_min ? "" : "1";
+const toggleBelowOrEqualLpl = () => {
+  if (belowOrEqualLpl.value) {
+    local.below_observed_30d = "";
+    local.price_comparison = "";
+  } else {
+    local.below_observed_30d = "true";
+    local.price_comparison = "source_lpl";
+  }
   apply();
 };
 const clear = () => {
@@ -60,6 +71,7 @@ const removeFilter = (key: string, value?: string) => {
   } else {
     local[key] = "";
     if (key === "price") { local.price_min = ""; local.price_max = ""; }
+    if (key === "below_observed_30d") local.price_comparison = "";
   }
   apply();
 };
@@ -71,7 +83,8 @@ const activeChips = computed(() => {
       chips.push({ key: group.key, value, label: item?.label || value });
     }
   }
-  if (local.discount_min) chips.push({ key: "discount_min", label: "Išpardavimas" });
+  if (local.discount_min) chips.push({ key: "discount_min", label: `Išpardavimas nuo ${local.discount_min} %` });
+  if (belowOrEqualLpl.value) chips.push({ key: "below_observed_30d", label: "Kaina ≤ LPL" });
   if (local.price_min || local.price_max) chips.push({ key: "price", label: `${local.price_min || "0"}–${local.price_max || "∞"} €` });
   return chips;
 });
@@ -120,9 +133,18 @@ onUnmounted(() => {
       <div class="filter-menu"><div class="range-row"><label>Nuo<input v-model="local.price_min" inputmode="decimal" placeholder="0 €"></label><label>Iki<input v-model="local.price_max" inputmode="decimal" placeholder="500 €"></label></div><button class="filter-apply" type="button" @click="apply(); activeFilter = null">Taikyti</button></div>
     </details>
 
-    <button class="sale-toggle" :class="{ active: Boolean(local.discount_min) }" type="button" role="switch" :aria-checked="Boolean(local.discount_min)" @click="toggleSale">
-      <span>Išpardavimas</span><i aria-hidden="true" />
-    </button>
+    <details class="filter-popover discount-filter" :open="activeFilter === 'discount'" @toggle="onToggle('discount', $event)">
+      <summary>Išpardavimas <span v-if="local.discount_min" class="filter-count">nuo {{ local.discount_min }} %</span><span v-if="belowOrEqualLpl" class="filter-count">≤ LPL</span></summary>
+      <div class="filter-menu">
+        <div class="discount-value"><span>Minimali nuolaida nuo LPL</span><strong>{{ saleDiscount }} %</strong></div>
+        <input v-model.number="saleDiscount" class="discount-range" type="range" min="10" max="70" step="10" aria-label="Minimali nuolaida procentais" @change="apply">
+        <div class="discount-scale" aria-hidden="true"><span v-for="value in [10, 20, 30, 40, 50, 60, 70]" :key="value">{{ value }}</span></div>
+        <button class="filter-switch" :class="{ active: belowOrEqualLpl }" type="button" role="switch" :aria-checked="belowOrEqualLpl" @click="toggleBelowOrEqualLpl">
+          <span><strong>Rodyti kainą ≤ LPL</strong><small>Įtraukia prekes, kurių mūsų kaina lygi LPL.</small></span><i aria-hidden="true" />
+        </button>
+        <button class="filter-apply" type="button" @click="apply(); activeFilter = null">Taikyti</button>
+      </div>
+    </details>
 
     <template v-for="group in visibleGroups" :key="group.key">
       <details class="filter-popover" :open="activeFilter === group.key" @toggle="onToggle(group.key, $event)">

@@ -7,7 +7,7 @@ const watched = ref(props.product.isWatched);
 const watchPending = ref(false);
 watch(() => props.product.isWatched, (value) => { watched.value = value; });
 const format = (value: number | null) => value === null ? "—" : new Intl.NumberFormat("lt-LT", { style: "currency", currency: props.product.currency }).format(value / 100);
-const discount = computed(() => props.product.originalPrice ? Math.max(0, Math.round((props.product.originalPrice - props.product.currentPrice) * 100 / props.product.originalPrice)) : 0);
+const discount = computed(() => Math.round(props.product.discountPct));
 const lowestPrice = computed(() => props.product.sourceLpl30 ?? props.product.observedMin30d);
 const lowestLabel = computed(() => props.product.sourceLpl30 !== null ? "Paskutinė mažiausia kaina" : "Mūsų 30 d. mažiausia kaina");
 async function toggleWatch() {

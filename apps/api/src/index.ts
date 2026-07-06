@@ -145,14 +145,16 @@ app.get("/v1/catalog/facets", async (c) => {
 
 app.get("/v1/products/:id", async (c) => {
   const id = c.req.param("id");
-  const [{ data: product, error }, { data: history }, { data: watch }] = await Promise.all([
+  const [{ data: product, error }, { data: history }, { data: priceChanges, error: priceChangesError }, { data: watch }] = await Promise.all([
     c.get("db").from("catalog_items").select("*").eq("id", id).maybeSingle(),
     c.get("db").from("daily_prices").select("observed_date,min_price,max_price,last_price,source_lpl_30").eq("product_id", id).order("observed_date"),
+    c.get("db").from("price_changes").select("observed_at,price,original_price,source_lpl_30").eq("product_id", id).order("observed_at", { ascending: false }),
     c.get("db").from("product_watches").select("product_id").eq("user_id", c.get("member").userId).eq("product_id", id).maybeSingle()
   ]);
   if (error) return c.json({ error: error.message }, 500);
+  if (priceChangesError) return c.json({ error: priceChangesError.message }, 500);
   if (!product) return c.json({ error: "Produktas nerastas" }, 404);
-  return c.json({ ...mapCatalogItem(product, Boolean(watch)), history: history ?? [] });
+  return c.json({ ...mapCatalogItem(product, Boolean(watch)), history: history ?? [], priceChanges: priceChanges ?? [] });
 });
 
 app.get("/v1/watchlist", async (c) => {
@@ -282,7 +284,7 @@ function mapCatalogItem(row: Record<string, any>, isWatched = false) {
     sizes: row.sizes ?? [], otherSizes: row.other_sizes ?? [], materials: row.materials ?? [], patterns: row.patterns ?? [],
     features: row.features ?? [], styles: row.styles ?? [], productTypes: row.product_types ?? [],
     source: row.source, currentPrice: row.current_price, originalPrice: row.original_price, sourceLpl30: row.source_lpl_30,
-    observedMin30d: row.observed_min_30d, currency: row.currency, updatedAt: row.updated_at,
+    observedMin30d: row.observed_min_30d, discountPct: Number(row.discount_pct), currency: row.currency, updatedAt: row.updated_at,
     firstSeenAt: row.first_seen_at, isWatched };
 }
 
