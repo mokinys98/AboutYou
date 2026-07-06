@@ -3,7 +3,9 @@ import type { CatalogCategoryNode } from "@catalog/shared";
 
 const props = defineProps<{ node: CatalogCategoryNode; selectedPath?: string; depth?: number }>();
 const emit = defineEmits<{ select: [path: string] }>();
-const open = ref(false);
+// Level 2 is open by default so the menu always exposes level 3. Deeper
+// branches open when their path is selected or when the user expands them.
+const open = ref(props.node.level < 3);
 const depth = computed(() => props.depth ?? 0);
 const selected = computed(() => props.selectedPath === props.node.path);
 const containsSelection = computed(() => Boolean(props.selectedPath && (
