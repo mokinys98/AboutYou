@@ -1,4 +1,4 @@
-import type { Page, Response } from "playwright";
+import type { APIResponse, Page, Response } from "playwright";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { ProductSchema, cents, isAllowedAboutYouUrl, normalizeColor, normalizeColorShade, type Product } from "@catalog/shared";
@@ -52,6 +52,11 @@ export interface ProductMetadataAttempt {
   parserVersion: number;
   metadataFound: boolean;
   error: string | null;
+  httpStatus: number | null;
+  contentType: string | null;
+  responseSize: number | null;
+  finalUrl: string | null;
+  responseHtml: string | null;
 }
 
 export type ProductDetailMetadata = {
@@ -366,23 +371,28 @@ export async function enrichMissingProductMetadata(
           timeout: options.timeoutMs ?? 20_000
         });
         if (response.status() === 429 || response.status() === 403) {
-          attempts.push(metadataAttempt(product.externalId, null, null, false, `http_${response.status()}`));
+          attempts.push(metadataAttempt(product.externalId, null, null, false, `http_${response.status()}`, response));
           if (options.failOnRateLimit) rateLimited = true;
           processed += 1;
           continue;
         }
         if (!response.ok()) {
-          attempts.push(metadataAttempt(product.externalId, null, null, false, `http_${response.status()}`));
+          attempts.push(metadataAttempt(product.externalId, null, null, false, `http_${response.status()}`, response));
           processed += 1;
           continue;
         }
         if (response.ok()) {
-          const extraction = extractProductDetailFromHtml(await response.text());
+          const html = await response.text();
+          const extraction = extractProductDetailFromHtml(html);
           const metadata = extraction.metadata;
           const metadataFound = hasProductDetailMetadata(metadata);
+          const error = !extraction.rawPayload
+            ? "product_detail_payload_missing"
+            : metadataFound ? null : "product_detail_metadata_missing";
           attempts.push(metadataAttempt(
             product.externalId, extraction.rawPayload, extraction.payloadHash, metadataFound,
-            extraction.rawPayload ? null : "product_detail_payload_missing"
+            error, response,
+            extraction.rawPayload ? null : html
           ));
           if (metadataFound) {
             enriched[productIndex] = {
@@ -427,13 +437,27 @@ function metadataAttempt(
   rawPayload: Record<string, unknown> | null,
   payloadHash: string | null,
   metadataFound: boolean,
-  error: string | null
+  error: string | null,
+  response?: APIResponse | Response,
+  responseHtml: string | null = null
 ): ProductMetadataAttempt {
   return {
     externalId, rawPayload, payloadHash, metadataFound, error,
     sourceEndpoint: PRODUCT_DETAIL_ENDPOINT,
-    parserVersion: PRODUCT_DETAIL_PARSER_VERSION
+    parserVersion: PRODUCT_DETAIL_PARSER_VERSION,
+    httpStatus: response?.status() ?? null,
+    contentType: response?.headers()["content-type"] ?? null,
+    responseSize: responseHtml === null
+      ? parseContentLength(response?.headers()["content-length"])
+      : Buffer.byteLength(responseHtml),
+    finalUrl: response?.url() ?? null,
+    responseHtml
   };
+}
+
+function parseContentLength(value: string | undefined): number | null {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
 }
 
 function hasProductDetailMetadata(metadata: ProductDetailMetadata): boolean {

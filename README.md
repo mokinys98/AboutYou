@@ -42,6 +42,9 @@ Galiausiai paleiskite `202607050006_protect_catalog_from_empty_sync.sql` ir
 YOU kategorijų keliui pakeisti anksčiau heuristiškai priskirtas kategorijas.
 Po jos paleiskite `202607050008_delete_sync_targets.sql`, kuri saugiai pašalina
 sinchronizavimo grupes ir perskaičiuoja paveiktų produktų matomumą.
+Pritaikę likusias `20260706...` migracijas, paleiskite
+`202607070001_product_sync_diagnostics.sql`. Ji sukuria privačią metaduomenų
+klaidų diagnostikos lentelę ir privatų `sync-debug` Storage bucket'ą.
 
 Sinchronizavimo metu kas 5 s spausdinamas surinktų produktų ir srauto puslapių progresas. Vienai grupei taikomas 8 min. rinkimo timeout ir iki 4 bandymų kiekvienai nutrūkusiai srauto puslapio užklausai.
 
@@ -62,6 +65,9 @@ gali sukelti laikiną ABOUT YOU Cloudflare 1015 blokavimą.
 - Hono API: `npm run deploy --workspace @catalog/api`.
 - Tas pats API Worker pagal UTC grafikus paleidžia GitHub Actions: katalogą `17 */6 * * *`, o produktų metaduomenis `47 * * * *`. Workflow failuose paliktas tik `workflow_dispatch`, todėl dvigubų paleidimų nėra.
 - GitHub Actions secrets: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`.
+- Metadata workflow pagal nutylėjimą išsaugo iki 20 sanitizuotų ir gzip suspaustų
+  nesėkmingų HTML pavyzdžių; ribą ir 14 dienų saugojimo terminą valdo
+  `METADATA_DEBUG_HTML_LIMIT` ir `METADATA_DEBUG_RETENTION_DAYS`.
 - Web aplinkos kintamieji: `NUXT_PUBLIC_SUPABASE_URL`, `NUXT_PUBLIC_SUPABASE_ANON_KEY`, `NUXT_PUBLIC_API_BASE`.
 - API `ALLOWED_ORIGIN` pakeiskite į produkcinį Pages domeną.
 - Worker `GITHUB_TOKEN` laikykite tik Cloudflare secret; `GITHUB_OWNER`, `GITHUB_REPO` ir `GITHUB_REF` nustatyti `apps/api/wrangler.jsonc`.

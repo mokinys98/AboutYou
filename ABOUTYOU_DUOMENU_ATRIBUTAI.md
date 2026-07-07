@@ -99,7 +99,11 @@ Produkto HTML tikrinamas tokia tvarka:
 3. baziniai laukai imami iš konkrečių `imagesSection`, `sizesSection`, `productDetailsSection` ir `linksSection` kelių;
 4. payload neradus, spalvai, kategorijai ir bendriems atributams naudojamas ankstesnis JSON-LD parseris.
 
-Nesaugomas visas HTML, request antraštės, slapukai, kampanijų, navigacijos ar page-meta initial-state atsakymai.
+Įprastai visas HTML nesaugomas. Kai nerandamas produkto detalės payload, per vieną
+sync išsaugoma iki 20 diagnostinių HTML pavyzdžių privačiame `sync-debug` Storage
+bucket'e. Prieš įkėlimą jautrios tokenų, slapukų, el. pašto ir slaptažodžių
+reikšmės redaguojamos, o HTML suspaudžiamas gzip. Senesni nei 14 dienų failai ir
+diagnostikos eilutės pašalinami kito metadata sync pradžioje.
 
 ## Kas išsaugoma duomenų bazėje
 
@@ -120,6 +124,10 @@ Nesaugomas visas HTML, request antraštės, slapukai, kampanijų, navigacijos ar
 - sėkmingo gavimo `fetched_at`, `source_endpoint` ir `parser_version`;
 - payload neindeksuojamas GIN ir nėra pasiekiamas `anon` ar `authenticated` rolėms;
 - jei hash nepasikeitė, JSON neperrašomas; istorinių kopijų nekuriama.
+
+`product_sync_diagnostics` lentelėje saugomi nesėkmingų bandymų produkto ID,
+laikas, klaidos kodas, HTTP būsena, turinio tipas ir dydis, galutinis URL,
+parserio versija bei pasirinktinė nuoroda į diagnostinį HTML Storage faile.
 
 Faktiniam dydžiui PostgreSQL patikrinti:
 

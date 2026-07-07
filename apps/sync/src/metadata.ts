@@ -4,6 +4,7 @@ import { z } from "zod";
 import { enrichMissingProductMetadata } from "@catalog/aboutyou-provider";
 import { normalizeCategoryPath, type Product } from "@catalog/shared";
 import { inferFallbackCategories } from "./category-classifier";
+import { cleanupOldDiagnostics, diagnosticRow, uploadDiagnosticHtml } from "./metadata-diagnostics";
 
 const EnvSchema = z.object({
   SUPABASE_URL: z.string().url(),
@@ -11,6 +12,8 @@ const EnvSchema = z.object({
   METADATA_SYNC_MAX_PRODUCTS: z.coerce.number().int().min(1).max(50_000).default(500),
   METADATA_SYNC_CONCURRENCY: z.coerce.number().int().min(1).max(12).default(3),
   METADATA_SYNC_DELAY_MS: z.coerce.number().int().min(250).max(60_000).default(750),
+  METADATA_DEBUG_HTML_LIMIT: z.coerce.number().int().min(0).max(100).default(20),
+  METADATA_DEBUG_RETENTION_DAYS: z.coerce.number().int().min(1).max(90).default(14),
   SYNC_HEADLESS: z.string().default("true").transform((value) => value !== "false")
 });
 
@@ -20,6 +23,12 @@ const db = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
 });
 
 const startedAt = Date.now();
+try {
+  const deleted = await cleanupOldDiagnostics(db, env.METADATA_DEBUG_RETENTION_DAYS);
+  if (deleted) log(`Pašalinta ${deleted} senų metaduomenų diagnostikos įrašų ir jų HTML failai.`);
+} catch (error) {
+  log(`Nepavyko išvalyti senos diagnostikos: ${errorMessage(error)}.`);
+}
 log(`Metaduomenų sync pradėtas (maxProducts=${env.METADATA_SYNC_MAX_PRODUCTS}).`);
 const products = await loadActiveProducts();
 log(`Atrinkta ${products.length} aktyvių produktų pagal seniausią detalės patikrinimą.`);
@@ -27,6 +36,7 @@ log(`Atrinkta ${products.length} aktyvių produktų pagal seniausią detalės pa
 const browser = await chromium.launch({ headless: env.SYNC_HEADLESS });
 let attempted = 0;
 let refreshed = 0;
+let debugHtmlSaved = 0;
 try {
   const context = await browser.newContext({ locale: "lt-LT", timezoneId: "Europe/Vilnius" });
   const page = await context.newPage();
@@ -79,6 +89,27 @@ try {
         });
         const { error } = await db.rpc("record_product_metadata_batch", { p_products: updates });
         if (error) throw error;
+        const diagnostics = [];
+        for (const attempt of result.attempts) {
+          if (!attempt.error) continue;
+          const row = sourceByExternalId.get(attempt.externalId);
+          if (!row) continue;
+          const checkedAt = new Date();
+          let htmlStoragePath: string | null = null;
+          if (attempt.error === "product_detail_payload_missing" && attempt.responseHtml && debugHtmlSaved < env.METADATA_DEBUG_HTML_LIMIT) {
+            try {
+              htmlStoragePath = await uploadDiagnosticHtml(db, row.id, attempt.responseHtml, checkedAt);
+              debugHtmlSaved += 1;
+            } catch (uploadError) {
+              log(`Nepavyko išsaugoti ${row.external_id} diagnostikos HTML: ${errorMessage(uploadError)}.`);
+            }
+          }
+          diagnostics.push(diagnosticRow(row.id, attempt, htmlStoragePath, checkedAt));
+        }
+        if (diagnostics.length) {
+          const { error: diagnosticsError } = await db.from("product_sync_diagnostics").insert(diagnostics);
+          if (diagnosticsError) log(`Nepavyko įrašyti ${diagnostics.length} diagnostikos eilučių: ${diagnosticsError.message}.`);
+        }
         if (result.rateLimited) {
           log("ABOUT YOU pasiektas užklausų limitas. Užbaigti rezultatai išsaugoti; kitas paleidimas tęs nuo seniausiai tikrintų produktų.");
           break syncGroups;
@@ -156,6 +187,10 @@ function chunks<T>(items: T[], size: number): T[][] {
 }
 
 function log(message: string): void { console.log(`[metadata-sync ${new Date().toISOString()}] ${message}`); }
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 function formatDuration(milliseconds: number): string {
   const seconds = Math.max(0, Math.round(milliseconds / 1_000));
   return seconds < 60 ? `${seconds} s` : `${Math.floor(seconds / 60)} min ${seconds % 60} s`;
