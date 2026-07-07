@@ -5,7 +5,7 @@
   "compatibility_date": "2026-07-06",
   "compatibility_flags": ["nodejs_compat"],
   "vars": {
-    "ALLOWED_ORIGIN": "http://localhost:3000",
+    "ALLOWED_ORIGIN": "https://aboutyou-private-catalog-web.pages.dev",
     "GITHUB_OWNER": "mokinys98",
     "GITHUB_REPO": "AboutYou",
     "GITHUB_REF": "main"

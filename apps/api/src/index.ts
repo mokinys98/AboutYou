@@ -5,12 +5,16 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 import { CatalogFiltersSchema, isAllowedAboutYouUrl } from "@catalog/shared";
 import { z } from "zod";
 
-type Bindings = Pick<Env, "ALLOWED_ORIGIN"> & {
+type Bindings = {
+  ALLOWED_ORIGIN: string;
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
 };
-type SchedulerBindings = Bindings & Pick<Env, "GITHUB_OWNER" | "GITHUB_REPO" | "GITHUB_REF"> & {
+type SchedulerBindings = Bindings & {
   GITHUB_TOKEN: string;
+  GITHUB_OWNER: string;
+  GITHUB_REPO: string;
+  GITHUB_REF: string;
 };
 type Variables = { db: SupabaseClient; member: { userId: string; role: "admin" | "viewer"; email: string } };
 
