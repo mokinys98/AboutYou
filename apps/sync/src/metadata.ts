@@ -1,162 +1,231 @@
 import { chromium } from "playwright";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
-import { enrichMissingProductMetadata } from "@catalog/aboutyou-provider";
-import { normalizeCategoryPath, type Product } from "@catalog/shared";
-import { inferFallbackCategories } from "./category-classifier";
+import {
+  PRODUCT_DETAIL_ENDPOINT,
+  PRODUCT_DETAIL_PARSER_VERSION,
+  extractProductDetailFromHtml
+} from "@catalog/aboutyou-provider";
+import { normalizeCategoryPath, normalizeColor, normalizeColorShade } from "@catalog/shared";
 
 const EnvSchema = z.object({
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(20),
-  METADATA_SYNC_MAX_PRODUCTS: z.coerce.number().int().min(1).max(50_000).default(500),
+  METADATA_SYNC_MAX_PRODUCTS: z.coerce.number().int().min(1).max(50_000).default(10_000),
+  METADATA_SYNC_CLAIM_SIZE: z.coerce.number().int().min(1).max(100).default(25),
   METADATA_SYNC_CONCURRENCY: z.coerce.number().int().min(1).max(12).default(3),
-  METADATA_SYNC_DELAY_MS: z.coerce.number().int().min(250).max(60_000).default(750),
+  METADATA_SYNC_DELAY_MS: z.coerce.number().int().min(250).max(60_000).default(400),
+  METADATA_SYNC_MAX_RUNTIME_MINUTES: z.coerce.number().int().min(1).max(70).default(60),
   SYNC_HEADLESS: z.string().default("true").transform((value) => value !== "false")
 });
 
-const env = EnvSchema.parse(process.env);
-const db = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
-  auth: { persistSession: false, autoRefreshToken: false }
-});
-
-const startedAt = Date.now();
-log(`Metaduomenų sync pradėtas (maxProducts=${env.METADATA_SYNC_MAX_PRODUCTS}).`);
-const products = await loadActiveProducts();
-log(`Atrinkta ${products.length} aktyvių produktų pagal seniausią detalės patikrinimą.`);
-
-const browser = await chromium.launch({ headless: env.SYNC_HEADLESS });
-let attempted = 0;
-let refreshed = 0;
-try {
-  const context = await browser.newContext({ locale: "lt-LT", timezoneId: "Europe/Vilnius" });
-  const page = await context.newPage();
-  try {
-    syncGroups: for (const sourceProducts of groupBySource(products).values()) {
-      for (const productBatch of chunks(sourceProducts, 25)) {
-        const sourceByExternalId = new Map(productBatch.map((row) => [row.external_id, row]));
-        const result = await enrichMissingProductMetadata(page, productBatch.map(toProduct), {
-          limit: productBatch.length,
-          onlyMissing: false,
-          failOnRateLimit: true,
-          concurrency: env.METADATA_SYNC_CONCURRENCY,
-          delayMs: env.METADATA_SYNC_DELAY_MS
-        });
-        attempted += result.attempted;
-        refreshed += result.refreshed;
-        const productByExternalId = new Map(result.products.map((product) => [product.externalId, product]));
-        const updates = result.attempts.flatMap((attempt) => {
-          const row = sourceByExternalId.get(attempt.externalId);
-          const product = productByExternalId.get(attempt.externalId);
-          if (!row || !product) return [];
-          const sourceIsExact = attempt.metadataFound && product.categories[0]?.toLocaleLowerCase("lt") === "vyrams" && product.categories.length >= 2;
-          const fallbackRoot = attempt.metadataFound ? inferFallbackCategories(product.name, product.productTypes)[0] : undefined;
-          const categoryPath = attempt.metadataFound
-            ? normalizeCategoryPath(product.categories, sourceIsExact ? undefined : fallbackRoot)
-            : [];
-          return [{
-            id: row.id,
-            metadataFound: attempt.metadataFound,
-            rawPayload: attempt.rawPayload,
-            payloadHash: attempt.payloadHash,
-            sourceEndpoint: attempt.sourceEndpoint,
-            parserVersion: attempt.parserVersion,
-            detailError: attempt.error,
-            imageUrls: product.imageUrls,
-            colorOriginal: product.colorOriginal,
-            colorFamily: product.colorFamily,
-            colorShade: product.colorShade,
-            categories: categoryPath.slice(1),
-            categoryPath,
-            categoriesExact: sourceIsExact,
-            sizes: product.sizes,
-            otherSizes: product.otherSizes,
-            materials: product.materials,
-            patterns: product.patterns,
-            features: product.features,
-            styles: product.styles,
-            productTypes: product.productTypes
-          }];
-        });
-        const { error } = await db.rpc("record_product_metadata_batch", { p_products: updates });
-        if (error) throw error;
-        if (result.rateLimited) {
-          log("ABOUT YOU pasiektas užklausų limitas. Užbaigti rezultatai išsaugoti; kitas paleidimas tęs nuo seniausiai tikrintų produktų.");
-          break syncGroups;
-        }
-        log(`Patikrinta ${attempted}/${products.length}, išsaugota ${refreshed}; paskutinis 25 produktų checkpoint įrašytas.`);
-      }
-    }
-  } finally {
-    await context.close();
-  }
-} finally {
-  await browser.close();
-}
-
-log(`Metaduomenų sync baigtas: aplankyta ${attempted}, su metaduomenimis ${refreshed}, trukmė ${formatDuration(Date.now() - startedAt)}.`);
-
-type ProductRow = {
+type Claim = {
   id: string;
   source_id: string;
   external_id: string;
   name: string;
   brand: string;
   product_url: string;
-  image_urls: string[];
-  color_original: string | null;
-  color_family: Product["colorFamily"];
-  color_shade: Product["colorShade"];
-  sizes: string[];
-  other_sizes: string[];
-  materials: string[];
-  patterns: string[];
-  features: string[];
-  styles: string[];
-  product_types: string[];
+  lease_token: string;
 };
 
-async function loadActiveProducts(): Promise<ProductRow[]> {
-  const pageSize = 1_000;
-  const rows: ProductRow[] = [];
-  for (let from = 0; from < env.METADATA_SYNC_MAX_PRODUCTS; from += pageSize) {
-    const to = Math.min(from + pageSize, env.METADATA_SYNC_MAX_PRODUCTS) - 1;
-    const { data, error } = await db.from("products")
-      .select("id,source_id,external_id,name,brand,product_url,image_urls,color_original,color_family,color_shade,sizes,other_sizes,materials,patterns,features,styles,product_types,detail_checked_at")
-      .eq("active", true)
-      .order("detail_checked_at", { ascending: true, nullsFirst: true })
-      .order("source_id").order("id").range(from, to);
+type Counters = {
+  claimed: number;
+  payload_ok: number;
+  complete: number;
+  source_absent: number;
+  retryable: number;
+  blocked_schema: number;
+  source_unavailable: number;
+};
+
+const env = EnvSchema.parse(process.env);
+const db = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+  auth: { persistSession: false, autoRefreshToken: false }
+});
+const counters: Counters = {
+  claimed: 0, payload_ok: 0, complete: 0, source_absent: 0,
+  retryable: 0, blocked_schema: 0, source_unavailable: 0
+};
+const startedAt = Date.now();
+const deadline = startedAt + env.METADATA_SYNC_MAX_RUNTIME_MINUTES * 60_000;
+let rateLimited = false;
+let nextRequestAt = Date.now();
+
+log("metadata_sync_started", {
+  parser_version: PRODUCT_DETAIL_PARSER_VERSION,
+  max_products: env.METADATA_SYNC_MAX_PRODUCTS,
+  max_runtime_minutes: env.METADATA_SYNC_MAX_RUNTIME_MINUTES
+});
+
+const browser = await chromium.launch({ headless: env.SYNC_HEADLESS });
+try {
+  const context = await browser.newContext({ locale: "lt-LT", timezoneId: "Europe/Vilnius" });
+  while (!rateLimited && counters.claimed < env.METADATA_SYNC_MAX_PRODUCTS && Date.now() < deadline) {
+    const remaining = env.METADATA_SYNC_MAX_PRODUCTS - counters.claimed;
+    const { data, error } = await db.rpc("claim_product_detail_batch", {
+      p_parser_version: PRODUCT_DETAIL_PARSER_VERSION,
+      p_limit: Math.min(env.METADATA_SYNC_CLAIM_SIZE, remaining),
+      p_lease_minutes: 20
+    });
     if (error) throw error;
-    rows.push(...(data as ProductRow[] ?? []));
-    if ((data?.length ?? 0) < to - from + 1) break;
+    const claims = (data ?? []) as Claim[];
+    if (!claims.length) break;
+    counters.claimed += claims.length;
+
+    await runPool(claims, env.METADATA_SYNC_CONCURRENCY, async (claim) => {
+      if (rateLimited) return;
+      await waitForRequestSlot();
+      try {
+        const response = await context.request.get(claim.product_url, {
+          failOnStatusCode: false,
+          headers: { accept: "text/html,application/xhtml+xml" },
+          timeout: 20_000
+        });
+        const status = response.status();
+        if (status === 403 || status === 429) {
+          rateLimited = true;
+          await fail(claim, "rate_limited", `http_${status}`, status);
+          return;
+        }
+        if (status === 404 || status === 410) {
+          counters.source_unavailable += 1;
+          await fail(claim, "source_unavailable", `http_${status}`, status);
+          return;
+        }
+        if (!response.ok()) {
+          counters.retryable += 1;
+          await fail(claim, "retryable", `http_${status}`, status);
+          return;
+        }
+
+        const finalUrl = new URL(response.url());
+        const finalProductId = finalUrl.pathname.match(/-(\d+)\/?$/)?.[1] ?? null;
+        if (!finalUrl.pathname.startsWith("/p/") || finalProductId !== claim.external_id) {
+          counters.source_unavailable += 1;
+          await fail(claim, "source_unavailable", "product_detail_redirected", status);
+          return;
+        }
+
+        const extraction = extractProductDetailFromHtml(await response.text());
+        if (!extraction.rawPayload || !extraction.payloadHash) {
+          counters.blocked_schema += 1;
+          await fail(claim, "blocked_schema", "product_detail_payload_missing", status);
+          return;
+        }
+        counters.payload_ok += 1;
+        if (extraction.sourceProductId !== claim.external_id) {
+          counters.blocked_schema += 1;
+          await fail(claim, "blocked_schema", "product_detail_id_mismatch", status);
+          return;
+        }
+        if (extraction.schemaError) {
+          counters.blocked_schema += 1;
+          await fail(claim, "blocked_schema", extraction.schemaError, status);
+          return;
+        }
+
+        const metadata = extraction.metadata;
+        const sourceIsExact = metadata.categories[0]?.toLocaleLowerCase("lt") === "vyrams" && metadata.categories.length >= 2;
+        const categoryPath = sourceIsExact ? normalizeCategoryPath(metadata.categories) : [];
+        const result = {
+          imageUrls: metadata.imageUrls,
+          colorOriginal: metadata.colorOriginal,
+          colorFamily: normalizeColor(metadata.colorOriginal),
+          colorShade: normalizeColorShade(metadata.colorOriginal),
+          sizes: metadata.sizeOptions.filter((option) => option.selectable).map((option) => option.label),
+          otherSizes: unique(metadata.sizeOptions.flatMap((option) => option.group ? [option.group] : [])),
+          materials: metadata.materials,
+          patterns: metadata.patterns,
+          features: metadata.features,
+          styles: metadata.styles,
+          productTypes: metadata.productTypes,
+          categoryPath,
+          categoriesExact: sourceIsExact,
+          sections: metadata.sections,
+          colorOptions: metadata.colorOptions.map((option, position) => ({ ...option, position })),
+          sizeOptions: metadata.sizeOptions.map((option, position) => ({ ...option, position }))
+        };
+        const { error: completeError } = await db.rpc("complete_product_detail", {
+          p_product_id: claim.id,
+          p_lease_token: claim.lease_token,
+          p_parser_version: PRODUCT_DETAIL_PARSER_VERSION,
+          p_payload: extraction.rawPayload,
+          p_payload_hash: extraction.payloadHash,
+          p_source_endpoint: PRODUCT_DETAIL_ENDPOINT,
+          p_result: result
+        });
+        if (completeError) throw completeError;
+        counters.complete += 1;
+        counters.source_absent += metadata.sections.filter((section) => section.status === "source_absent").length;
+      } catch (error) {
+        counters.retryable += 1;
+        await fail(claim, "retryable", safeErrorCode(error), null);
+      }
+    });
+
+    if (rateLimited) {
+      const leaseToken = claims[0]?.lease_token;
+      if (leaseToken) await db.rpc("release_product_detail_claim", { p_lease_token: leaseToken });
+    }
+    log("metadata_sync_checkpoint", counters);
   }
-  return rows;
+} finally {
+  await browser.close();
 }
 
-function toProduct(row: ProductRow): Product {
-  return {
-    externalId: row.external_id, name: row.name, brand: row.brand, productUrl: row.product_url,
-    imageUrls: row.image_urls ?? [], colorOriginal: row.color_original, colorFamily: row.color_family,
-    colorShade: row.color_shade, categories: [], categoryPath: [], sizes: row.sizes ?? [], otherSizes: row.other_sizes ?? [],
-    materials: row.materials ?? [], patterns: row.patterns ?? [], features: row.features ?? [],
-    styles: row.styles ?? [], productTypes: row.product_types ?? [], currentPrice: 0, originalPrice: null,
-    sourceLpl30: null, currency: "EUR"
+const { data: coverage, error: coverageError } = await db.rpc("product_detail_sync_summary", {
+  p_parser_version: PRODUCT_DETAIL_PARSER_VERSION
+});
+if (coverageError) throw coverageError;
+log("metadata_sync_finished", {
+  ...counters,
+  parser_version: PRODUCT_DETAIL_PARSER_VERSION,
+  rate_limited: rateLimited,
+  duration_seconds: Math.round((Date.now() - startedAt) / 1_000),
+  coverage
+});
+
+async function fail(
+  claim: Claim,
+  kind: "rate_limited" | "retryable" | "blocked_schema" | "source_unavailable",
+  code: string,
+  httpStatus: number | null
+): Promise<void> {
+  const { error } = await db.rpc("fail_product_detail", {
+    p_product_id: claim.id,
+    p_lease_token: claim.lease_token,
+    p_error_kind: kind,
+    p_error_code: code.slice(0, 200),
+    p_http_status: httpStatus
+  });
+  if (error && !String(error.message).includes("lease is missing")) throw error;
+}
+
+async function waitForRequestSlot(): Promise<void> {
+  const now = Date.now();
+  const scheduledAt = Math.max(now, nextRequestAt);
+  nextRequestAt = scheduledAt + env.METADATA_SYNC_DELAY_MS;
+  if (scheduledAt > now) await new Promise((resolve) => setTimeout(resolve, scheduledAt - now));
+}
+
+async function runPool<T>(items: T[], concurrency: number, task: (item: T) => Promise<void>): Promise<void> {
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < items.length) {
+      const item = items[cursor++];
+      if (item === undefined) break;
+      await task(item);
+    }
   };
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
 }
 
-function groupBySource(rows: ProductRow[]): Map<string, ProductRow[]> {
-  const groups = new Map<string, ProductRow[]>();
-  for (const row of rows) groups.set(row.source_id, [...(groups.get(row.source_id) ?? []), row]);
-  return groups;
+function unique(values: string[]): string[] { return [...new Set(values)]; }
+function safeErrorCode(error: unknown): string {
+  const value = error instanceof Error ? error.message : String(error);
+  return `request_failed:${value}`.replace(/\s+/g, " ").slice(0, 200);
 }
-
-function chunks<T>(items: T[], size: number): T[][] {
-  const result: T[][] = [];
-  for (let index = 0; index < items.length; index += size) result.push(items.slice(index, index + size));
-  return result;
-}
-
-function log(message: string): void { console.log(`[metadata-sync ${new Date().toISOString()}] ${message}`); }
-function formatDuration(milliseconds: number): string {
-  const seconds = Math.max(0, Math.round(milliseconds / 1_000));
-  return seconds < 60 ? `${seconds} s` : `${Math.floor(seconds / 60)} min ${seconds % 60} s`;
+function log(event: string, values: Record<string, unknown>): void {
+  console.log(JSON.stringify({ event, at: new Date().toISOString(), ...values }));
 }

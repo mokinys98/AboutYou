@@ -7,9 +7,10 @@
   ["aysa_api.services.article_detail_page.v1.ArticleDetailService/GetProductBulk:fixture", {"data":{
     "imagesSection":{
       "images":[{"image":{"src":"https://cdn.aboutstatic.com/product-front.jpg?quality=75&amp;trim=1"}},{"image":{"src":"https://cdn.aboutstatic.com/product-back.jpg"}}],
-      "product":{"id":3935028,"name":"Marškinėliai","colorLabel":"juoda","sizes":[{"shopSize":{"size":{"$case":"twoDimension","twoDimension":{"firstDimension":"S","secondDimension":"Standartinis","label":"S Standartinis"}}}}]}
+      "product":{"id":3935028,"name":"Marškinėliai","colorLabel":"juoda","colors":[{"id":38905,"name":"Juoda"}],"sizes":[{"id":1,"shopSize":{"size":{"$case":"twoDimension","twoDimension":{"firstDimension":"S","secondDimension":"Standartinis","label":"S Standartinis"}}}},{"id":2,"shopSize":{"size":{"$case":"twoDimension","twoDimension":{"firstDimension":"M","secondDimension":"Standartinis","label":"M Standartinis"}}}}]}
     },
-    "sizesSection":{"sizeSelection":{"type":{"$case":"sizes","sizes":{"sizes":[{"sizeId":1,"label":"S Standartinis"},{"sizeId":2,"label":"M Standartinis"}]}}}},
+    "sizesSection":{"sizeSelection":{"type":{"$case":"sizes","sizes":{"sizes":[{"sizeId":1,"label":"S Standartinis","availability":{"$case":"inStock","inStock":{"quantity":2}}},{"sizeId":2,"label":"M Standartinis","availability":{"$case":"soldOut","soldOut":{"label":"Priminti man"}}}]}}}},
+    "productSelectionSection":{"type":{"$case":"productSelection","productSelection":{"items":[{"id":3935028,"path":"/p/under-armour/marskineliai-3935028","colorLabel":"juoda"},{"id":3990667,"path":"/p/under-armour/marskineliai-3990667","colorLabel":"tamsiai mėlyna"}]}}},
     "linksSection":{"breadcrumbs":[
       {"url":{"url":"/c/vyrams-20202"},"label":"Vyrams"},
       {"url":{"url":"/c/vyrams/drabuziai-20290"},"label":"Drabužiai"},
@@ -18,7 +19,7 @@
     ]},
     "productDetailsSection":{"articleDetails":{"lanes":[
       {"label":"Dizainas ir priedai","type":{"$case":"bulletPointLane","bulletPointLane":{"bulletPoints":["Vienspalvis","Plonas trikotažas"]}}},
-      {"label":"Dydis ir forma","type":{"$case":"sizeLane","sizeLane":{"bulletPoints":["Ilgis: normalus"]}}},
+      {"label":"Dydis ir forma","type":{"$case":"sizeLane","sizeLane":{"bulletPoints":["Ilgis: normalus","Galinės dalies plotis: 43cm (dydis S)"]}}},
       {"label":"Medžiagos ir priežiūros priemonės","type":{"$case":"materialLane","materialLane":{"bulletPoints":["Medžiaga: 60% Medvilnė, 40% Poliesteris"]}}},
       {"label":"Funkcionalumas","type":{"$case":"regularLane","regularLane":{"items":["Orui laidus"]}}}
     ]}},

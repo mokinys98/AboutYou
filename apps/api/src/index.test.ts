@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { app, catalogCacheUrl, dispatchGitHubWorkflow, newestCatalogCutoff, parseFilters, priceComparisonColumn, workflowForCron } from "./index";
+import { app, catalogCacheUrl, dispatchGitHubWorkflow, mapProductDetail, newestCatalogCutoff, parseFilters, priceComparisonColumn, workflowForCron } from "./index";
 
 describe("catalog API", () => {
   it("exposes an unauthenticated health check", async () => {
@@ -71,6 +71,22 @@ describe("catalog API", () => {
     expect(workflowForCron("17 */6 * * *")).toBe("sync-catalog.yml");
     expect(workflowForCron("47 * * * *")).toBe("sync-product-metadata.yml");
     expect(() => workflowForCron("0 0 * * *")).toThrow("Nežinomas cron grafikas");
+  });
+
+  it("maps product detail sync rows without exposing raw payloads", () => {
+    const detail = mapProductDetail(
+      { status: "complete", parser_version: 2, static_synced_at: "2026-07-07T10:00:00Z", availability_synced_at: "2026-07-07T10:00:00Z" },
+      [{ section_key: "measurements", source_label: "Išmatavimai", status: "present", items: [{ label: "Ilgis", value: "69cm", unit: "cm", rawText: "Ilgis: 69cm" }] }],
+      [{ external_id: "38905", label: "Juoda", url: null, selected: true }],
+      [{ external_id: "1", label: "S", size_group: "Standartinis", selected: false, selectable: true, availability: "inStock" }]
+    );
+    expect(detail).toMatchObject({
+      status: "complete", parserVersion: 2,
+      sections: [{ key: "measurements", status: "present" }],
+      colorOptions: [{ label: "Juoda", selected: true }],
+      sizeOptions: [{ externalId: "1", selectable: true, availability: "inStock" }]
+    });
+    expect(detail).not.toHaveProperty("payload");
   });
 
   it("dispatches a GitHub workflow on the configured ref", async () => {

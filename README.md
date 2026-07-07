@@ -47,14 +47,14 @@ Sinchronizavimo metu kas 5 s spausdinamas surinktų produktų ir srauto puslapi�
 
 Pagrindinis prisijungimo būdas yra el. paštas ir slaptažodis. Magic link paliktas kaip alternatyva: Supabase Auth URL Configuration pridėkite vietinį `http://localhost:3000/auth/callback` ir produkcinį Cloudflare Pages callback URL. Viešą naudotojų registraciją išjunkite. Produkciniam magic-link laiškų siuntimui sukonfigūruokite nuosavą SMTP tiekėją, nes numatytasis Supabase siuntimas yra skirtas tik bandymams ir turi griežtus limitus.
 
-Jei katalogo srautas nepateikia spalvos arba kategorijos, sinchronizatorius jas
-papildo iš produkto puslapio JSON-LD. Kategorijos breadcrumb išplečiamas iki
-kairiojo meniu tėvinės struktūros. Vienu paleidimu pagal nutylėjimą praturtinama
-iki 100 produktų, siunčiant po vieną užklausą ne dažniau kaip kas 750 ms. Ribas
-galima keisti per `SYNC_COLOR_ENRICHMENT_LIMIT`,
-`SYNC_COLOR_ENRICHMENT_CONCURRENCY` ir `SYNC_COLOR_ENRICHMENT_DELAY_MS`; jau
-surinktos spalvos iš DB atkuriamos ir pakartotinai nebesiunčiamos. Didesnis tempas
-gali sukelti laikiną ABOUT YOU Cloudflare 1015 blokavimą.
+Produkto detalės renkamos atskiru `sync:metadata` procesu tik iš struktūruoto
+`ArticleDetailService/GetProductBulk` payload. Darbai rezervuojami DB lease, todėl
+pakartotinis workflow neapdoroja jau užbaigto tos pačios parserio versijos produkto.
+Statinės sekcijos atnaujinamos pasikeitus payload, o dydžių prieinamumas – ne dažniau
+kaip kas 24 val. 403/429 sustabdo batch nepadidindamas produkto bandymų skaičiaus.
+Ribas valdo `METADATA_SYNC_MAX_PRODUCTS`, `METADATA_SYNC_CLAIM_SIZE`,
+`METADATA_SYNC_CONCURRENCY`, `METADATA_SYNC_DELAY_MS` ir
+`METADATA_SYNC_MAX_RUNTIME_MINUTES`.
 
 ## Diegimas
 

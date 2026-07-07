@@ -6,7 +6,7 @@ Analizės data: 2026-07-06.
 
 Dabartinis sinchronizatorius prekes renka pirmiausia iš ABOUT YOU katalogo vidinio `CategoryStreamService` produkto srauto. Jei tiesioginis srautas nepavyksta, naudojama puslapio pradinė būsena ir katalogo kortelių DOM slinkimo alternatyva.
 
-Produkto detalės tikrinamos atskiru valandiniu jobu. Iš produkto HTML `data-tadarida-initial-state` paimamas tik `ArticleDetailService/GetProductBulk` atsakymas, o kiekvienam produktui DB laikoma viena naujausia sanitizuota raw JSON kopija. Baziniai laukai ištraukiami į esamą produkto modelį; priežiūra, išmatavimai, gamintojas ir variantų prieinamumas lieka raw ateities backfill.
+Produkto detalės tikrinamos atskiru valandiniu jobu. Iš produkto HTML `data-tadarida-initial-state` paimamas tik `ArticleDetailService/GetProductBulk` atsakymas, o kiekvienam produktui DB laikoma viena naujausia sanitizuota raw JSON kopija. Dydis ir forma, išmatavimai, medžiagų sudėtis, dizainas, spalvų variantai ir dydžių prieinamumas saugomi atskirame autoritetingame modelyje; fallback reikšmės į jį nepatenka.
 
 ## Kaip dabar gaunamos prekės
 
@@ -17,7 +17,7 @@ Produkto detalės tikrinamos atskiru valandiniu jobu. Iš produkto HTML `data-ta
 4. Iš kiekvieno `productTile` rekursyviai ieškomi žemiau lentelėje nurodyti laukai.
 5. Jei tiesioginis srautas neveikia, skaitomi `script[data-tadarida-initial-state="true"]` duomenys ir slenkamas katalogo DOM. Grynas DOM fallback patikimai gauna tik ID, URL, pavadinimą ir dabartinę kainą; kiti laukai dažniausiai lieka tušti arba perimami iš pradinės būsenos.
 6. Anksčiau DB išsaugota spalva atkuriama, jei naujame katalogo atsakyme jos nėra.
-7. Atskiras `sync:metadata` jobas kas valandą ima iki 500 seniausiai tikrintų aktyvių produktų; nauji produktai su `detail_checked_at = null` tikrinami pirmiausia.
+7. Atskiras `sync:metadata` jobas atominiu `SKIP LOCKED` claim ima tik neapdorotus einamos parserio versijos produktus arba dydžių prieinamumą, kurio 24 val. terminas pasibaigė.
 8. Kategorijos papildomos target pavadinimu ir plačiomis kategorijomis, nuspėtomis iš produkto pavadinimo.
 9. Produktai po 200 įrašomi per `record_catalog_batch`; kainos kartu įrašomos į dabartinį pasiūlymą, dienos kainų suvestinę ir tikslaus laiko pokyčių istoriją.
 
@@ -76,15 +76,15 @@ Viešame pavyzdyje [UNDER ARMOUR sportiniai marškinėliai, produkto ID 3935028]
 | Tapatybė | breadcrumb kategorijų kelias, prekės ženklas, pilnas pavadinimas, produkto URL | Kategorijos imamos iš `GetProductBulk.linksSection.breadcrumbs`; JSON-LD lieka fallback. |
 | Nuotraukos | keli vaizdai, pvz. priekis, galas ir papildomi kadrai; `alt` aprašai | `GetProductBulk.imagesSection.images` URL atnaujina `image_urls`. |
 | Kaina | dabartinė kaina, valiuta, PVM tekstas, galimos akcijų ir ankstesnės kainos | Nerenkama iš detalės; naudojama katalogo kaina. |
-| Spalva | pasirinkta spalva ir galimi spalvos variantai | Paimamas tik pasirinktos prekės `color` tekstas. Kitų variantų ID, URL ir spalvos nerenkami. |
-| Dydžiai | dydžių pasirinkimai ir dydžių lentelė | Pasirinkimų etiketės įrašomos į `sizes`, o dydžio grupė, pvz. `Standartinis`, į `other_sizes`. Prieinamumas lieka raw. |
-| Prieinamumas | ar konkretus dydis pasirenkamas, pristatymo laiko įvertinimas | Ne |
+| Spalva | pasirinkta spalva ir galimi spalvos variantai | `productSelectionSection` variantų ID, URL, spalvos tekstas ir pasirinkimo būsena saugomi `product_color_options`. |
+| Dydžiai | dydžių pasirinkimai ir dydžių lentelė | Šaltinio dydžio ID, etiketė, grupė ir pasirinkimo būsena saugomi `product_size_options`. |
+| Prieinamumas | ar konkretus dydis pasirenkamas, pristatymo laiko įvertinimas | `availability.$case` saugomas be interpretavimo; `inStock` žymimas pasirenkamu, `soldOut` – nepasirenkamu. |
 | Pristatymas ir grąžinimas | pristatymo kaina/laikas, 30 dienų grąžinimo teisė | Ne |
 | Dizainas ir priedai | pvz. vienspalvis, plonas trikotažas, apskrita kaklo iškirptė, to paties tono siūlės, minkšta tekstūra, spausdinta etiketė | Detalės `bulletPointLane` ir `regularLane` reikšmės įrašomos į `features`. |
 | ABOUT YOU prekės numeris | pvz. `UNA0359001000006` | Ne. Dabartinis `externalId` yra katalogo skaitinis `productId`, o ne šis prekės numeris. |
-| Dydis ir forma | rankovių ilgis, gaminio ilgis, prigludimas | `sizeLane` tekstai įrašomi į `styles`; atskiras reliacinis modelis dar nesukurtas. |
-| Išmatavimai | galinės dalies plotis, bendras ilgis, rankovių ilgis ir matavimo dydis | Ne |
-| Medžiagų sudėtis | pvz. `60% Medvilnė, 40% Poliesteris – PES` | `materialLane` tekstas įrašomas į `materials`. |
+| Dydis ir forma | rankovių ilgis, gaminio ilgis, prigludimas | Saugoma `product_detail_sections` kaip lossless label/value poros. |
+| Išmatavimai | galinės dalies plotis, bendras ilgis, rankovių ilgis ir matavimo dydis | Skaitinės `sizeLane` reikšmės atskiriamos į `measurements`, išlaikant originalų tekstą ir matavimo vienetą. |
+| Medžiagų sudėtis | pvz. `60% Medvilnė, 40% Poliesteris – PES` | `materialLane` saugomas `material_composition` sekcijoje ir išvedamas į `materials`. |
 | Priežiūra | skalbimo temperatūra, cheminis valymas, lyginimas, balinimas, džiovinimas | Ne |
 | Gamintojas | juridinis pavadinimas, adresas, šalis, el. paštas | Ne |
 | Funkcionalumas | funkcinių savybių skiltis, jei produktui taikoma | Ne |
@@ -168,9 +168,9 @@ from public.product_detail_raw;
 
 1. **`sourceLpl30` gali būti klaidingas.** `aboutyou-price-sort.user.js` funkcija `normalizeLplPrice` nerastą LPL pakeičia dabartine kaina (arba `0`). Provideris vėliau `lplIsFallback` požymio nepatikrina ir šią reikšmę įrašo kaip tikrą `sourceLpl30`. Vadinasi, daliai prekių „ABOUT YOU LPL“ iš tiesų gali būti dabartinė kaina. Kol tai nepataisyta, šio lauko negalima laikyti audituojamai tiksliu.
 2. **Schemos laukas nereiškia, kad duomenų yra.** Dalis laukų gaunama iš konkrečių produkto API sekcijų, bet `patterns` ir kai kurios kategorijai specifinės reikšmės vis dar priklauso nuo JSON-LD arba katalogo duomenų. Užpildymo procentas nematuojamas.
-3. **Pilnas produkto detalės modelis dar nesukurtas.** Priežiūra, išmatavimai, gamintojas, prekės numeriai ir variantų prieinamumas išlieka raw JSON, todėl jų negalima tiesiogiai filtruoti katalogo API.
+3. **Dalis payload lieka tik raw.** Priežiūros piktogramos, gamintojo kontaktai, dydžių lentelių kūno išmatavimai ir prekės numeriai dar nėra viešo API kontrakto dalis.
 4. **Ne kiekviena prekė būtinai turi šaltinio kategoriją.** Kai jos nėra nei tile, nei per ribojamą detalės praturtinimą, lieka target ir pavadinimo regex fallback. Šaltinio kategorijai atsiradus, seni klaidingi produkto kategorijų ryšiai pakeičiami autoritetingu keliu.
-5. **Variantai nesumodeliuoti.** Spalvos ir dydžio variantai, jų atskiri ID/SKU, kainos ir likučiai nėra atskiros esybės. Viena kortelė traktuojama kaip vienas produktas.
+5. **Variantų kainos ir SKU dar nepilni.** Spalvų bei dydžių ID, URL ir prieinamumas sumodeliuoti, tačiau atskiros dydžio kainos, kiekiai ir `articleNumber` dar negrąžinami produkto API.
 6. **DOM fallback yra informacijos prasme skurdus.** Jis skirtas neprarasti viso rinkimo, bet iš DOM patikimai ištraukia gerokai mažiau atributų nei srauto kelias.
 7. **Paveikslėlių semantika nežinoma.** Saugomi URL be vaizdo tipo, pozicijos, pločio, aukščio ar spalvos varianto ryšio.
 8. **Kaina „nuo“ ir konkretaus dydžio kaina neišskiriama.** Išsaugoma viena kortelės kaina, todėl variantų kainų diapazonas gali būti prarastas.

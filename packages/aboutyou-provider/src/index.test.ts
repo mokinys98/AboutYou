@@ -3,13 +3,19 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   decodeGrpcWebFrames, extractColorFromProductHtml, extractProductDetailFromHtml,
-  extractProductMetadataFromHtml, hashProductDetailPayload, normalizeRawProduct,
+  extractProductDetailPayloadFromHtml, extractProductMetadataFromHtml, hashProductDetailPayload, normalizeRawProduct,
   PRODUCT_DETAIL_ENDPOINT, PRODUCT_DETAIL_PARSER_VERSION
 } from "./index";
 
 const productDetailFixture = readFileSync(
   fileURLToPath(new URL("./fixtures/product-detail-initial-state.html", import.meta.url)), "utf8"
 );
+
+function htmlForPayload(payload: Record<string, unknown>): string {
+  return `<script data-tadarida-initial-state="true">${JSON.stringify([
+    [PRODUCT_DETAIL_ENDPOINT + ":test", { data: payload }]
+  ])}</script>`;
+}
 
 describe("ABOUT YOU provider", () => {
   it("decodes data frames and skips trailer frames", () => {
@@ -69,7 +75,7 @@ describe("ABOUT YOU provider", () => {
     expect(result.rawPayload).not.toHaveProperty("title");
     expect(result.payloadHash).toMatch(/^[0-9a-f]{64}$/);
     expect(PRODUCT_DETAIL_ENDPOINT).toContain("ArticleDetailService/GetProductBulk");
-    expect(PRODUCT_DETAIL_PARSER_VERSION).toBe(1);
+    expect(PRODUCT_DETAIL_PARSER_VERSION).toBe(2);
   });
 
   it("extracts explicit product fields from a sanitized real payload fixture", () => {
@@ -86,6 +92,57 @@ describe("ABOUT YOU provider", () => {
       productTypes: ["Marškinėliai"]
     });
     expect(metadata.imageUrls[0]).toBe("https://cdn.aboutstatic.com/product-front.jpg?quality=75&trim=1");
+    expect(metadata.sections).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "size_and_fit", status: "present" }),
+      expect.objectContaining({ key: "measurements", status: "present" }),
+      expect.objectContaining({ key: "material_composition", status: "present" }),
+      expect.objectContaining({ key: "design_and_extras", status: "present" })
+    ]));
+    expect(metadata.sizeOptions).toEqual([
+      expect.objectContaining({ externalId: "1", group: "Standartinis", selectable: true, availability: "inStock" }),
+      expect.objectContaining({ externalId: "2", group: "Standartinis", selectable: false, availability: "soldOut" })
+    ]);
+    expect(metadata.colorOptions).toEqual([
+      expect.objectContaining({ externalId: "3935028", selected: true, url: "https://www.aboutyou.lt/p/under-armour/marskineliai-3935028" }),
+      expect.objectContaining({ externalId: "3990667", selected: false, label: "tamsiai mėlyna" })
+    ]);
+  });
+
+  it("accepts the extra JSON-encoded endpoint key used by live initial state", () => {
+    const quotedKeyFixture = productDetailFixture.replace(
+      '"aysa_api.services.article_detail_page.v1.ArticleDetailService/GetProductBulk:fixture"',
+      '"\\\"aysa_api.services.article_detail_page.v1.ArticleDetailService/GetProductBulk:fixture\\\""'
+    );
+    const result = extractProductDetailFromHtml(quotedKeyFixture);
+    expect(result.rawPayload).not.toBeNull();
+    expect(result.sourceProductId).toBe("3935028");
+    expect(result.schemaError).toBeNull();
+  });
+
+  it("blocks an unknown product-detail lane instead of accepting partial metadata", () => {
+    const unknownLaneFixture = productDetailFixture.replace(
+      '"lanes":[',
+      '"lanes":[{"label":"Nauja sekcija","type":{"$case":"futureLane","futureLane":{"items":["x"]}}},'
+    );
+    expect(extractProductDetailFromHtml(unknownLaneFixture).schemaError).toBe("unknown_detail_lane:futureLane");
+  });
+
+  it("supports noSiblings color selection and singleDimension sizes", () => {
+    const payload = extractProductDetailPayloadFromHtml(productDetailFixture) as Record<string, any>;
+    payload.productSelectionSection = {
+      type: { $case: "noSiblings", noSiblings: { colorLabel: "juoda" } }
+    };
+    for (const productSize of payload.imagesSection.product.sizes) {
+      const dimension = productSize.shopSize.size.twoDimension.firstDimension;
+      productSize.shopSize.size = { $case: "singleDimension", singleDimension: { dimension } };
+    }
+
+    const extraction = extractProductDetailFromHtml(htmlForPayload(payload));
+    expect(extraction.schemaError).toBeNull();
+    expect(extraction.metadata.colorOptions).toEqual([
+      expect.objectContaining({ externalId: "3935028", label: "juoda", selected: true })
+    ]);
+    expect(extraction.metadata.sizeOptions.every((option) => option.group === null)).toBe(true);
   });
 
   it("hashes equivalent JSON objects deterministically", () => {

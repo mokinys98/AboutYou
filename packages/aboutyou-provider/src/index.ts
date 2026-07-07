@@ -5,7 +5,44 @@ import { ProductSchema, cents, isAllowedAboutYouUrl, normalizeColor, normalizeCo
 
 const PRODUCT_STREAM_PATH = "aysa_api.services.category_page.v1.stream.CategoryStreamService/GetProductStreamV2";
 export const PRODUCT_DETAIL_ENDPOINT = "aysa_api.services.article_detail_page.v1.ArticleDetailService/GetProductBulk";
-export const PRODUCT_DETAIL_PARSER_VERSION = 1;
+export const PRODUCT_DETAIL_PARSER_VERSION = 2;
+
+export const productDetailSectionKeys = [
+  "size_and_fit", "measurements", "material_composition", "design_and_extras"
+] as const;
+export type ProductDetailSectionKey = typeof productDetailSectionKeys[number];
+
+export interface ProductDetailItem {
+  label: string | null;
+  value: string;
+  unit: string | null;
+  rawText: string;
+}
+
+export interface ProductDetailSection {
+  key: ProductDetailSectionKey;
+  sourceLabel: string;
+  status: "present" | "source_absent";
+  sourceType: string | null;
+  position: number;
+  items: ProductDetailItem[];
+}
+
+export interface ProductColorOption {
+  externalId: string | null;
+  label: string;
+  url: string | null;
+  selected: boolean;
+}
+
+export interface ProductSizeOption {
+  externalId: string;
+  label: string;
+  group: string | null;
+  selected: boolean;
+  selectable: boolean;
+  availability: string | null;
+}
 
 export class AboutYouRateLimitError extends Error {
   override name = "AboutYouRateLimitError";
@@ -65,12 +102,17 @@ export type ProductDetailMetadata = {
   features: string[];
   styles: string[];
   productTypes: string[];
+  sections: ProductDetailSection[];
+  colorOptions: ProductColorOption[];
+  sizeOptions: ProductSizeOption[];
 };
 
 export interface ProductDetailExtraction {
   metadata: ProductDetailMetadata;
   rawPayload: Record<string, unknown> | null;
   payloadHash: string | null;
+  sourceProductId: string | null;
+  schemaError: string | null;
 }
 
 type RawProduct = {
@@ -128,7 +170,10 @@ export function extractColorFromProductHtml(html: string): string | null {
 
 export function extractProductDetailFromHtml(html: string): ProductDetailExtraction {
   const rawPayload = extractProductDetailPayloadFromHtml(html);
-  const apiMetadata = rawPayload ? extractProductDetailMetadata(rawPayload) : emptyProductDetailMetadata();
+  const parsed = rawPayload ? extractProductDetailMetadata(rawPayload) : {
+    metadata: emptyProductDetailMetadata(), sourceProductId: null, schemaError: null
+  };
+  const apiMetadata = parsed.metadata;
   const fallback = extractFallbackMetadataFromHtml(html);
   const metadata: ProductDetailMetadata = {
     colorOriginal: apiMetadata.colorOriginal ?? fallback.colorOriginal,
@@ -140,9 +185,16 @@ export function extractProductDetailFromHtml(html: string): ProductDetailExtract
     patterns: preferValues(apiMetadata.patterns, fallback.patterns),
     features: preferValues(apiMetadata.features, fallback.features),
     styles: preferValues(apiMetadata.styles, fallback.styles),
-    productTypes: preferValues(apiMetadata.productTypes, fallback.productTypes)
+    productTypes: preferValues(apiMetadata.productTypes, fallback.productTypes),
+    sections: apiMetadata.sections,
+    colorOptions: apiMetadata.colorOptions,
+    sizeOptions: apiMetadata.sizeOptions
   };
-  return { metadata, rawPayload, payloadHash: rawPayload ? hashProductDetailPayload(rawPayload) : null };
+  return {
+    metadata, rawPayload, payloadHash: rawPayload ? hashProductDetailPayload(rawPayload) : null,
+    sourceProductId: parsed.sourceProductId,
+    schemaError: parsed.schemaError
+  };
 }
 
 export function extractProductMetadataFromHtml(html: string): ProductDetailMetadata {
@@ -156,7 +208,9 @@ export function extractProductDetailPayloadFromHtml(html: string): Record<string
       const entries = JSON.parse(decodeHtml(match[1] ?? "")) as unknown;
       if (!Array.isArray(entries)) continue;
       for (const entry of entries) {
-        if (!Array.isArray(entry) || typeof entry[0] !== "string" || !entry[0].startsWith(PRODUCT_DETAIL_ENDPOINT)) continue;
+        if (!Array.isArray(entry) || typeof entry[0] !== "string") continue;
+        const key = decodeInitialStateKey(entry[0]);
+        if (!key.startsWith(PRODUCT_DETAIL_ENDPOINT)) continue;
         const wrapper = object(entry[1]);
         const payload = object(wrapper?.data) ?? wrapper;
         if (!payload) continue;
@@ -173,13 +227,59 @@ export function hashProductDetailPayload(payload: Record<string, unknown>): stri
   return createHash("sha256").update(canonicalJson(payload)).digest("hex");
 }
 
-function extractProductDetailMetadata(payload: Record<string, unknown>): ProductDetailMetadata {
+function extractProductDetailMetadata(payload: Record<string, unknown>): {
+  metadata: ProductDetailMetadata;
+  sourceProductId: string | null;
+  schemaError: string | null;
+} {
   const metadata = emptyProductDetailMetadata();
   const imagesSection = object(payload.imagesSection);
   const sizesSection = object(payload.sizesSection);
   const product = object(imagesSection?.product) ?? object(sizesSection?.product);
+  const sourceProductId = product?.id === undefined || product?.id === null ? null : String(product.id);
+  let schemaError: string | null = null;
   const color = string(product?.colorLabel).trim();
   metadata.colorOriginal = color || null;
+
+  const selectionType = object(object(payload.productSelectionSection)?.type);
+  if (selectionType) {
+    const selectionCase = string(selectionType.$case);
+    if (selectionCase === "productSelection") {
+      const selection = object(selectionType.productSelection);
+      const items = Array.isArray(selection?.items) ? selection.items : [];
+      for (const [position, colorItem] of items.entries()) {
+        const option = object(colorItem);
+        const label = string(option?.colorLabel).trim();
+        const externalId = option?.id === undefined || option?.id === null ? null : String(option.id);
+        if (!option || !label || !externalId) { schemaError ??= `invalid_color_option:${position}`; continue; }
+        metadata.colorOptions.push({
+          externalId,
+          label,
+          url: nullableHttpUrl(option.path),
+          selected: externalId === sourceProductId
+        });
+      }
+    } else if (selectionCase === "noSiblings") {
+      const noSiblings = object(selectionType.noSiblings);
+      const label = string(noSiblings?.colorLabel).trim() || color;
+      if (!label || !sourceProductId) schemaError ??= "invalid_color_option:noSiblings";
+      else metadata.colorOptions.push({
+          externalId: sourceProductId,
+          label,
+          url: nullableHttpUrl(product?.path),
+          selected: true
+        });
+    } else {
+      schemaError ??= `unknown_product_selection:${selectionCase || "missing"}`;
+    }
+  } else if (color) {
+    metadata.colorOptions.push({
+      externalId: sourceProductId,
+      label: color,
+      url: nullableHttpUrl(product?.path),
+      selected: true
+    });
+  }
 
   const images = Array.isArray(imagesSection?.images) ? imagesSection.images : [];
   mergeUnique(metadata.imageUrls, images.flatMap((item) => {
@@ -195,6 +295,37 @@ function extractProductDetailMetadata(payload: Record<string, unknown>): Product
     const label = string(object(item)?.label).trim();
     return label ? [label] : [];
   }));
+
+  if (sizeType) {
+    const sizeCase = string(sizeType.$case);
+    if (sizeCase !== "sizes") schemaError ??= `unknown_size_type:${sizeCase || "missing"}`;
+    for (const [position, item] of sizes.entries()) {
+      const option = object(item);
+      const externalId = option?.sizeId === undefined || option?.sizeId === null ? "" : String(option.sizeId);
+      const label = string(option?.label).trim();
+      const availability = object(option?.availability);
+      const availabilityCase = string(availability?.$case).trim();
+      if (!option || !externalId || !label || !availabilityCase) {
+        schemaError ??= `invalid_size_option:${position}`;
+        continue;
+      }
+      if (!new Set(["inStock", "soldOut"]).has(availabilityCase)) {
+        schemaError ??= `unknown_size_availability:${availabilityCase}`;
+      }
+      const productSize = (Array.isArray(product?.sizes) ? product.sizes : [])
+        .map(object).find((candidate) => String(candidate?.id ?? "") === externalId) ?? null;
+      const groupResult = extractSizeGroup(productSize);
+      if (groupResult.schemaError) schemaError ??= groupResult.schemaError;
+      metadata.sizeOptions.push({
+        externalId,
+        label,
+        group: groupResult.group,
+        selected: option.selected === true || option.isSelected === true,
+        selectable: availabilityCase === "inStock",
+        availability: availabilityCase
+      });
+    }
+  }
 
   const productSizes = Array.isArray(product?.sizes) ? product.sizes : [];
   mergeUnique(metadata.otherSizes, productSizes.flatMap((item) => {
@@ -215,24 +346,43 @@ function extractProductDetailMetadata(payload: Record<string, unknown>): Product
 
   const articleDetails = object(object(payload.productDetailsSection)?.articleDetails);
   const lanes = Array.isArray(articleDetails?.lanes) ? articleDetails.lanes : [];
-  for (const item of lanes) {
+  for (const [position, item] of lanes.entries()) {
     const lane = object(item);
     const type = object(lane?.type);
     const laneType = string(type?.$case);
+    const sourceLabel = string(lane?.label).trim();
+    if (!lane || !type || !laneType || !sourceLabel) {
+      schemaError ??= `invalid_detail_lane:${position}`;
+      continue;
+    }
     if (laneType === "materialLane") {
       const materialLane = object(type?.materialLane);
-      mergeUnique(metadata.materials, stringArray(materialLane?.bulletPoints).map(stripAttributeLabel));
+      const values = stringArray(materialLane?.bulletPoints);
+      mergeUnique(metadata.materials, values.map(stripAttributeLabel));
+      appendDetailSection(metadata.sections, "material_composition", sourceLabel, laneType, position, values);
     } else if (laneType === "sizeLane") {
-      mergeUnique(metadata.styles, stringArray(object(type?.sizeLane)?.bulletPoints));
+      const values = stringArray(object(type?.sizeLane)?.bulletPoints);
+      const measurements = values.filter(isMeasurementValue);
+      const fitValues = values.filter((value) => !isMeasurementValue(value));
+      mergeUnique(metadata.styles, fitValues);
+      appendDetailSection(metadata.sections, "size_and_fit", sourceLabel, laneType, position, fitValues);
+      appendDetailSection(metadata.sections, "measurements", sourceLabel, laneType, position, measurements);
     } else if (laneType === "bulletPointLane") {
-      mergeUnique(metadata.features, stringArray(object(type?.bulletPointLane)?.bulletPoints));
+      const values = stringArray(object(type?.bulletPointLane)?.bulletPoints);
+      mergeUnique(metadata.features, values);
+      appendDetailSection(metadata.sections, "design_and_extras", sourceLabel, laneType, position, values);
     } else if (laneType === "regularLane") {
-      mergeUnique(metadata.features, stringArray(object(type?.regularLane)?.items));
+      const values = stringArray(object(type?.regularLane)?.items);
+      mergeUnique(metadata.features, values);
+      appendDetailSection(metadata.sections, "design_and_extras", sourceLabel, laneType, position, values);
+    } else if (laneType !== "manufacturerLane") {
+      schemaError ??= `unknown_detail_lane:${laneType}`;
     }
   }
+  addAbsentDetailSections(metadata.sections);
   const productName = string(product?.name).trim();
   if (productName) metadata.productTypes.push(productName);
-  return metadata;
+  return { metadata, sourceProductId, schemaError };
 }
 
 function extractFallbackMetadataFromHtml(html: string): ProductDetailMetadata {
@@ -271,14 +421,93 @@ function extractFallbackMetadataFromHtml(html: string): ProductDetailMetadata {
     try { colorOriginal = JSON.parse(`"${colorLabel}"`); }
     catch { /* ignore malformed JSON string */ }
   }
-  return { colorOriginal, categories, imageUrls: [], ...attributes };
+  return {
+    colorOriginal, categories, imageUrls: [], ...attributes,
+    sections: [], colorOptions: [], sizeOptions: []
+  };
 }
 
 function emptyProductDetailMetadata(): ProductDetailMetadata {
   return {
     colorOriginal: null, categories: [], imageUrls: [], sizes: [], otherSizes: [], materials: [],
-    patterns: [], features: [], styles: [], productTypes: []
+    patterns: [], features: [], styles: [], productTypes: [], sections: [], colorOptions: [], sizeOptions: []
   };
+}
+
+const DETAIL_SECTION_LABELS: Record<ProductDetailSectionKey, string> = {
+  size_and_fit: "Dydis ir forma",
+  measurements: "Išmatavimai",
+  material_composition: "Medžiagų sudėtis",
+  design_and_extras: "Dizainas ir priedai"
+};
+
+function appendDetailSection(
+  sections: ProductDetailSection[],
+  key: ProductDetailSectionKey,
+  sourceLabel: string,
+  sourceType: string,
+  position: number,
+  values: string[]
+): void {
+  if (!values.length) return;
+  const existing = sections.find((section) => section.key === key && section.status === "present");
+  if (existing) {
+    existing.items.push(...values.map(parseDetailItem));
+    return;
+  }
+  sections.push({ key, sourceLabel, status: "present", sourceType, position, items: values.map(parseDetailItem) });
+}
+
+function addAbsentDetailSections(sections: ProductDetailSection[]): void {
+  for (const [position, key] of productDetailSectionKeys.entries()) {
+    if (sections.some((section) => section.key === key)) continue;
+    sections.push({
+      key, sourceLabel: DETAIL_SECTION_LABELS[key], status: "source_absent",
+      sourceType: null, position: 10_000 + position, items: []
+    });
+  }
+  sections.sort((left, right) => left.position - right.position);
+}
+
+function parseDetailItem(rawText: string): ProductDetailItem {
+  const separator = rawText.indexOf(":");
+  const label = separator >= 0 ? rawText.slice(0, separator).trim() || null : null;
+  const value = (separator >= 0 ? rawText.slice(separator + 1) : rawText).trim();
+  const unit = value.match(/\d+(?:[.,]\d+)?\s*(mm|cm|m|kg|g|%)(?=\s|\b|\(|,|$)/i)?.[1] ?? null;
+  return { label, value, unit, rawText };
+}
+
+function isMeasurementValue(value: string): boolean {
+  return /\d+(?:[.,]\d+)?\s*(?:mm|cm|m)\b/i.test(value) || /\(dydis\s+[^)]+\)/i.test(value);
+}
+
+function extractSizeGroup(productSize: Record<string, unknown> | null): { group: string | null; schemaError: string | null } {
+  if (!productSize) return { group: null, schemaError: null };
+  const size = object(object(productSize.shopSize)?.size);
+  if (!size) return { group: null, schemaError: null };
+  const sizeCase = string(size.$case);
+  if (sizeCase === "twoDimension") {
+    return { group: string(object(size.twoDimension)?.secondDimension).trim() || null, schemaError: null };
+  }
+  if (sizeCase === "singleDimension" || sizeCase === "oneDimension") return { group: null, schemaError: null };
+  return { group: null, schemaError: `unknown_size_dimension:${sizeCase || "missing"}` };
+}
+
+function nullableHttpUrl(value: unknown): string | null {
+  const candidate = string(value).trim();
+  if (!candidate) return null;
+  try {
+    const url = new URL(candidate, "https://www.aboutyou.lt");
+    return ["http:", "https:"].includes(url.protocol) ? url.toString() : null;
+  } catch { return null; }
+}
+
+function decodeInitialStateKey(value: string): string {
+  if (!value.startsWith('"')) return value;
+  try {
+    const decoded = JSON.parse(value);
+    return typeof decoded === "string" ? decoded : value;
+  } catch { return value; }
 }
 
 function preferValues(primary: string[], fallback: string[]): string[] {
