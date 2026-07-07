@@ -8,7 +8,7 @@ import { inferFallbackCategories } from "./category-classifier";
 const EnvSchema = z.object({
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(20),
-  SYNC_MAX_PRODUCTS: z.coerce.number().int().min(1).max(10_000).default(10_000),
+  SYNC_MAX_PRODUCTS: z.coerce.number().int().min(1).max(50_000).default(10_000),
   SYNC_HEADLESS: z.string().default("true").transform((value) => value !== "false")
 });
 
