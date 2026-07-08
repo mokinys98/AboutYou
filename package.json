@@ -13,6 +13,7 @@
     "sync": "npm run sync --workspace @catalog/sync",
     "sync:metadata": "npm run sync:metadata --workspace @catalog/sync",
     "test": "vitest run",
+    "test:live:metadata": "vitest run --config vitest.live.config.ts",
     "test:watch": "vitest",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },

@@ -123,6 +123,63 @@ export const CatalogItemSchema = z.object({
 });
 export type CatalogItem = z.infer<typeof CatalogItemSchema>;
 
+export const ProductDetailStatusSchema = z.enum([
+  "complete", "pending", "retryable_error", "blocked_schema", "source_unavailable"
+]);
+export const ProductDetailSectionKeySchema = z.enum([
+  "size_and_fit", "measurements", "material_composition", "design_and_extras"
+]);
+export type ProductDetailSectionKey = z.infer<typeof ProductDetailSectionKeySchema>;
+export const ProductDetailItemSchema = z.object({
+  label: z.string().nullable(),
+  value: z.string(),
+  unit: z.string().nullable(),
+  rawText: z.string()
+});
+export const ProductDetailSectionSchema = z.object({
+  key: ProductDetailSectionKeySchema,
+  sourceLabel: z.string(),
+  status: z.enum(["present", "source_absent"]),
+  items: z.array(ProductDetailItemSchema)
+});
+export const ProductColorOptionSchema = z.object({
+  externalId: z.string().nullable(),
+  label: z.string(),
+  url: z.string().url().nullable(),
+  selected: z.boolean()
+});
+export const ProductSizeOptionSchema = z.object({
+  externalId: z.string(),
+  label: z.string(),
+  group: z.string().nullable(),
+  selected: z.boolean(),
+  selectable: z.boolean(),
+  availability: z.string().nullable()
+});
+export const ProductDetailSchema = z.object({
+  status: ProductDetailStatusSchema,
+  parserVersion: z.number().int().nonnegative(),
+  staticSyncedAt: z.string().nullable(),
+  availabilitySyncedAt: z.string().nullable(),
+  sections: z.array(ProductDetailSectionSchema),
+  colorOptions: z.array(ProductColorOptionSchema),
+  sizeOptions: z.array(ProductSizeOptionSchema)
+});
+export type ProductDetail = z.infer<typeof ProductDetailSchema>;
+
+export const ProductDetailResponseSchema = CatalogItemSchema.extend({
+  detail: ProductDetailSchema,
+  history: z.array(z.object({
+    observed_date: z.string(), min_price: z.number().int(), max_price: z.number().int(),
+    last_price: z.number().int(), source_lpl_30: z.number().int().nullable()
+  })),
+  priceChanges: z.array(z.object({
+    observed_at: z.string(), price: z.number().int(), original_price: z.number().int().nullable(),
+    source_lpl_30: z.number().int().nullable()
+  }))
+});
+export type ProductDetailResponse = z.infer<typeof ProductDetailResponseSchema>;
+
 export interface CatalogResponse {
   items: CatalogItem[];
   nextCursor: string | null;

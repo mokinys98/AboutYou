@@ -156,16 +156,35 @@ app.get("/v1/catalog/facets", async (c) => {
 
 app.get("/v1/products/:id", async (c) => {
   const id = c.req.param("id");
-  const [{ data: product, error }, { data: history }, { data: priceChanges, error: priceChangesError }, { data: watch }] = await Promise.all([
+  const [
+    { data: product, error },
+    { data: history },
+    { data: priceChanges, error: priceChangesError },
+    { data: watch },
+    { data: detailSync, error: detailSyncError },
+    { data: detailSections, error: detailSectionsError },
+    { data: colorOptions, error: colorOptionsError },
+    { data: sizeOptions, error: sizeOptionsError }
+  ] = await Promise.all([
     c.get("db").from("catalog_items").select("*").eq("id", id).maybeSingle(),
     c.get("db").from("daily_prices").select("observed_date,min_price,max_price,last_price,source_lpl_30").eq("product_id", id).order("observed_date"),
     c.get("db").from("price_changes").select("observed_at,price,original_price,source_lpl_30").eq("product_id", id).order("observed_at", { ascending: false }),
-    c.get("db").from("product_watches").select("product_id").eq("user_id", c.get("member").userId).eq("product_id", id).maybeSingle()
+    c.get("db").from("product_watches").select("product_id").eq("user_id", c.get("member").userId).eq("product_id", id).maybeSingle(),
+    c.get("db").from("product_detail_sync").select("status,parser_version,static_synced_at,availability_synced_at").eq("product_id", id).maybeSingle(),
+    c.get("db").from("product_detail_sections").select("section_key,source_label,status,items,position").eq("product_id", id).order("position"),
+    c.get("db").from("product_color_options").select("external_id,label,url,selected,position").eq("product_id", id).order("position"),
+    c.get("db").from("product_size_options").select("external_id,label,size_group,selected,selectable,availability,position").eq("product_id", id).order("position")
   ]);
   if (error) return c.json({ error: error.message }, 500);
   if (priceChangesError) return c.json({ error: priceChangesError.message }, 500);
+  const detailError = detailSyncError ?? detailSectionsError ?? colorOptionsError ?? sizeOptionsError;
+  if (detailError) return c.json({ error: detailError.message }, 500);
   if (!product) return c.json({ error: "Produktas nerastas" }, 404);
-  return c.json({ ...mapCatalogItem(product, Boolean(watch)), history: history ?? [], priceChanges: priceChanges ?? [] });
+  return c.json({
+    ...mapCatalogItem(product, Boolean(watch)),
+    detail: mapProductDetail(detailSync, detailSections ?? [], colorOptions ?? [], sizeOptions ?? []),
+    history: history ?? [], priceChanges: priceChanges ?? []
+  });
 });
 
 app.get("/v1/watchlist", async (c) => {
@@ -297,6 +316,42 @@ function mapCatalogItem(row: Record<string, any>, isWatched = false) {
     source: row.source, currentPrice: row.current_price, originalPrice: row.original_price, sourceLpl30: row.source_lpl_30,
     observedMin30d: row.observed_min_30d, discountPct: Number(row.discount_pct), currency: row.currency, updatedAt: row.updated_at,
     firstSeenAt: row.first_seen_at, isWatched };
+}
+
+export function mapProductDetail(
+  sync: Record<string, any> | null,
+  sections: Array<Record<string, any>>,
+  colorOptions: Array<Record<string, any>>,
+  sizeOptions: Array<Record<string, any>>
+) {
+  const rawStatus = sync?.status;
+  const status = rawStatus === "processing" || !rawStatus ? "pending" : rawStatus;
+  return {
+    status,
+    parserVersion: sync?.parser_version ?? 0,
+    staticSyncedAt: sync?.static_synced_at ?? null,
+    availabilitySyncedAt: sync?.availability_synced_at ?? null,
+    sections: sections.map((section) => ({
+      key: section.section_key,
+      sourceLabel: section.source_label,
+      status: section.status,
+      items: section.items ?? []
+    })),
+    colorOptions: colorOptions.map((option) => ({
+      externalId: option.external_id,
+      label: option.label,
+      url: option.url,
+      selected: option.selected
+    })),
+    sizeOptions: sizeOptions.map((option) => ({
+      externalId: option.external_id,
+      label: option.label,
+      group: option.size_group,
+      selected: option.selected,
+      selectable: option.selectable,
+      availability: option.availability
+    }))
+  };
 }
 
 async function watchedProductIds(db: SupabaseClient, userId: string, productIds: string[]): Promise<Set<string>> {
