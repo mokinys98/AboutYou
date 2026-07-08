@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { AboutYouRateLimitError, collectAboutYouTarget } from "@catalog/aboutyou-provider";
 import { normalizeCategoryPath } from "@catalog/shared";
-import { inferFallbackCategories } from "./category-classifier";
+import { resolveFallbackCategory } from "./category-classifier";
 
 const EnvSchema = z.object({
   SUPABASE_URL: z.string().url(),
@@ -63,10 +63,17 @@ try {
       }
       const products = result.products.map((product) => {
         const sourceCategories = product.categories;
-        const targetCategories = target.kind === "category" ? [target.label] : [];
         const sourceIsExact = sourceCategories[0]?.toLocaleLowerCase("lt") === "vyrams" && sourceCategories.length >= 2;
-        const fallbackRoot = targetCategories[0] ?? inferFallbackCategories(product.name, product.productTypes)[0];
-        const categoryPath = normalizeCategoryPath(sourceCategories, sourceIsExact ? undefined : fallbackRoot);
+        const fallbackRoot = resolveFallbackCategory(
+          product.name,
+          product.productTypes,
+          target.kind === "category" ? target.label : undefined
+        );
+        const categoryPath = sourceIsExact
+          ? normalizeCategoryPath(sourceCategories)
+          : fallbackRoot
+            ? normalizeCategoryPath(sourceCategories, fallbackRoot)
+            : [];
         return {
           ...product,
           // A category target is itself an authoritative membership. Keep it even

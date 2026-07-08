@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { inferFallbackCategories } from "./category-classifier";
+import { inferFallbackCategories, resolveFallbackCategory } from "./category-classifier";
 
 describe("fallback product category classifier", () => {
   it.each([
@@ -26,5 +26,17 @@ describe("fallback product category classifier", () => {
 
   it("retains the existing clothing fallback", () => {
     expect(inferFallbackCategories("Ilga pižama")).toEqual(["Apatiniai"]);
+  });
+});
+
+describe("resolveFallbackCategory", () => {
+  it("prefers product metadata over a collection target label", () => {
+    expect(resolveFallbackCategory("Sportbačiai COURT", ["Sportbačiai"], "Only Sons Katalogas")).toBe("Batai");
+    expect(resolveFallbackCategory("Odinis diržas", ["Diržas"], "Only Sons Katalogas")).toBe("Aksesuarai");
+  });
+
+  it("accepts only canonical taxonomy labels as a target fallback", () => {
+    expect(resolveFallbackCategory("Nežinomas produktas", [], "Batai")).toBe("Batai");
+    expect(resolveFallbackCategory("Nežinomas produktas", [], "Only Sons Katalogas")).toBeUndefined();
   });
 });
