@@ -75,7 +75,7 @@ describe("ABOUT YOU provider", () => {
     expect(result.rawPayload).not.toHaveProperty("title");
     expect(result.payloadHash).toMatch(/^[0-9a-f]{64}$/);
     expect(PRODUCT_DETAIL_ENDPOINT).toContain("ArticleDetailService/GetProductBulk");
-    expect(PRODUCT_DETAIL_PARSER_VERSION).toBe(2);
+    expect(PRODUCT_DETAIL_PARSER_VERSION).toBe(3);
   });
 
   it("extracts explicit product fields from a sanitized real payload fixture", () => {

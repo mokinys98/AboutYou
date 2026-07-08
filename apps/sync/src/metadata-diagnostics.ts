@@ -6,6 +6,36 @@ import type { ProductMetadataAttempt } from "@catalog/aboutyou-provider";
 const gzipAsync = promisify(gzip);
 export const DEBUG_BUCKET = "sync-debug";
 
+export type BlockedSchemaRow = {
+  last_error_code: string | null;
+  products: {
+    external_id: string;
+    name: string;
+    product_url: string;
+  } | Array<{
+    external_id: string;
+    name: string;
+    product_url: string;
+  }>;
+};
+
+export function summarizeBlockedSchema(rows: BlockedSchemaRow[], sampleLimit = 5) {
+  const groups = new Map<string, {
+    error_code: string;
+    count: number;
+    products: Array<{ external_id: string; name: string; product_url: string }>;
+  }>();
+  for (const row of rows) {
+    const errorCode = row.last_error_code ?? "unknown";
+    const group = groups.get(errorCode) ?? { error_code: errorCode, count: 0, products: [] };
+    group.count += 1;
+    const product = Array.isArray(row.products) ? row.products[0] : row.products;
+    if (product && group.products.length < sampleLimit) group.products.push(product);
+    groups.set(errorCode, group);
+  }
+  return [...groups.values()].sort((left, right) => right.count - left.count || left.error_code.localeCompare(right.error_code));
+}
+
 export function sanitizeDiagnosticHtml(html: string): string {
   return html
     .replace(/("(?:access_?token|refresh_?token|authorization|cookie|email|password|secret)"\s*:\s*")[^"]*(")/gi, "$1[REDACTED]$2")

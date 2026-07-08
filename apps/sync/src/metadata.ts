@@ -7,7 +7,10 @@ import {
   extractProductDetailFromHtml
 } from "@catalog/aboutyou-provider";
 import { normalizeCategoryPath, normalizeColor, normalizeColorShade } from "@catalog/shared";
-import { cleanupOldDiagnostics, diagnosticRow, uploadDiagnosticHtml } from "./metadata-diagnostics";
+import {
+  cleanupOldDiagnostics, diagnosticRow, summarizeBlockedSchema, uploadDiagnosticHtml, type BlockedSchemaRow
+} from "./metadata-diagnostics";
+import { classifyMetadataExtraction } from "./metadata-policy";
 
 const EnvSchema = z.object({
   SUPABASE_URL: z.string().url(),
@@ -66,6 +69,8 @@ log("metadata_sync_started", {
   max_products: env.METADATA_SYNC_MAX_PRODUCTS,
   max_runtime_minutes: env.METADATA_SYNC_MAX_RUNTIME_MINUTES
 });
+
+await logBlockedSchemaSummary("before_sync");
 
 const browser = await chromium.launch({ headless: env.SYNC_HEADLESS });
 let debugHtmlSaved = 0;
@@ -132,31 +137,16 @@ try {
 
         responseHtml = await response.text();
         const extraction = extractProductDetailFromHtml(responseHtml);
-        if (!extraction.rawPayload || !extraction.payloadHash) {
-          counters.blocked_schema += 1;
-          await recordDiagnostic(claim, "product_detail_payload_missing", {
+        const extractionFailure = classifyMetadataExtraction(extraction, claim.external_id);
+        if (extractionFailure) {
+          counters[extractionFailure.kind === "blocked_schema" ? "blocked_schema" : "retryable"] += 1;
+          await recordDiagnostic(claim, extractionFailure.code, {
             httpStatus, contentType, finalUrl, responseHtml
           });
-          await fail(claim, "blocked_schema", "product_detail_payload_missing", status);
+          await fail(claim, extractionFailure.kind, extractionFailure.code, status);
           return;
         }
         counters.payload_ok += 1;
-        if (extraction.sourceProductId !== claim.external_id) {
-          counters.blocked_schema += 1;
-          await recordDiagnostic(claim, "product_detail_id_mismatch", {
-            httpStatus, contentType, finalUrl, responseHtml
-          });
-          await fail(claim, "blocked_schema", "product_detail_id_mismatch", status);
-          return;
-        }
-        if (extraction.schemaError) {
-          counters.blocked_schema += 1;
-          await recordDiagnostic(claim, extraction.schemaError, {
-            httpStatus, contentType, finalUrl, responseHtml
-          });
-          await fail(claim, "blocked_schema", extraction.schemaError, status);
-          return;
-        }
 
         const metadata = extraction.metadata;
         const sourceIsExact = metadata.categories[0]?.toLocaleLowerCase("lt") === "vyrams" && metadata.categories.length >= 2;
@@ -220,6 +210,7 @@ log("metadata_sync_finished", {
   duration_seconds: Math.round((Date.now() - startedAt) / 1_000),
   coverage
 });
+await logBlockedSchemaSummary("after_sync");
 
 async function fail(
   claim: Claim,
@@ -311,4 +302,28 @@ function safeErrorCode(error: unknown): string {
 }
 function log(event: string, values: Record<string, unknown>): void {
   console.log(JSON.stringify({ event, at: new Date().toISOString(), ...values }));
+}
+
+async function logBlockedSchemaSummary(stage: "before_sync" | "after_sync"): Promise<void> {
+  const pageSize = 1_000;
+  const rows: BlockedSchemaRow[] = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await db.from("product_detail_sync")
+      .select("last_error_code,products!inner(external_id,name,product_url,active)")
+      .eq("status", "blocked_schema")
+      .eq("products.active", true)
+      .order("product_id")
+      .range(from, from + pageSize - 1);
+    if (error) {
+      log("metadata_blocked_schema_summary_failed", { stage, error: error.message });
+      return;
+    }
+    rows.push(...(data as unknown as BlockedSchemaRow[]));
+    if ((data?.length ?? 0) < pageSize) break;
+  }
+  log("metadata_blocked_schema_summary", {
+    stage,
+    total: rows.length,
+    groups: summarizeBlockedSchema(rows)
+  });
 }

@@ -5,7 +5,7 @@ import { ProductSchema, cents, isAllowedAboutYouUrl, normalizeColor, normalizeCo
 
 const PRODUCT_STREAM_PATH = "aysa_api.services.category_page.v1.stream.CategoryStreamService/GetProductStreamV2";
 export const PRODUCT_DETAIL_ENDPOINT = "aysa_api.services.article_detail_page.v1.ArticleDetailService/GetProductBulk";
-export const PRODUCT_DETAIL_PARSER_VERSION = 2;
+export const PRODUCT_DETAIL_PARSER_VERSION = 3;
 
 export const productDetailSectionKeys = [
   "size_and_fit", "measurements", "material_composition", "design_and_extras"
