@@ -183,6 +183,20 @@ export type ProductDetailResponse = z.infer<typeof ProductDetailResponseSchema>;
 export const ProductDebugResponseSchema = z.object({
   product: CatalogItemSchema,
   detail: ProductDetailSchema,
+  source: z.object({
+    breadcrumbs: z.array(z.object({
+      position: z.number().int().nonnegative(),
+      label: z.string(),
+      url: z.string().nullable(),
+      accepted: z.boolean(),
+      rejectionReason: z.string().nullable()
+    })),
+    images: z.array(z.object({
+      position: z.number().int().nonnegative(),
+      url: z.string().nullable(),
+      stored: z.boolean()
+    }))
+  }),
   raw: z.object({
     payload: z.record(z.string(), z.unknown()),
     payloadHash: z.string(),

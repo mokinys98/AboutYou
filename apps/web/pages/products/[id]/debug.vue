@@ -15,6 +15,17 @@ const visibleJson = computed(() => {
   return json.value.split("\n").filter((line) => line.toLocaleLowerCase("lt").includes(term)).join("\n");
 });
 const matchCount = computed(() => search.value.trim() ? visibleJson.value.split("\n").filter(Boolean).length : 0);
+const menuBreadcrumbs = computed(() => response.value?.source.breadcrumbs.filter((item) => item.accepted) ?? []);
+const displayedImages = computed(() => {
+  if (!response.value) return [];
+  const values = new Map<string, { url: string; stored: boolean; sourcePosition: number | null }>();
+  response.value.product.imageUrls.forEach((url) => values.set(url, { url, stored: true, sourcePosition: null }));
+  response.value.source.images.forEach((image) => {
+    if (!image.url) return;
+    values.set(image.url, { url: image.url, stored: image.stored, sourcePosition: image.position });
+  });
+  return [...values.values()];
+});
 const filterFields = computed(() => response.value ? [
   ["Kategorijos", response.value.product.categories],
   ["Kategorijų keliai", response.value.product.categoryPaths],
@@ -68,13 +79,38 @@ onMounted(async () => {
       </section>
 
       <section class="debug-section">
+        <h2>Breadcrumbs ir meniu vieta</h2>
+        <p v-if="menuBreadcrumbs.length" class="debug-menu-path">
+          <template v-for="(item, index) in menuBreadcrumbs" :key="`${item.position}:${item.url}`">
+            <span v-if="index" aria-hidden="true">›</span><strong>{{ item.label }}</strong>
+          </template>
+        </p>
+        <p v-else class="detail-sync-state">Raw payload tinkamų meniu breadcrumbs neturi.</p>
+        <div class="debug-path-list">
+          <div><strong>DB kategorijos</strong><code>{{ response.product.categories.join(" › ") || "nėra" }}</code></div>
+          <div><strong>DB meniu keliai</strong><code>{{ response.product.categoryPaths.join("\n") || "nėra" }}</code></div>
+        </div>
+        <div v-if="response.source.breadcrumbs.length" class="table-wrap debug-source-table">
+          <table>
+            <thead><tr><th>#</th><th>Pavadinimas</th><th>Šaltinio URL</th><th>Parserio sprendimas</th></tr></thead>
+            <tbody><tr v-for="item in response.source.breadcrumbs" :key="item.position">
+              <td>{{ item.position + 1 }}</td><td>{{ item.label || "—" }}</td><td><code>{{ item.url || "—" }}</code></td>
+              <td><span class="status" :class="{ success: item.accepted }">{{ item.accepted ? "Naudojamas" : "Atmestas" }}</span><small v-if="item.rejectionReason">{{ item.rejectionReason }}</small></td>
+            </tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="debug-section">
         <h2>Spalvų ir dydžių variantai</h2>
         <pre>{{ JSON.stringify({ colorOptions: response.detail.colorOptions, sizeOptions: response.detail.sizeOptions }, null, 2) }}</pre>
       </section>
 
       <section class="debug-section">
-        <h2>Nuotraukos ({{ response.product.imageUrls.length }})</h2>
-        <div class="debug-images"><a v-for="url in response.product.imageUrls" :key="url" :href="url" target="_blank" rel="noopener noreferrer"><img :src="url" :alt="response.product.name"><small>{{ url }}</small></a></div>
+        <h2>Nuotraukos (DB {{ response.product.imageUrls.length }} · raw {{ response.source.images.length }})</h2>
+        <p v-if="!displayedImages.length" class="detail-sync-state">Nuotraukų URL nerasta nei DB, nei raw payload.</p>
+        <div v-else class="debug-images"><a v-for="image in displayedImages" :key="image.url" :href="image.url" target="_blank" rel="noopener noreferrer"><img :src="image.url" :alt="response.product.name"><span class="status" :class="{ success: image.stored }">{{ image.stored ? "Išsaugota DB" : "Tik raw payload" }}</span><small v-if="image.sourcePosition !== null">imagesSection.images[{{ image.sourcePosition }}]</small><small :title="image.url">{{ image.url }}</small></a></div>
+        <div v-if="response.source.images.some((image) => !image.url)" class="debug-warning">{{ response.source.images.filter((image) => !image.url).length }} raw nuotraukų įrašai neturi palaikomo <code>image.src</code>.</div>
       </section>
 
       <section class="debug-section">

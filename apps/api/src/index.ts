@@ -350,9 +350,11 @@ export function mapProductDebug(
   sizeOptions: Array<Record<string, any>>,
   raw: Record<string, any> | null
 ) {
+  const mappedProduct = mapCatalogItem(product);
   return {
-    product: mapCatalogItem(product),
+    product: mappedProduct,
     detail: mapProductDetail(sync, sections, colorOptions, sizeOptions),
+    source: inspectProductDebugPayload(raw?.payload, mappedProduct.imageUrls),
     raw: raw ? {
       payload: raw.payload,
       payloadHash: raw.payload_hash,
@@ -361,6 +363,41 @@ export function mapProductDebug(
       parserVersion: raw.parser_version
     } : null
   };
+}
+
+export function inspectProductDebugPayload(payload: unknown, storedImageUrls: string[]) {
+  const root = asRecord(payload);
+  const linksSection = asRecord(root?.linksSection);
+  const rawBreadcrumbs = Array.isArray(linksSection?.breadcrumbs) ? linksSection.breadcrumbs : [];
+  const breadcrumbs = rawBreadcrumbs.map((item, position) => {
+    const breadcrumb = asRecord(item);
+    const label = typeof breadcrumb?.label === "string" ? breadcrumb.label.trim() : "";
+    const urlContainer = asRecord(breadcrumb?.url);
+    const url = typeof urlContainer?.url === "string" && urlContainer.url.trim() ? urlContainer.url.trim() : null;
+    const accepted = Boolean(label && url?.startsWith("/c/") && !url.includes("?"));
+    let rejectionReason: string | null = null;
+    if (!label) rejectionReason = "Trūksta pavadinimo";
+    else if (!url) rejectionReason = "Trūksta kategorijos URL";
+    else if (!url.startsWith("/c/")) rejectionReason = "Ne kategorijos URL";
+    else if (url.includes("?")) rejectionReason = "URL turi filtravimo parametrus";
+    return { position, label, url, accepted, rejectionReason };
+  });
+
+  const imagesSection = asRecord(root?.imagesSection);
+  const rawImages = Array.isArray(imagesSection?.images) ? imagesSection.images : [];
+  const stored = new Set(storedImageUrls);
+  const images = rawImages.map((item, position) => {
+    const imageContainer = asRecord(asRecord(item)?.image);
+    const url = typeof imageContainer?.src === "string" && imageContainer.src.trim() ? imageContainer.src.trim() : null;
+    return { position, url, stored: Boolean(url && stored.has(url)) };
+  });
+  return { breadcrumbs, images };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
 }
 
 export function mapProductDetail(

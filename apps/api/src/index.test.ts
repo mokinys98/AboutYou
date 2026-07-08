@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { app, catalogCacheUrl, dispatchGitHubWorkflow, mapProductDebug, mapProductDetail, newestCatalogCutoff, parseFilters, priceComparisonColumn, workflowForCron } from "./index";
+import { app, catalogCacheUrl, dispatchGitHubWorkflow, inspectProductDebugPayload, mapProductDebug, mapProductDetail, newestCatalogCutoff, parseFilters, priceComparisonColumn, workflowForCron } from "./index";
 
 describe("catalog API", () => {
   it("exposes an unauthenticated health check", async () => {
@@ -104,6 +104,32 @@ describe("catalog API", () => {
     });
     expect(withRaw.raw).toEqual(expect.objectContaining({ payload: { imagesSection: { images: [] } }, parserVersion: 2 }));
     expect(mapProductDebug(product, null, [], [], [], null).raw).toBeNull();
+  });
+
+  it("explains source breadcrumbs and image persistence for product debug", () => {
+    const source = inspectProductDebugPayload({
+      linksSection: { breadcrumbs: [
+        { label: "Vyrams", url: { url: "/c/vyrams-20202" } },
+        { label: "Marškinėliai", url: { url: "/c/vyrams/drabuziai/marskineliai-20324" } },
+        { label: "Brandas", url: { url: "/c/vyrams/drabuziai?brand=test" } }
+      ] },
+      imagesSection: { images: [
+        { image: { src: "https://cdn.example/front.jpg" } },
+        { image: { src: "https://cdn.example/back.jpg" } },
+        { unexpected: true }
+      ] }
+    }, ["https://cdn.example/front.jpg"]);
+
+    expect(source.breadcrumbs).toEqual([
+      expect.objectContaining({ position: 0, label: "Vyrams", accepted: true }),
+      expect.objectContaining({ position: 1, label: "Marškinėliai", accepted: true }),
+      expect.objectContaining({ position: 2, accepted: false, rejectionReason: "URL turi filtravimo parametrus" })
+    ]);
+    expect(source.images).toEqual([
+      { position: 0, url: "https://cdn.example/front.jpg", stored: true },
+      { position: 1, url: "https://cdn.example/back.jpg", stored: false },
+      { position: 2, url: null, stored: false }
+    ]);
   });
 
   it("dispatches a GitHub workflow on the configured ref", async () => {

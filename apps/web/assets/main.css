@@ -1901,6 +1901,16 @@ td small {
 .debug-images a { min-width: 0; text-decoration: none }
 .debug-images img { width: 100%; aspect-ratio: 3/4; object-fit: cover; background: var(--surface) }
 .debug-images small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.debug-images .status { display: inline-block; margin-top: 8px }
+.debug-menu-path { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 18px }
+.debug-path-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 20px 0 }
+.debug-path-list > div { background: var(--surface); padding: 16px }
+.debug-path-list strong, .debug-path-list code { display: block }
+.debug-path-list code { margin-top: 8px; white-space: pre-wrap; overflow-wrap: anywhere }
+.debug-source-table code { white-space: normal; overflow-wrap: anywhere }
+.debug-source-table td small { display: block; margin-top: 5px }
+.debug-warning { margin-top: 16px; padding: 12px 16px; background: #fff3cd }
+@media (max-width: 700px) { .debug-path-list { grid-template-columns: 1fr } }
 .json-search { display: grid; grid-template-columns: auto minmax(220px, 500px) 1fr; align-items: center; gap: 12px; margin: 20px 0 }
 .json-search input { padding: 10px; border: 1px solid var(--line) }
 
