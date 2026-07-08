@@ -3,6 +3,7 @@ import type { CatalogItem } from "@catalog/shared";
 const props = defineProps<{ product: CatalogItem }>();
 const emit = defineEmits<{ watchChanged: [value: { id: string; isWatched: boolean }] }>();
 const api = useApi();
+const { enabled: debugEnabled } = useProductDebug();
 const watched = ref(props.product.isWatched);
 const watchPending = ref(false);
 watch(() => props.product.isWatched, (value) => { watched.value = value; });
@@ -38,6 +39,7 @@ async function toggleWatch() {
     <button class="watch-button product-page-button" type="button" aria-label="Produkto puslapis" :aria-pressed="false" @click.stop.prevent="navigateTo(`/products/${product.id}`)">
       <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 8h12l1 12H5L6 8Zm3 2V7a3 3 0 0 1 6 0v3" /></svg>
     </button>
+    <button v-if="debugEnabled" class="watch-button product-debug-button" type="button" aria-label="Produkto debug informacija" @click.stop.prevent="navigateTo(`/products/${product.id}/debug`)">&lt;/&gt;</button>
     <div class="product-copy">
       <p class="product-brand">{{ product.brand || product.source }}</p>
       <span class="product-name">{{ product.name }}</span>

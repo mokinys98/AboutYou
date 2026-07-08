@@ -187,6 +187,30 @@ app.get("/v1/products/:id", async (c) => {
   });
 });
 
+app.get("/v1/products/:id/debug", requireAdmin, async (c) => {
+  const id = z.string().uuid().safeParse(c.req.param("id"));
+  if (!id.success) return c.json({ error: "Neteisingas produkto ID" }, 400);
+  const [
+    { data: product, error },
+    { data: detailSync, error: detailSyncError },
+    { data: detailSections, error: detailSectionsError },
+    { data: colorOptions, error: colorOptionsError },
+    { data: sizeOptions, error: sizeOptionsError },
+    { data: raw, error: rawError }
+  ] = await Promise.all([
+    c.get("db").from("catalog_items").select("*").eq("id", id.data).maybeSingle(),
+    c.get("db").from("product_detail_sync").select("status,parser_version,static_synced_at,availability_synced_at").eq("product_id", id.data).maybeSingle(),
+    c.get("db").from("product_detail_sections").select("section_key,source_label,status,items,position").eq("product_id", id.data).order("position"),
+    c.get("db").from("product_color_options").select("external_id,label,url,selected,position").eq("product_id", id.data).order("position"),
+    c.get("db").from("product_size_options").select("external_id,label,size_group,selected,selectable,availability,position").eq("product_id", id.data).order("position"),
+    c.get("db").from("product_detail_raw").select("payload,payload_hash,fetched_at,source_endpoint,parser_version").eq("product_id", id.data).maybeSingle()
+  ]);
+  const queryError = error ?? detailSyncError ?? detailSectionsError ?? colorOptionsError ?? sizeOptionsError ?? rawError;
+  if (queryError) return c.json({ error: queryError.message }, 500);
+  if (!product) return c.json({ error: "Produktas nerastas" }, 404);
+  return c.json(mapProductDebug(product, detailSync, detailSections ?? [], colorOptions ?? [], sizeOptions ?? [], raw));
+});
+
 app.get("/v1/watchlist", async (c) => {
   const page = z.object({ cursor: z.coerce.number().int().nonnegative().default(0), limit: z.coerce.number().int().min(1).max(100).default(48) }).safeParse(c.req.query());
   if (!page.success) return c.json({ error: page.error.flatten() }, 400);
@@ -316,6 +340,27 @@ function mapCatalogItem(row: Record<string, any>, isWatched = false) {
     source: row.source, currentPrice: row.current_price, originalPrice: row.original_price, sourceLpl30: row.source_lpl_30,
     observedMin30d: row.observed_min_30d, discountPct: Number(row.discount_pct), currency: row.currency, updatedAt: row.updated_at,
     firstSeenAt: row.first_seen_at, isWatched };
+}
+
+export function mapProductDebug(
+  product: Record<string, any>,
+  sync: Record<string, any> | null,
+  sections: Array<Record<string, any>>,
+  colorOptions: Array<Record<string, any>>,
+  sizeOptions: Array<Record<string, any>>,
+  raw: Record<string, any> | null
+) {
+  return {
+    product: mapCatalogItem(product),
+    detail: mapProductDetail(sync, sections, colorOptions, sizeOptions),
+    raw: raw ? {
+      payload: raw.payload,
+      payloadHash: raw.payload_hash,
+      fetchedAt: raw.fetched_at,
+      sourceEndpoint: raw.source_endpoint,
+      parserVersion: raw.parser_version
+    } : null
+  };
 }
 
 export function mapProductDetail(

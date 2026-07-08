@@ -180,6 +180,19 @@ export const ProductDetailResponseSchema = CatalogItemSchema.extend({
 });
 export type ProductDetailResponse = z.infer<typeof ProductDetailResponseSchema>;
 
+export const ProductDebugResponseSchema = z.object({
+  product: CatalogItemSchema,
+  detail: ProductDetailSchema,
+  raw: z.object({
+    payload: z.record(z.string(), z.unknown()),
+    payloadHash: z.string(),
+    fetchedAt: z.string(),
+    sourceEndpoint: z.string(),
+    parserVersion: z.number().int().positive()
+  }).nullable()
+});
+export type ProductDebugResponse = z.infer<typeof ProductDebugResponseSchema>;
+
 export interface CatalogResponse {
   items: CatalogItem[];
   nextCursor: string | null;

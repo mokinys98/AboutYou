@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { app, catalogCacheUrl, dispatchGitHubWorkflow, mapProductDetail, newestCatalogCutoff, parseFilters, priceComparisonColumn, workflowForCron } from "./index";
+import { app, catalogCacheUrl, dispatchGitHubWorkflow, mapProductDebug, mapProductDetail, newestCatalogCutoff, parseFilters, priceComparisonColumn, workflowForCron } from "./index";
 
 describe("catalog API", () => {
   it("exposes an unauthenticated health check", async () => {
@@ -87,6 +87,23 @@ describe("catalog API", () => {
       sizeOptions: [{ externalId: "1", selectable: true, availability: "inStock" }]
     });
     expect(detail).not.toHaveProperty("payload");
+  });
+
+  it("maps the sanitized raw payload only for the dedicated debug response", () => {
+    const product = {
+      id: "00000000-0000-4000-8000-000000000001", external_id: "123", name: "Test", brand: "Brand",
+      product_url: "https://www.aboutyou.lt/p/test", image_urls: [], color_original: "Juoda", color_family: "black",
+      color_shade: "black", categories: ["Marškiniai"], sizes: ["M"], other_sizes: [], materials: ["Medvilnė"],
+      patterns: [], features: [], styles: [], product_types: ["Marškiniai"], source: "aboutyou-lt", current_price: 1000,
+      original_price: null, source_lpl_30: null, observed_min_30d: null, discount_pct: 0, currency: "EUR",
+      updated_at: "2026-07-08T00:00:00Z", first_seen_at: "2026-07-08T00:00:00Z"
+    };
+    const withRaw = mapProductDebug(product, null, [], [], [], {
+      payload: { imagesSection: { images: [] } }, payload_hash: "abc", fetched_at: "2026-07-08T00:00:00Z",
+      source_endpoint: "https://www.aboutyou.lt/p/test", parser_version: 2
+    });
+    expect(withRaw.raw).toEqual(expect.objectContaining({ payload: { imagesSection: { images: [] } }, parserVersion: 2 }));
+    expect(mapProductDebug(product, null, [], [], [], null).raw).toBeNull();
   });
 
   it("dispatches a GitHub workflow on the configured ref", async () => {

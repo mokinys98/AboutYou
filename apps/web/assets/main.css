@@ -63,7 +63,9 @@ a {
 
 .catalog-page,
 .detail-page,
-.admin-page {
+.admin-page,
+.profile-page,
+.debug-page {
     max-width: 1600px;
     margin: auto;
     padding: 0 3.5vw 70px
@@ -1855,6 +1857,52 @@ td small {
 .product-page-button {
     top: 54px
 }
+
+.product-debug-button {
+    top: 98px;
+    font-family: monospace;
+    font-size: 10px;
+    font-weight: 800
+}
+
+.profile-setting {
+    border-top: 1px solid var(--ink);
+    display: flex;
+    justify-content: space-between;
+    gap: 30px;
+    padding: 28px 0;
+    max-width: 850px
+}
+
+.profile-details {
+    max-width: 850px;
+    margin: 0 0 45px
+}
+
+.profile-details div,
+.debug-fields div {
+    display: grid;
+    grid-template-columns: 190px 1fr;
+    border-top: 1px solid var(--line);
+    padding: 12px 0
+}
+
+.profile-details dd,
+.debug-fields dd { margin: 0 }
+
+.debug-toggle { display: flex; align-items: center; gap: 9px; white-space: nowrap }
+.debug-page { padding-top: 35px; max-width: 1300px }
+.debug-heading, .debug-section-heading { display: flex; justify-content: space-between; align-items: center; gap: 24px }
+.debug-heading h1 { margin: 8px 0; font-size: clamp(32px, 5vw, 58px) }
+.debug-heading .primary { text-decoration: none; white-space: nowrap }
+.debug-section { border-top: 1px solid var(--ink); margin-top: 50px; padding-top: 22px }
+.debug-section pre { background: #171717; color: #e8e8e8; padding: 20px; overflow: auto; max-height: 650px; font-size: 12px; line-height: 1.55 }
+.debug-images { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px }
+.debug-images a { min-width: 0; text-decoration: none }
+.debug-images img { width: 100%; aspect-ratio: 3/4; object-fit: cover; background: var(--surface) }
+.debug-images small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.json-search { display: grid; grid-template-columns: auto minmax(220px, 500px) 1fr; align-items: center; gap: 12px; margin: 20px 0 }
+.json-search input { padding: 10px; border: 1px solid var(--line) }
 
 .product-page-button svg {
     width: 20px;

@@ -10,6 +10,7 @@ const { user, signOut } = useAuth();
         <NuxtLink to="/">Katalogas</NuxtLink>
         <NuxtLink to="/watchlist">Stebimos prekės</NuxtLink>
         <NuxtLink to="/admin">Valdymas</NuxtLink>
+        <NuxtLink to="/profile">Profilis</NuxtLink>
         <button class="link-button" @click="signOut">Atsijungti</button>
       </nav>
     </header>
