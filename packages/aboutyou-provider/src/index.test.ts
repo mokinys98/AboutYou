@@ -75,7 +75,7 @@ describe("ABOUT YOU provider", () => {
     expect(result.rawPayload).not.toHaveProperty("title");
     expect(result.payloadHash).toMatch(/^[0-9a-f]{64}$/);
     expect(PRODUCT_DETAIL_ENDPOINT).toContain("ArticleDetailService/GetProductBulk");
-    expect(PRODUCT_DETAIL_PARSER_VERSION).toBe(3);
+    expect(PRODUCT_DETAIL_PARSER_VERSION).toBe(4);
   });
 
   it("extracts explicit product fields from a sanitized real payload fixture", () => {
@@ -143,6 +143,73 @@ describe("ABOUT YOU provider", () => {
       expect.objectContaining({ externalId: "3935028", label: "juoda", selected: true })
     ]);
     expect(extraction.metadata.sizeOptions.every((option) => option.group === null)).toBe(true);
+  });
+
+  it("supports the sustainabilityInfoLane used by product 28539045", () => {
+    const payload = extractProductDetailPayloadFromHtml(productDetailFixture) as Record<string, any>;
+    payload.productDetailsSection.articleDetails.lanes.push({
+      label: "Gaminio yra: 95% regeneraciniu būdu užauginta medžiaga",
+      type: {
+        $case: "sustainabilityInfoLane",
+        sustainabilityInfoLane: { cluster: { attributes: [
+          { label: "Pagaminta su:", text: "Medvilnė" },
+          { label: "Įrodymai:", text: "Tiekėjo deklaracija" }
+        ] } }
+      }
+    });
+
+    const extraction = extractProductDetailFromHtml(htmlForPayload(payload));
+    expect(extraction.schemaError).toBeNull();
+    expect(extraction.metadata.sections).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        key: "design_and_extras",
+        items: expect.arrayContaining([expect.objectContaining({ rawText: "Pagaminta su: Medvilnė" })])
+      })
+    ]));
+  });
+
+  it("uses the shop size run without duplicating vendor sizes for product 24458375", () => {
+    const payload = extractProductDetailPayloadFromHtml(productDetailFixture) as Record<string, any>;
+    payload.sizesSection.sizeSelection.type = {
+      $case: "sizeRuns",
+      sizeRuns: { sizeRuns: [
+        { label: "Gamintojo dydis", sizes: [{ sizeId: 1, label: "XL", availability: { $case: "inStock" } }], sizeSource: { type: { $case: "vendor" } } },
+        { label: "Coliai", sizes: [{ sizeId: 1, label: "35-36", availability: { $case: "inStock" } }], sizeSource: { type: { $case: "shop" } } }
+      ] }
+    };
+
+    const extraction = extractProductDetailFromHtml(htmlForPayload(payload));
+    expect(extraction.schemaError).toBeNull();
+    expect(extraction.metadata.sizes).toEqual(["35-36"]);
+    expect(extraction.metadata.sizeOptions).toEqual([
+      expect.objectContaining({ externalId: "1", label: "35-36", selectable: true })
+    ]);
+  });
+
+  it("supports the oneSize selection used by product 17554552", () => {
+    const payload = extractProductDetailPayloadFromHtml(productDetailFixture) as Record<string, any>;
+    payload.sizesSection.sizeSelection.type = {
+      $case: "oneSize",
+      oneSize: { size: { sizeId: 1, label: "Vienas dydis", availability: { $case: "inStock" } } }
+    };
+
+    const extraction = extractProductDetailFromHtml(htmlForPayload(payload));
+    expect(extraction.schemaError).toBeNull();
+    expect(extraction.metadata.sizes).toEqual(["Vienas dydis"]);
+    expect(extraction.metadata.sizeOptions[0]).toEqual(expect.objectContaining({ selectable: true }));
+  });
+
+  it("uses the trouser length as the size group for product 31756823", () => {
+    const payload = extractProductDetailPayloadFromHtml(productDetailFixture) as Record<string, any>;
+    payload.imagesSection.product.sizes[0].shopSize.size = {
+      $case: "pants", pants: { width: "28", length: "30", label: "28 x 30" }
+    };
+    payload.sizesSection.product = payload.imagesSection.product;
+
+    const extraction = extractProductDetailFromHtml(htmlForPayload(payload));
+    expect(extraction.schemaError).toBeNull();
+    expect(extraction.metadata.sizeOptions[0]).toEqual(expect.objectContaining({ group: "30" }));
+    expect(extraction.metadata.otherSizes).toContain("30");
   });
 
   it("hashes equivalent JSON objects deterministically", () => {

@@ -5,7 +5,7 @@ import { ProductSchema, cents, isAllowedAboutYouUrl, normalizeColor, normalizeCo
 
 const PRODUCT_STREAM_PATH = "aysa_api.services.category_page.v1.stream.CategoryStreamService/GetProductStreamV2";
 export const PRODUCT_DETAIL_ENDPOINT = "aysa_api.services.article_detail_page.v1.ArticleDetailService/GetProductBulk";
-export const PRODUCT_DETAIL_PARSER_VERSION = 3;
+export const PRODUCT_DETAIL_PARSER_VERSION = 4;
 
 export const productDetailSectionKeys = [
   "size_and_fit", "measurements", "material_composition", "design_and_extras"
@@ -294,16 +294,17 @@ function extractProductDetailMetadata(payload: Record<string, unknown>): {
 
   const sizeSelection = object(sizesSection?.sizeSelection);
   const sizeType = object(sizeSelection?.type);
-  const sizeList = object(sizeType?.sizes);
-  const sizes = Array.isArray(sizeList?.sizes) ? sizeList.sizes : [];
+  const sizeCase = string(sizeType?.$case);
+  const sizes = extractDisplayedSizes(sizeType, sizeCase);
   mergeUnique(metadata.sizes, sizes.flatMap((item) => {
     const label = string(object(item)?.label).trim();
     return label ? [label] : [];
   }));
 
   if (sizeType) {
-    const sizeCase = string(sizeType.$case);
-    if (sizeCase !== "sizes") schemaError ??= `unknown_size_type:${sizeCase || "missing"}`;
+    if (!new Set(["sizes", "sizeRuns", "oneSize"]).has(sizeCase)) {
+      schemaError ??= `unknown_size_type:${sizeCase || "missing"}`;
+    }
     for (const [position, item] of sizes.entries()) {
       const option = object(item);
       const externalId = option?.sizeId === undefined || option?.sizeId === null ? "" : String(option.sizeId);
@@ -334,10 +335,8 @@ function extractProductDetailMetadata(payload: Record<string, unknown>): {
 
   const productSizes = Array.isArray(product?.sizes) ? product.sizes : [];
   mergeUnique(metadata.otherSizes, productSizes.flatMap((item) => {
-    const size = object(object(object(item)?.shopSize)?.size);
-    const dimension = object(size?.twoDimension);
-    const label = string(dimension?.secondDimension).trim();
-    return label ? [label] : [];
+    const group = extractSizeGroup(object(item)).group;
+    return group ? [group] : [];
   }));
 
   const linksSection = object(payload.linksSection);
@@ -379,6 +378,16 @@ function extractProductDetailMetadata(payload: Record<string, unknown>): {
     } else if (laneType === "regularLane") {
       const values = stringArray(object(type?.regularLane)?.items);
       mergeUnique(metadata.features, values);
+      appendDetailSection(metadata.sections, "design_and_extras", sourceLabel, laneType, position, values);
+    } else if (laneType === "sustainabilityInfoLane") {
+      const cluster = object(object(type.sustainabilityInfoLane)?.cluster);
+      const attributes = Array.isArray(cluster?.attributes) ? cluster.attributes : [];
+      const values = attributes.flatMap((item) => {
+        const attribute = object(item);
+        const label = string(attribute?.label).trim().replace(/:\s*$/, "");
+        const text = string(attribute?.text).trim();
+        return text ? [`${label ? `${label}: ` : ""}${text}`] : [];
+      });
       appendDetailSection(metadata.sections, "design_and_extras", sourceLabel, laneType, position, values);
     } else if (laneType !== "manufacturerLane") {
       schemaError ??= `unknown_detail_lane:${laneType}`;
@@ -494,8 +503,33 @@ function extractSizeGroup(productSize: Record<string, unknown> | null): { group:
   if (sizeCase === "twoDimension") {
     return { group: string(object(size.twoDimension)?.secondDimension).trim() || null, schemaError: null };
   }
+  if (sizeCase === "pants") {
+    return { group: string(object(size.pants)?.length).trim() || null, schemaError: null };
+  }
   if (sizeCase === "singleDimension" || sizeCase === "oneDimension") return { group: null, schemaError: null };
   return { group: null, schemaError: `unknown_size_dimension:${sizeCase || "missing"}` };
+}
+
+function extractDisplayedSizes(sizeType: Record<string, unknown> | null, sizeCase: string): unknown[] {
+  if (!sizeType) return [];
+  if (sizeCase === "sizes") {
+    const list = object(sizeType.sizes);
+    return Array.isArray(list?.sizes) ? list.sizes : [];
+  }
+  if (sizeCase === "sizeRuns") {
+    const runs = Array.isArray(object(sizeType.sizeRuns)?.sizeRuns)
+      ? object(sizeType.sizeRuns)?.sizeRuns as unknown[]
+      : [];
+    const selected = runs.map(object).find((run) =>
+      string(object(object(run?.sizeSource)?.type)?.$case) === "shop"
+    ) ?? object(runs[0]);
+    return Array.isArray(selected?.sizes) ? selected.sizes : [];
+  }
+  if (sizeCase === "oneSize") {
+    const size = object(object(sizeType.oneSize)?.size);
+    return size ? [size] : [];
+  }
+  return [];
 }
 
 function nullableHttpUrl(value: unknown): string | null {

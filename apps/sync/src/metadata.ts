@@ -311,6 +311,7 @@ async function logBlockedSchemaSummary(stage: "before_sync" | "after_sync"): Pro
     const { data, error } = await db.from("product_detail_sync")
       .select("last_error_code,products!inner(external_id,name,product_url,active)")
       .eq("status", "blocked_schema")
+      .eq("parser_version", PRODUCT_DETAIL_PARSER_VERSION)
       .eq("products.active", true)
       .order("product_id")
       .range(from, from + pageSize - 1);
