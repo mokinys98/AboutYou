@@ -26,7 +26,9 @@ const groups = computed<FilterGroup[]>(() => [
   { key: "styles", label: "Stilius", items: props.facets?.styles ?? [] },
   { key: "product_types", label: "Prekės rūšis", items: props.facets?.productTypes ?? [] }
 ]);
-const visibleGroups = computed(() => groups.value);
+const showMoreFilters = ref(false);
+const primaryGroupKeys = ["sizes", "color_shades", "brands"];
+const visibleGroups = computed(() => groups.value.filter((group) => showMoreFilters.value || primaryGroupKeys.includes(group.key)));
 const selected = (key: string, value: string) => (local[key] || "").split(",").includes(value);
 const activeCount = (key: string) => (local[key] || "").split(",").filter(Boolean).length;
 const saleDiscount = computed({
@@ -139,48 +141,58 @@ onUnmounted(() => {
   <section class="filter-strip" :class="{ open }" aria-label="Katalogo filtrai">
     <div class="filter-mobile-head"><strong>Filtrai</strong><button class="close" type="button" aria-label="Uždaryti filtrus" @click="emit('update:open', false)">×</button></div>
 
-    <details class="filter-popover price-filter" :open="activeFilter === 'price'">
-      <summary @click.prevent="toggleFilter('price')">Kaina <span v-if="local.price_min || local.price_max" class="filter-count">1</span></summary>
-      <div class="filter-menu"><div class="range-row"><label>Nuo<input v-model="local.price_min" inputmode="decimal" placeholder="0 €"></label><label>Iki<input v-model="local.price_max" inputmode="decimal" placeholder="500 €"></label></div><button class="filter-apply" type="button" @click="apply(); activeFilter = null">Taikyti</button></div>
-    </details>
+    <div class="filter-dropdown-row" aria-label="Pagrindiniai filtrai">
+      <details class="filter-popover price-filter" :open="activeFilter === 'price'">
+        <summary :class="{ active: local.price_min || local.price_max }" @click.prevent="toggleFilter('price')">Kaina <span v-if="local.price_min || local.price_max" class="filter-count">1</span></summary>
+        <div class="filter-menu"><div class="range-row"><label>Nuo<input v-model="local.price_min" inputmode="decimal" placeholder="0 €"></label><label>Iki<input v-model="local.price_max" inputmode="decimal" placeholder="500 €"></label></div><button class="filter-apply" type="button" @click="apply(); activeFilter = null">Taikyti</button></div>
+      </details>
 
-    <details class="filter-popover discount-filter" :open="activeFilter === 'discount'">
-      <summary @click.prevent="toggleFilter('discount')">Išpardavimas <span v-if="local.discount_min" class="filter-count">nuo {{ local.discount_min }} %</span><span v-if="belowOrEqualLpl" class="filter-count">≤ LPL</span></summary>
-      <div class="filter-menu">
-        <div class="discount-value"><span>Minimali nuolaida nuo LPL</span><strong>{{ saleDiscount }} %</strong></div>
-        <input v-model.number="saleDiscount" class="discount-range" type="range" min="10" max="70" step="10" aria-label="Minimali nuolaida procentais" @change="apply">
-        <div class="discount-scale" aria-hidden="true"><span v-for="value in [10, 20, 30, 40, 50, 60, 70]" :key="value">{{ value }}</span></div>
-        <button class="filter-switch" :class="{ active: belowOrEqualLpl }" type="button" role="switch" :aria-checked="belowOrEqualLpl" @click="toggleBelowOrEqualLpl">
-          <span><strong>Rodyti kainą ≤ LPL</strong><small>Įtraukia prekes, kurių mūsų kaina lygi LPL.</small></span><i aria-hidden="true" />
-        </button>
-        <button class="filter-apply" type="button" @click="apply(); activeFilter = null">Taikyti</button>
-      </div>
-    </details>
-
-    <button class="filter-switch compact-filter" :class="{ active: premiumOnly }" type="button" role="switch" :aria-checked="premiumOnly" @click="togglePremium">
-      <span><strong>Premium</strong><small v-if="(props.facets?.premium?.count ?? 0) > 0">{{ props.facets?.premium?.count ?? 0 }}</small></span><i aria-hidden="true" />
-    </button>
-
-    <button class="filter-switch compact-filter" :class="{ active: excludeBasics }" type="button" role="switch" :aria-checked="excludeBasics" @click="toggleExcludeBasics">
-      <span><strong>Be kojinių ir apatinių</strong><small>Išmeta apatinių kategoriją</small></span><i aria-hidden="true" />
-    </button>
-
-    <template v-for="group in visibleGroups" :key="group.key">
-      <details class="filter-popover" :open="activeFilter === group.key">
-        <summary @click.prevent="toggleFilter(group.key)">{{ group.label }} <span v-if="activeCount(group.key)" class="filter-count">{{ activeCount(group.key) }}</span></summary>
+      <details class="filter-popover discount-filter" :open="activeFilter === 'discount'">
+        <summary :class="{ active: local.discount_min || belowOrEqualLpl }" @click.prevent="toggleFilter('discount')"><span class="sale-dot" aria-hidden="true" />Išpardavimas <span v-if="local.discount_min" class="filter-count">nuo {{ local.discount_min }} %</span><span v-if="belowOrEqualLpl" class="filter-count">≤ LPL</span></summary>
         <div class="filter-menu">
-          <label v-if="group.items.length > 12" class="filter-search"><span class="sr-only">Ieškoti</span><input v-model="searches[group.key]" type="search" :placeholder="`Ieškoti: ${group.label.toLocaleLowerCase('lt')}`"></label>
-          <label v-for="item in filteredItems(group)" :key="item.value" class="check">
-            <input type="checkbox" :checked="selected(group.key, item.value)" @change="toggle(group.key, item.value)">
-            <i v-if="group.key === 'color_shades'" class="swatch" :style="swatchStyle(item.value)" />
-            <span>{{ item.label || item.value }}</span><small>{{ item.count }}</small>
-          </label>
-          <p v-if="!filteredItems(group).length" class="filter-empty">Atitikmenų nėra</p>
+          <div class="discount-value"><span>Minimali nuolaida nuo LPL</span><strong>{{ saleDiscount }} %</strong></div>
+          <input v-model.number="saleDiscount" class="discount-range" type="range" min="10" max="70" step="10" aria-label="Minimali nuolaida procentais" @change="apply">
+          <div class="discount-scale" aria-hidden="true"><span v-for="value in [10, 20, 30, 40, 50, 60, 70]" :key="value">{{ value }}</span></div>
+          <button class="filter-switch" :class="{ active: belowOrEqualLpl }" type="button" role="switch" :aria-checked="belowOrEqualLpl" @click="toggleBelowOrEqualLpl">
+            <span><strong>Rodyti kainą ≤ LPL</strong><small>Įtraukia prekes, kurių mūsų kaina lygi LPL.</small></span><i aria-hidden="true" />
+          </button>
+          <button class="filter-apply" type="button" @click="apply(); activeFilter = null">Taikyti</button>
         </div>
       </details>
-    </template>
 
-    <button v-if="activeChips.length" class="clear-filters" type="button" @click="clear">Išvalyti</button>
+      <template v-for="group in visibleGroups" :key="group.key">
+        <details class="filter-popover" :open="activeFilter === group.key">
+          <summary :class="{ active: activeCount(group.key) }" @click.prevent="toggleFilter(group.key)">{{ group.label }} <span v-if="activeCount(group.key)" class="filter-count">{{ activeCount(group.key) }}</span></summary>
+          <div class="filter-menu">
+            <label v-if="group.items.length > 12" class="filter-search"><span class="sr-only">Ieškoti</span><input v-model="searches[group.key]" type="search" :placeholder="`Ieškoti: ${group.label.toLocaleLowerCase('lt')}`"></label>
+            <label v-for="item in filteredItems(group)" :key="item.value" class="check">
+              <input type="checkbox" :checked="selected(group.key, item.value)" @change="toggle(group.key, item.value)">
+              <i v-if="group.key === 'color_shades'" class="swatch" :style="swatchStyle(item.value)" />
+              <span>{{ item.label || item.value }}</span><small>{{ item.count }}</small>
+            </label>
+            <p v-if="!filteredItems(group).length" class="filter-empty">Atitikmenų nėra</p>
+          </div>
+        </details>
+      </template>
+
+      <button class="more-filters" type="button" :aria-expanded="showMoreFilters" @click="showMoreFilters = !showMoreFilters">
+        {{ showMoreFilters ? "Mažiau filtrų" : "Daugiau filtrų" }} <span aria-hidden="true">⌄</span>
+      </button>
+    </div>
+
+    <div class="quick-filter-row">
+      <div class="quick-filter-group" aria-label="Greiti filtrai">
+        <span>Greiti filtrai:</span>
+        <button class="quick-filter-pill" :class="{ active: premiumOnly }" type="button" :aria-pressed="premiumOnly" @click="togglePremium">
+          <i aria-hidden="true" />Premium<small v-if="(props.facets?.premium?.count ?? 0) > 0">{{ props.facets?.premium?.count ?? 0 }}</small>
+        </button>
+        <button class="quick-filter-pill" :class="{ active: excludeBasics }" type="button" :aria-pressed="excludeBasics" @click="toggleExcludeBasics">
+          <i aria-hidden="true" />Be kojinių ir apatinių
+        </button>
+      </div>
+      <button v-if="activeChips.length" class="clear-filters" type="button" @click="clear">Išvalyti viską</button>
+    </div>
+
     <div v-if="activeChips.length" class="active-filter-chips" aria-label="Aktyvūs filtrai">
       <button v-for="chip in activeChips" :key="`${chip.key}-${chip.value || ''}`" type="button" @click="removeFilter(chip.key, chip.value)">{{ chip.label }} <span aria-hidden="true">×</span></button>
     </div>

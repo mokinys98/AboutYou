@@ -20,7 +20,13 @@ if (existsSync(rootEnvPath)) {
 export default defineNuxtConfig({
   compatibilityDate: "2026-07-05",
   ssr: false,
-  devtools: { enabled: true },
+  devtools: {
+    enabled: true,
+
+    timeline: {
+      enabled: true
+    }
+  },
   nitro: { preset: "cloudflare-pages" },
   css: ["~/assets/main.css"],
   runtimeConfig: {

@@ -1437,11 +1437,9 @@ td small {
 }
 
 .active-filter-chips {
-    flex: 0 0 100%;
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
-    padding-top: 5px
+    gap: 6px
 }
 
 .active-filter-chips button {
@@ -1808,27 +1806,44 @@ td small {
 }
 
 .filter-strip {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 7px;
-    align-items: flex-start;
+    display: grid;
+    gap: 12px;
     border-bottom: 1px solid var(--line);
-    padding-bottom: 18px;
+    padding: 1px 0 16px;
     margin-bottom: 16px;
     position: relative;
     z-index: 20
 }
 
+.filter-dropdown-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: none
+}
+
+.filter-dropdown-row::-webkit-scrollbar {
+    display: none
+}
+
 .filter-popover {
-    position: relative
+    position: relative;
+    flex: 0 0 auto
 }
 
 .filter-popover>summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 36px;
     list-style: none;
     border: 1px solid #d7d7d7;
-    border-radius: 3px;
-    padding: 8px 29px 8px 10px;
+    border-radius: 2px;
+    padding: 0 31px 0 12px;
     font-size: 12px;
+    font-weight: 700;
     line-height: 1;
     cursor: pointer;
     white-space: nowrap;
@@ -1854,9 +1869,26 @@ td small {
     border-color: #111
 }
 
+.filter-popover>summary.active {
+    border-color: #111;
+    background: #111;
+    color: #fff
+}
+
+.filter-popover>summary.active:after {
+    border-top-color: #fff
+}
+
 .filter-popover[open]>summary:after {
     transform: rotate(180deg);
     margin-top: -6px
+}
+
+.sale-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #e52e42
 }
 
 .filter-menu {
@@ -1893,6 +1925,11 @@ td small {
     margin-left: 4px
 }
 
+.filter-popover>summary.active .filter-count {
+    background: #fff;
+    color: #111
+}
+
 .sale-mark {
     display: inline-grid;
     place-items: center;
@@ -1906,12 +1943,34 @@ td small {
 }
 
 .less-filters,
-.clear-filters {
+.clear-filters,
+.more-filters {
     border: 0;
     background: transparent;
     padding: 8px 2px;
     font-size: 12px;
     cursor: pointer
+}
+
+.more-filters {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 36px;
+    padding: 0 12px;
+    border: 1px solid #d7d7d7;
+    background: #fff;
+    font-weight: 700;
+    white-space: nowrap
+}
+
+.more-filters[aria-expanded="true"] {
+    border-color: #111
+}
+
+.more-filters[aria-expanded="true"] span {
+    transform: rotate(180deg)
 }
 
 .less-filters span {
@@ -1921,7 +1980,73 @@ td small {
 
 .clear-filters {
     text-decoration: underline;
-    margin-left: auto
+    margin-left: auto;
+    white-space: nowrap
+}
+
+.quick-filter-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px
+}
+
+.quick-filter-group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px
+}
+
+.quick-filter-group>span {
+    color: #777;
+    font-size: 11px;
+    font-weight: 700
+}
+
+.quick-filter-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 36px;
+    border: 1px solid #d7d7d7;
+    border-radius: 999px;
+    background: #fff;
+    padding: 0 14px;
+    color: #333;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap
+}
+
+.quick-filter-pill:hover {
+    border-color: #888
+}
+
+.quick-filter-pill.active {
+    border-color: #111;
+    background: #111;
+    color: #fff
+}
+
+.quick-filter-pill i {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #cfcfca
+}
+
+.quick-filter-pill.active i {
+    background: #4ade80
+}
+
+.quick-filter-pill small {
+    color: inherit;
+    opacity: .7;
+    font-size: 10px
 }
 
 .filter-apply {
@@ -1961,7 +2086,6 @@ td small {
     }
 
     .filter-strip {
-        max-height: 94px;
         overflow: visible
     }
 
@@ -2001,7 +2125,9 @@ td small {
         background: #fff;
         z-index: 100;
         padding: 20px 18px;
-        display: block;
+        display: grid;
+        align-content: start;
+        gap: 12px;
         overflow: auto;
         transform: translateX(105%);
         transition: transform .25s
@@ -2028,6 +2154,13 @@ td small {
         margin-bottom: 8px
     }
 
+    .filter-dropdown-row {
+        display: grid;
+        gap: 0;
+        overflow: visible;
+        padding-bottom: 0
+    }
+
     .filter-popover>summary {
         padding: 14px 34px 14px 12px
     }
@@ -2040,8 +2173,33 @@ td small {
     }
 
     .less-filters,
-    .clear-filters {
+    .clear-filters,
+    .more-filters {
         padding: 14px 8px
+    }
+
+    .more-filters {
+        justify-content: space-between;
+        width: 100%;
+        border-width: 0 0 1px;
+        border-color: var(--line)
+    }
+
+    .quick-filter-row {
+        display: grid;
+        gap: 12px
+    }
+
+    .quick-filter-group {
+        align-items: flex-start
+    }
+
+    .quick-filter-group>span {
+        width: 100%
+    }
+
+    .clear-filters {
+        margin-left: 0
     }
 
     .drawer-backdrop {
