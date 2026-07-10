@@ -47,6 +47,7 @@ const toggle = (key: string, value: string) => {
   const values = new Set((local[key] || "").split(",").filter(Boolean));
   values.has(value) ? values.delete(value) : values.add(value);
   local[key] = Array.from(values).join(",");
+  activeFilter.value = key;
   apply();
 };
 const toggleBelowOrEqualLpl = () => {
@@ -110,10 +111,8 @@ const shadeColors: Record<ColorShade, string> = {
   gold: "#c8a34b", multicolor: "conic-gradient(red,yellow,lime,aqua,blue,magenta,red)", other: "#eee"
 };
 const swatchStyle = (value: string) => ({ background: shadeColors[value as ColorShade] ?? shadeColors.other });
-const onToggle = (key: string, event: Event) => {
-  const details = event.currentTarget as HTMLDetailsElement;
-  if (details.open) activeFilter.value = key;
-  else if (activeFilter.value === key) activeFilter.value = null;
+const toggleFilter = (key: string) => {
+  activeFilter.value = activeFilter.value === key ? null : key;
 };
 const onDocumentPointerDown = (event: PointerEvent) => {
   const target = event.target as Element | null;
@@ -140,13 +139,13 @@ onUnmounted(() => {
   <section class="filter-strip" :class="{ open }" aria-label="Katalogo filtrai">
     <div class="filter-mobile-head"><strong>Filtrai</strong><button class="close" type="button" aria-label="Uždaryti filtrus" @click="emit('update:open', false)">×</button></div>
 
-    <details class="filter-popover price-filter" :open="activeFilter === 'price'" @toggle="onToggle('price', $event)">
-      <summary>Kaina <span v-if="local.price_min || local.price_max" class="filter-count">1</span></summary>
+    <details class="filter-popover price-filter" :open="activeFilter === 'price'">
+      <summary @click.prevent="toggleFilter('price')">Kaina <span v-if="local.price_min || local.price_max" class="filter-count">1</span></summary>
       <div class="filter-menu"><div class="range-row"><label>Nuo<input v-model="local.price_min" inputmode="decimal" placeholder="0 €"></label><label>Iki<input v-model="local.price_max" inputmode="decimal" placeholder="500 €"></label></div><button class="filter-apply" type="button" @click="apply(); activeFilter = null">Taikyti</button></div>
     </details>
 
-    <details class="filter-popover discount-filter" :open="activeFilter === 'discount'" @toggle="onToggle('discount', $event)">
-      <summary>Išpardavimas <span v-if="local.discount_min" class="filter-count">nuo {{ local.discount_min }} %</span><span v-if="belowOrEqualLpl" class="filter-count">≤ LPL</span></summary>
+    <details class="filter-popover discount-filter" :open="activeFilter === 'discount'">
+      <summary @click.prevent="toggleFilter('discount')">Išpardavimas <span v-if="local.discount_min" class="filter-count">nuo {{ local.discount_min }} %</span><span v-if="belowOrEqualLpl" class="filter-count">≤ LPL</span></summary>
       <div class="filter-menu">
         <div class="discount-value"><span>Minimali nuolaida nuo LPL</span><strong>{{ saleDiscount }} %</strong></div>
         <input v-model.number="saleDiscount" class="discount-range" type="range" min="10" max="70" step="10" aria-label="Minimali nuolaida procentais" @change="apply">
@@ -167,8 +166,8 @@ onUnmounted(() => {
     </button>
 
     <template v-for="group in visibleGroups" :key="group.key">
-      <details class="filter-popover" :open="activeFilter === group.key" @toggle="onToggle(group.key, $event)">
-        <summary>{{ group.label }} <span v-if="activeCount(group.key)" class="filter-count">{{ activeCount(group.key) }}</span></summary>
+      <details class="filter-popover" :open="activeFilter === group.key">
+        <summary @click.prevent="toggleFilter(group.key)">{{ group.label }} <span v-if="activeCount(group.key)" class="filter-count">{{ activeCount(group.key) }}</span></summary>
         <div class="filter-menu">
           <label v-if="group.items.length > 12" class="filter-search"><span class="sr-only">Ieškoti</span><input v-model="searches[group.key]" type="search" :placeholder="`Ieškoti: ${group.label.toLocaleLowerCase('lt')}`"></label>
           <label v-for="item in filteredItems(group)" :key="item.value" class="check">
