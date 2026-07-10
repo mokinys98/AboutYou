@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allowedCorsOrigin, app, catalogCacheUrl, dispatchGitHubWorkflow, inspectProductDebugPayload, mapProductDebug, mapProductDetail, newestCatalogCutoff, parseFilters, priceComparisonColumn, workflowForCron } from "./index";
+import { EXCLUDED_BASICS_CATEGORIES, allowedCorsOrigin, app, catalogCacheUrl, dispatchGitHubWorkflow, inspectProductDebugPayload, mapProductDebug, mapProductDetail, newestCatalogCutoff, parseFilters, postgresArrayLiteral, priceComparisonColumn, workflowForCron } from "./index";
 
 describe("catalog API", () => {
   it("exposes an unauthenticated health check", async () => {
@@ -56,17 +56,19 @@ describe("catalog API", () => {
     await expect(response.json()).resolves.toEqual({ error: "API autentifikacija nesukonfigūruota" });
   });
 
-  it("parses detailed colors, premium and the source LPL comparison", () => {
-    const parsed = parseFilters({ color_shades: "teal,olive", premium: "true", below_observed_30d: "true", price_comparison: "source_lpl" });
+  it("parses detailed colors, premium, basics exclusion and the source LPL comparison", () => {
+    const parsed = parseFilters({ color_shades: "teal,olive", premium: "true", exclude_basics: "true", below_observed_30d: "true", price_comparison: "source_lpl" });
     expect(parsed.success).toBe(true);
     if (parsed.success) {
       expect(parsed.data.colorShades).toEqual(["teal", "olive"]);
       expect(parsed.data.isPremium).toBe(true);
+      expect(parsed.data.excludeBasics).toBe(true);
       expect(parsed.data.priceComparison).toBe("source_lpl");
       expect(parsed.data.belowObserved30d).toBe(true);
     }
     expect(priceComparisonColumn("source_lpl")).toBe("below_source_lpl_30d");
     expect(priceComparisonColumn("observed")).toBe("below_observed_30d");
+    expect(postgresArrayLiteral(EXCLUDED_BASICS_CATEGORIES)).toContain('"Kojinės"');
   });
 
   it("parses a stable category path separately from legacy category names", () => {

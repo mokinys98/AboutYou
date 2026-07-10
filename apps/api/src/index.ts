@@ -19,6 +19,15 @@ type SchedulerBindings = Bindings & {
 type Variables = { db: SupabaseClient; member: { userId: string; role: "admin" | "viewer"; email: string } };
 type DashboardQueryResult<T = unknown> = { data: T | null; error: { message: string } | null };
 
+export const EXCLUDED_BASICS_CATEGORIES = [
+  "Apatiniai",
+  "Apatinės kelnės",
+  "Apatiniai marškinėliai",
+  "Kojinės",
+  "Naktiniai drabužiai",
+  "Vonios chalatai"
+];
+
 export const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 const jwks = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 
@@ -106,6 +115,10 @@ app.get("/v1/catalog", async (c) => {
   if (filters.styles.length) query = query.overlaps("styles", filters.styles);
   if (filters.productTypes.length) query = query.overlaps("product_types", filters.productTypes);
   if (filters.isPremium) query = query.eq("is_premium", true);
+  if (filters.excludeBasics) {
+    const excludedBasics = postgresArrayLiteral(EXCLUDED_BASICS_CATEGORIES);
+    query = query.not("category_names", "ov", excludedBasics).not("categories", "ov", excludedBasics);
+  }
   if (filters.priceMin !== undefined) query = query.gte("current_price", filters.priceMin);
   if (filters.priceMax !== undefined) query = query.lte("current_price", filters.priceMax);
   if (filters.discountMin !== undefined) query = query.gte("discount_pct", filters.discountMin);
@@ -389,6 +402,7 @@ export function parseFilters(query: Record<string, string>) {
     patterns: list(query.patterns), features: list(query.features), styles: list(query.styles),
     productTypes: list(query.product_types),
     isPremium: query.premium === "true",
+    excludeBasics: query.exclude_basics === "true",
     priceMin: query.price_min ? Number(query.price_min) : undefined, priceMax: query.price_max ? Number(query.price_max) : undefined,
     discountMin: query.discount_min ? Number(query.discount_min) : undefined, belowObserved30d: query.below_observed_30d === "true",
     newOnly: query.new_only === "true",
@@ -399,6 +413,10 @@ export function parseFilters(query: Record<string, string>) {
 
 export function priceComparisonColumn(comparison: string): "below_observed_30d" | "below_source_lpl_30d" {
   return comparison === "source_lpl" ? "below_source_lpl_30d" : "below_observed_30d";
+}
+
+export function postgresArrayLiteral(values: readonly string[]): string {
+  return `{${values.map((value) => `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`).join(",")}}`;
 }
 
 export function catalogCacheUrl(requestUrl: string, userId: string): URL {

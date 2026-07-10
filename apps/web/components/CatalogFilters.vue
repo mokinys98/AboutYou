@@ -35,6 +35,7 @@ const saleDiscount = computed({
 });
 const belowOrEqualLpl = computed(() => local.below_observed_30d === "true" && local.price_comparison === "source_lpl");
 const premiumOnly = computed(() => local.premium === "true");
+const excludeBasics = computed(() => local.exclude_basics === "true");
 const filteredItems = (group: FilterGroup) => {
   const query = (searches[group.key] || "").trim().toLocaleLowerCase("lt");
   if (!query) return group.items.slice(0, 80);
@@ -60,6 +61,10 @@ const toggleBelowOrEqualLpl = () => {
 };
 const togglePremium = () => {
   local.premium = premiumOnly.value ? "" : "true";
+  apply();
+};
+const toggleExcludeBasics = () => {
+  local.exclude_basics = excludeBasics.value ? "" : "true";
   apply();
 };
 const clear = () => {
@@ -92,6 +97,7 @@ const activeChips = computed(() => {
   if (belowOrEqualLpl.value) chips.push({ key: "below_observed_30d", label: "Kaina ≤ LPL" });
   if (local.price_min || local.price_max) chips.push({ key: "price", label: `${local.price_min || "0"}–${local.price_max || "∞"} €` });
   if (premiumOnly.value) chips.push({ key: "premium", label: "Premium" });
+  if (excludeBasics.value) chips.push({ key: "exclude_basics", label: "Be kojinių ir apatinių" });
   return chips;
 });
 
@@ -154,6 +160,10 @@ onUnmounted(() => {
 
     <button v-if="(props.facets?.premium?.count ?? 0) > 0 || premiumOnly" class="filter-switch compact-filter" :class="{ active: premiumOnly }" type="button" role="switch" :aria-checked="premiumOnly" @click="togglePremium">
       <span><strong>Premium</strong><small>{{ props.facets?.premium?.count ?? 0 }}</small></span><i aria-hidden="true" />
+    </button>
+
+    <button class="filter-switch compact-filter" :class="{ active: excludeBasics }" type="button" role="switch" :aria-checked="excludeBasics" @click="toggleExcludeBasics">
+      <span><strong>Be kojinių ir apatinių</strong><small>Išmeta apatinių kategoriją</small></span><i aria-hidden="true" />
     </button>
 
     <template v-for="group in visibleGroups" :key="group.key">
