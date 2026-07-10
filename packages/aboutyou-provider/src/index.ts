@@ -1,11 +1,11 @@
 import type { APIResponse, Page, Response } from "playwright";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
-import { ProductSchema, cents, isAllowedAboutYouUrl, normalizeColor, normalizeColorShade, type Product } from "@catalog/shared";
+import { PRODUCT_DETAIL_PARSER_VERSION, ProductSchema, cents, isAllowedAboutYouUrl, normalizeColor, normalizeColorShade, type Product } from "@catalog/shared";
+export { PRODUCT_DETAIL_PARSER_VERSION } from "@catalog/shared";
 
 const PRODUCT_STREAM_PATH = "aysa_api.services.category_page.v1.stream.CategoryStreamService/GetProductStreamV2";
 export const PRODUCT_DETAIL_ENDPOINT = "aysa_api.services.article_detail_page.v1.ArticleDetailService/GetProductBulk";
-export const PRODUCT_DETAIL_PARSER_VERSION = 5;
 
 export const productDetailSectionKeys = [
   "size_and_fit", "measurements", "material_composition", "design_and_extras"

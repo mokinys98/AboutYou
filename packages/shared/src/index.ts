@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export const PRODUCT_DETAIL_PARSER_VERSION = 5;
+
 export const colorFamilies = [
   "black", "white", "grey", "brown", "beige", "red", "orange", "yellow",
   "green", "blue", "purple", "pink", "silver", "gold", "multicolor", "other"
