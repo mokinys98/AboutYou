@@ -5,7 +5,7 @@ import { ProductSchema, cents, isAllowedAboutYouUrl, normalizeColor, normalizeCo
 
 const PRODUCT_STREAM_PATH = "aysa_api.services.category_page.v1.stream.CategoryStreamService/GetProductStreamV2";
 export const PRODUCT_DETAIL_ENDPOINT = "aysa_api.services.article_detail_page.v1.ArticleDetailService/GetProductBulk";
-export const PRODUCT_DETAIL_PARSER_VERSION = 4;
+export const PRODUCT_DETAIL_PARSER_VERSION = 5;
 
 export const productDetailSectionKeys = [
   "size_and_fit", "measurements", "material_composition", "design_and_extras"
@@ -107,6 +107,7 @@ export type ProductDetailMetadata = {
   features: string[];
   styles: string[];
   productTypes: string[];
+  isPremium: boolean;
   sections: ProductDetailSection[];
   colorOptions: ProductColorOption[];
   sizeOptions: ProductSizeOption[];
@@ -135,6 +136,7 @@ type RawProduct = {
   features?: string[];
   styles?: string[];
   productTypes?: string[];
+  isPremium?: boolean;
   currentPrice: number | null;
   originalPrice: number | null;
   sourceLpl30: number | null;
@@ -191,6 +193,7 @@ export function extractProductDetailFromHtml(html: string): ProductDetailExtract
     features: preferValues(apiMetadata.features, fallback.features),
     styles: preferValues(apiMetadata.styles, fallback.styles),
     productTypes: preferValues(apiMetadata.productTypes, fallback.productTypes),
+    isPremium: apiMetadata.isPremium || fallback.isPremium,
     sections: apiMetadata.sections,
     colorOptions: apiMetadata.colorOptions,
     sizeOptions: apiMetadata.sizeOptions
@@ -396,6 +399,7 @@ function extractProductDetailMetadata(payload: Record<string, unknown>): {
   addAbsentDetailSections(metadata.sections);
   const productName = string(product?.name).trim();
   if (productName) metadata.productTypes.push(productName);
+  metadata.isPremium = extractIsPremium(payload);
   return { metadata, sourceProductId, schemaError };
 }
 
@@ -406,6 +410,7 @@ function extractFallbackMetadataFromHtml(html: string): ProductDetailMetadata {
     sizes: [] as string[], otherSizes: [] as string[], materials: [] as string[],
     patterns: [] as string[], features: [] as string[], styles: [] as string[], productTypes: [] as string[]
   };
+  let isPremium = false;
   const scriptPattern = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
   for (const match of html.matchAll(scriptPattern)) {
     if (!/\btype\s*=\s*["']application\/ld\+json["']/i.test(match[1] ?? "")) continue;
@@ -421,6 +426,7 @@ function extractFallbackMetadataFromHtml(html: string): ProductDetailMetadata {
       mergeUnique(attributes.features, findStrings(value, ["features", "productFeatures", "additionalProperty"]));
       mergeUnique(attributes.styles, findStrings(value, ["style", "styles", "styleName"]));
       mergeUnique(attributes.productTypes, findStrings(value, ["productType", "productTypes", "productTypeName"]));
+      isPremium ||= findStrings(value, ["badge", "badges", "label", "name"]).some((item) => isPremiumText(item));
     } catch { /* ignore unrelated or malformed structured data */ }
   }
 
@@ -437,6 +443,7 @@ function extractFallbackMetadataFromHtml(html: string): ProductDetailMetadata {
   }
   return {
     colorOriginal, categories, imageUrls: [], ...attributes,
+    isPremium,
     sections: [], colorOptions: [], sizeOptions: []
   };
 }
@@ -444,8 +451,32 @@ function extractFallbackMetadataFromHtml(html: string): ProductDetailMetadata {
 function emptyProductDetailMetadata(): ProductDetailMetadata {
   return {
     colorOriginal: null, categories: [], imageUrls: [], sizes: [], otherSizes: [], materials: [],
-    patterns: [], features: [], styles: [], productTypes: [], sections: [], colorOptions: [], sizeOptions: []
+    patterns: [], features: [], styles: [], productTypes: [], isPremium: false, sections: [], colorOptions: [], sizeOptions: []
   };
+}
+
+function extractIsPremium(payload: Record<string, unknown>): boolean {
+  const imagesSection = object(payload.imagesSection);
+  const badges = Array.isArray(imagesSection?.badges) ? imagesSection.badges : [];
+  if (badges.some((item) => {
+    const badge = object(item);
+    const tracker = object(badge?.tracker);
+    const type = object(badge?.type);
+    const productAttribute = object(type?.productAttribute);
+    return isPremiumText(string(tracker?.contextKey)) || isPremiumText(string(productAttribute?.label));
+  })) return true;
+
+  const infoBox = object(object(payload.hotProductSection)?.infoBox);
+  return isPremiumPrefix(string(infoBox?.subline));
+}
+
+function isPremiumText(value: string): boolean {
+  return value.trim().toLocaleLowerCase("lt") === "premium" ||
+    value.trim().toLocaleLowerCase("lt") === "product.badges.premium";
+}
+
+function isPremiumPrefix(value: string): boolean {
+  return value.trim().toLocaleLowerCase("lt").startsWith("premium ");
 }
 
 const DETAIL_SECTION_LABELS: Record<ProductDetailSectionKey, string> = {
@@ -726,7 +757,7 @@ function parseContentLength(value: string | undefined): number | null {
 function hasProductDetailMetadata(metadata: ProductDetailMetadata): boolean {
   return Boolean(metadata.colorOriginal || metadata.categories.length || metadata.imageUrls.length || metadata.sizes.length ||
     metadata.otherSizes.length || metadata.materials.length || metadata.patterns.length || metadata.features.length ||
-    metadata.styles.length || metadata.productTypes.length);
+    metadata.styles.length || metadata.productTypes.length || metadata.isPremium);
 }
 
 function mergeUnique(target: string[], values: string[]): void {

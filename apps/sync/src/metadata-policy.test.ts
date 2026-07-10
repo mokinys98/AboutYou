@@ -6,7 +6,7 @@ function extraction(overrides: Partial<ProductDetailExtraction> = {}): ProductDe
   return {
     metadata: {
       colorOriginal: null, categories: [], imageUrls: [], sizes: [], otherSizes: [], materials: [],
-      patterns: [], features: [], styles: [], productTypes: [], sections: [], colorOptions: [], sizeOptions: []
+      patterns: [], features: [], styles: [], productTypes: [], isPremium: false, sections: [], colorOptions: [], sizeOptions: []
     },
     rawPayload: { imagesSection: {} },
     payloadHash: "a".repeat(64),

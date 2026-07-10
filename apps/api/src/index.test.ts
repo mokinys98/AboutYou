@@ -33,11 +33,12 @@ describe("catalog API", () => {
     await expect(response.json()).resolves.toEqual({ error: "API autentifikacija nesukonfigūruota" });
   });
 
-  it("parses detailed colors and the source LPL comparison", () => {
-    const parsed = parseFilters({ color_shades: "teal,olive", below_observed_30d: "true", price_comparison: "source_lpl" });
+  it("parses detailed colors, premium and the source LPL comparison", () => {
+    const parsed = parseFilters({ color_shades: "teal,olive", premium: "true", below_observed_30d: "true", price_comparison: "source_lpl" });
     expect(parsed.success).toBe(true);
     if (parsed.success) {
       expect(parsed.data.colorShades).toEqual(["teal", "olive"]);
+      expect(parsed.data.isPremium).toBe(true);
       expect(parsed.data.priceComparison).toBe("source_lpl");
       expect(parsed.data.belowObserved30d).toBe(true);
     }

@@ -163,6 +163,7 @@ try {
           features: metadata.features,
           styles: metadata.styles,
           productTypes: metadata.productTypes,
+          isPremium: metadata.isPremium,
           categoryPath,
           categoriesExact: sourceIsExact,
           sections: metadata.sections,

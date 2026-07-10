@@ -75,7 +75,7 @@ describe("ABOUT YOU provider", () => {
     expect(result.rawPayload).not.toHaveProperty("title");
     expect(result.payloadHash).toMatch(/^[0-9a-f]{64}$/);
     expect(PRODUCT_DETAIL_ENDPOINT).toContain("ArticleDetailService/GetProductBulk");
-    expect(PRODUCT_DETAIL_PARSER_VERSION).toBe(4);
+    expect(PRODUCT_DETAIL_PARSER_VERSION).toBe(5);
   });
 
   it("extracts explicit product fields from a sanitized real payload fixture", () => {
@@ -166,6 +166,28 @@ describe("ABOUT YOU provider", () => {
         items: expect.arrayContaining([expect.objectContaining({ rawText: "Pagaminta su: Medvilnė" })])
       })
     ]));
+  });
+
+  it("extracts the premium product badge from image badges", () => {
+    const payload = extractProductDetailPayloadFromHtml(productDetailFixture) as Record<string, any>;
+    payload.imagesSection.badges = [{
+      tracker: { contextKey: "product.badges.premium" },
+      type: { productAttribute: { label: "Premium" } }
+    }];
+
+    const extraction = extractProductDetailFromHtml(htmlForPayload(payload));
+    expect(extraction.schemaError).toBeNull();
+    expect(extraction.metadata.isPremium).toBe(true);
+  });
+
+  it("uses the hot product info box as a premium fallback", () => {
+    const payload = extractProductDetailPayloadFromHtml(productDetailFixture) as Record<string, any>;
+    payload.imagesSection.badges = [];
+    payload.hotProductSection = { infoBox: { subline: "Premium DÅ¾insai" } };
+
+    const extraction = extractProductDetailFromHtml(htmlForPayload(payload));
+    expect(extraction.schemaError).toBeNull();
+    expect(extraction.metadata.isPremium).toBe(true);
   });
 
   it("uses the shop size run without duplicating vendor sizes for product 24458375", () => {

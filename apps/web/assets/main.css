@@ -1177,6 +1177,15 @@ td small {
     transform: translateX(13px)
 }
 
+.filter-switch.compact-filter {
+    width: auto;
+    min-height: 38px;
+    margin-bottom: 0;
+    padding: 8px 10px;
+    border-width: 1px;
+    border-radius: 3px
+}
+
 .catalog-page .filter-menu {
     min-width: 260px;
     padding: 12px;

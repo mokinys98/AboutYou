@@ -42,6 +42,7 @@ export const ProductSchema = z.object({
   features: AttributeValuesSchema,
   styles: AttributeValuesSchema,
   productTypes: AttributeValuesSchema,
+  isPremium: z.boolean().default(false),
   currentPrice: z.number().int().nonnegative(),
   originalPrice: z.number().int().nonnegative().nullable().default(null),
   sourceLpl30: z.number().int().nonnegative().nullable().default(null),
@@ -79,6 +80,7 @@ export const CatalogFiltersSchema = z.object({
   features: z.array(z.string()).default([]),
   styles: z.array(z.string()).default([]),
   productTypes: z.array(z.string()).default([]),
+  isPremium: z.boolean().default(false),
   priceMin: z.number().int().nonnegative().optional(),
   priceMax: z.number().int().nonnegative().optional(),
   discountMin: z.number().min(0).max(100).optional(),
@@ -110,6 +112,7 @@ export const CatalogItemSchema = z.object({
   features: z.array(z.string()).default([]),
   styles: z.array(z.string()).default([]),
   productTypes: z.array(z.string()).default([]),
+  isPremium: z.boolean().default(false),
   source: z.string(),
   currentPrice: z.number().int(),
   originalPrice: z.number().int().nullable(),
@@ -226,6 +229,7 @@ export interface CatalogFacets {
   features: Array<{ value: string; count: number }>;
   styles: Array<{ value: string; count: number }>;
   productTypes: Array<{ value: string; count: number }>;
+  premium: { count: number };
   price: { min: number; max: number };
 }
 

@@ -10,7 +10,7 @@ const gridColumns = ref<3 | 4>(3);
 const expandedRootPath = ref<string | null>(null);
 let lastFacetsKey = "";
 let pendingFacets: { key: string; request: Promise<CatalogFacets | null> } | null = null;
-const filterKeys = ["brands", "categories", "category", "colors", "color_shades", "sources", "sizes", "other_sizes", "materials", "patterns", "features", "styles", "product_types", "price_min", "price_max", "discount_min", "below_observed_30d", "price_comparison", "sort"];
+const filterKeys = ["brands", "categories", "category", "colors", "color_shades", "sources", "sizes", "other_sizes", "materials", "patterns", "features", "styles", "product_types", "premium", "price_min", "price_max", "discount_min", "below_observed_30d", "price_comparison", "sort"];
 const filters = computed<Record<string, string>>(() => Object.fromEntries(filterKeys.flatMap((key) => typeof route.query[key] === "string" && route.query[key] ? [[key, route.query[key] as string]] : [])));
 const categoryTree = computed(() => buildCategoryTree(facets.value?.categories ?? []));
 const selectedCategory = computed(() => facets.value?.categories.find((category) => category.path === filters.value.category) ?? null);

@@ -86,6 +86,7 @@ app.get("/v1/catalog", async (c) => {
   if (filters.features.length) query = query.overlaps("features", filters.features);
   if (filters.styles.length) query = query.overlaps("styles", filters.styles);
   if (filters.productTypes.length) query = query.overlaps("product_types", filters.productTypes);
+  if (filters.isPremium) query = query.eq("is_premium", true);
   if (filters.priceMin !== undefined) query = query.gte("current_price", filters.priceMin);
   if (filters.priceMax !== undefined) query = query.lte("current_price", filters.priceMax);
   if (filters.discountMin !== undefined) query = query.gte("discount_pct", filters.discountMin);
@@ -298,6 +299,7 @@ export function parseFilters(query: Record<string, string>) {
     sizes: list(query.sizes), otherSizes: list(query.other_sizes), materials: list(query.materials),
     patterns: list(query.patterns), features: list(query.features), styles: list(query.styles),
     productTypes: list(query.product_types),
+    isPremium: query.premium === "true",
     priceMin: query.price_min ? Number(query.price_min) : undefined, priceMax: query.price_max ? Number(query.price_max) : undefined,
     discountMin: query.discount_min ? Number(query.discount_min) : undefined, belowObserved30d: query.below_observed_30d === "true",
     newOnly: query.new_only === "true",
@@ -336,7 +338,7 @@ function mapCatalogItem(row: Record<string, any>, isWatched = false) {
   return { id: row.id, externalId: row.external_id, name: row.name, brand: row.brand, productUrl: row.product_url,
     imageUrls: row.image_urls ?? [], colorOriginal: row.color_original, colorFamily: row.color_family, colorShade: row.color_shade ?? "other", categories: row.category_names ?? row.categories ?? [], categoryPaths: row.category_paths ?? [],
     sizes: row.sizes ?? [], otherSizes: row.other_sizes ?? [], materials: row.materials ?? [], patterns: row.patterns ?? [],
-    features: row.features ?? [], styles: row.styles ?? [], productTypes: row.product_types ?? [],
+    features: row.features ?? [], styles: row.styles ?? [], productTypes: row.product_types ?? [], isPremium: row.is_premium ?? false,
     source: row.source, currentPrice: row.current_price, originalPrice: row.original_price, sourceLpl30: row.source_lpl_30,
     observedMin30d: row.observed_min_30d, discountPct: Number(row.discount_pct), currency: row.currency, updatedAt: row.updated_at,
     firstSeenAt: row.first_seen_at, isWatched };
