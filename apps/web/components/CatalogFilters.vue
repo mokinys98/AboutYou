@@ -26,7 +26,7 @@ const groups = computed<FilterGroup[]>(() => [
   { key: "styles", label: "Stilius", items: props.facets?.styles ?? [] },
   { key: "product_types", label: "Prekės rūšis", items: props.facets?.productTypes ?? [] }
 ]);
-const visibleGroups = computed(() => groups.value.filter((group) => group.items.length > 1 || activeCount(group.key) > 0));
+const visibleGroups = computed(() => groups.value);
 const selected = (key: string, value: string) => (local[key] || "").split(",").includes(value);
 const activeCount = (key: string) => (local[key] || "").split(",").filter(Boolean).length;
 const saleDiscount = computed({
@@ -158,8 +158,8 @@ onUnmounted(() => {
       </div>
     </details>
 
-    <button v-if="(props.facets?.premium?.count ?? 0) > 0 || premiumOnly" class="filter-switch compact-filter" :class="{ active: premiumOnly }" type="button" role="switch" :aria-checked="premiumOnly" @click="togglePremium">
-      <span><strong>Premium</strong><small>{{ props.facets?.premium?.count ?? 0 }}</small></span><i aria-hidden="true" />
+    <button class="filter-switch compact-filter" :class="{ active: premiumOnly }" type="button" role="switch" :aria-checked="premiumOnly" @click="togglePremium">
+      <span><strong>Premium</strong><small v-if="(props.facets?.premium?.count ?? 0) > 0">{{ props.facets?.premium?.count ?? 0 }}</small></span><i aria-hidden="true" />
     </button>
 
     <button class="filter-switch compact-filter" :class="{ active: excludeBasics }" type="button" role="switch" :aria-checked="excludeBasics" @click="toggleExcludeBasics">
