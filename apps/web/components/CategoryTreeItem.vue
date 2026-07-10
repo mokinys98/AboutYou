@@ -29,7 +29,7 @@ function setExpandedChild(path: string | null) {
   <div class="category-tree-item">
     <div class="category-tree-row" :class="`level-${node.level}`" :style="{ '--category-depth': depth }">
       <button type="button" class="category-tree-select" :class="{ active: selected }" :aria-expanded="node.children.length ? open : undefined" @click="select">
-        <span>{{ node.name }}</span><small>{{ node.count }}</small>
+        <span>{{ node.name }}</span><small v-if="node.count > 0">{{ node.count }}</small>
       </button>
     </div>
     <div v-if="open && node.children.length" class="category-tree-children">

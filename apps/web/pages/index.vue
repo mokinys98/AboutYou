@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { buildCategoryTree, type CatalogFacets, type CatalogResponse } from "@catalog/shared";
+import { buildCategoryTree, clothingCategoryTree, type CatalogCategoryFacet, type CatalogFacets, type CatalogResponse } from "@catalog/shared";
 definePageMeta({ alias: ["/naujienos"] });
 const route = useRoute(); const router = useRouter(); const api = useApi();
 const isNews = computed(() => route.path === "/naujienos");
@@ -10,12 +10,16 @@ const gridColumns = ref<3 | 4>(3);
 const expandedRootPath = ref<string | null>(null);
 let lastFacetsKey = "";
 let pendingFacets: { key: string; request: Promise<CatalogFacets | null> } | null = null;
+const facetsCacheTtlMs = 24 * 60 * 60 * 1000;
+const facetsCachePrefix = "catalog-facets:v1:";
 const filterKeys = ["brands", "categories", "category", "colors", "color_shades", "sources", "sizes", "other_sizes", "materials", "patterns", "features", "styles", "product_types", "premium", "price_min", "price_max", "discount_min", "below_observed_30d", "price_comparison", "sort"];
 const filters = computed<Record<string, string>>(() => Object.fromEntries(filterKeys.flatMap((key) => typeof route.query[key] === "string" && route.query[key] ? [[key, route.query[key] as string]] : [])));
-const categoryTree = computed(() => buildCategoryTree(facets.value?.categories ?? []));
-const selectedCategory = computed(() => facets.value?.categories.find((category) => category.path === filters.value.category) ?? null);
+const fallbackCategoryFacets = createFallbackCategoryFacets();
+const categoryFacets = computed(() => facets.value?.categories.length ? facets.value.categories : fallbackCategoryFacets);
+const categoryTree = computed(() => buildCategoryTree(categoryFacets.value));
+const selectedCategory = computed(() => categoryFacets.value.find((category) => category.path === filters.value.category) ?? null);
 const categoryTrail = computed(() => {
-  const items = facets.value?.categories ?? [];
+  const items = categoryFacets.value;
   const byId = new Map(items.map((item) => [item.id, item]));
   const trail = [] as typeof items;
   let current = selectedCategory.value;
@@ -45,6 +49,56 @@ function apiParams(value: Record<string, string>) {
   if (query.has("price_max")) query.set("price_max", String(Math.round(Number(query.get("price_max")) * 100)));
   return query;
 }
+function createFallbackCategoryFacets(): CatalogCategoryFacet[] {
+  const items: CatalogCategoryFacet[] = [];
+  const add = (id: string, parentId: string | null, name: string, level: number, path: string) => {
+    items.push({ id, parentId, name, level, path, count: 0 });
+  };
+  add("fallback-drabuziai", null, "Drabužiai", 2, "vyrams>drabužiai");
+  clothingCategoryTree.forEach((category, index) => {
+    add(`fallback-drabuziai-${index}`, "fallback-drabuziai", category.name, 3, `vyrams>drabužiai>${category.name.toLocaleLowerCase("lt")}`);
+  });
+  const roots: Array<[string, string, string]> = [
+    ["fallback-batai", "Batai", "vyrams>batai"],
+    ["fallback-sportas", "Sportas", "vyrams>sportas"],
+    ["fallback-aksesuarai", "Aksesuarai", "vyrams>aksesuarai"],
+    ["fallback-premium", "Premium", "vyrams>premium"]
+  ];
+  roots.forEach(([id, name, path]) => add(id, null, name, 2, path));
+  return items;
+}
+function facetsCacheKey(key: string) {
+  return `${facetsCachePrefix}${key || "root"}`;
+}
+function restoreCachedFacets(key: string) {
+  if (!import.meta.client) return false;
+  try {
+    const cached = localStorage.getItem(facetsCacheKey(key));
+    if (!cached) return false;
+    const parsed = JSON.parse(cached) as { cachedAt?: number; value?: CatalogFacets };
+    if (!parsed.cachedAt || !parsed.value || Date.now() - parsed.cachedAt > facetsCacheTtlMs) return false;
+    facets.value = parsed.value;
+    lastFacetsKey = key;
+    return true;
+  } catch {
+    return false;
+  }
+}
+function hydrateFacetsFromCache(key: string) {
+  if (restoreCachedFacets(key)) return;
+  if (lastFacetsKey !== key) {
+    facets.value = null;
+    lastFacetsKey = "";
+  }
+}
+function storeCachedFacets(key: string, value: CatalogFacets) {
+  if (!import.meta.client) return;
+  try {
+    localStorage.setItem(facetsCacheKey(key), JSON.stringify({ cachedAt: Date.now(), value }));
+  } catch {
+    // Ignore storage quota/privacy mode failures; the API response is still rendered.
+  }
+}
 async function load(reset = true) {
   loading.value = true; error.value = "";
   try {
@@ -57,11 +111,12 @@ async function load(reset = true) {
   } catch (cause) { error.value = cause instanceof Error ? cause.message : "Katalogo užkrauti nepavyko"; }
   finally { loading.value = false; }
 }
-async function loadFacets(value = filters.value) {
+async function loadFacets(value = filters.value, options: { force?: boolean } = {}) {
   const query = apiParams(value);
   query.delete("sort");
   const key = query.toString();
-  if (key === lastFacetsKey && facets.value) return facets.value;
+  if (key === lastFacetsKey && facets.value && !options.force) return facets.value;
+  if (!options.force && restoreCachedFacets(key)) return facets.value;
   if (pendingFacets?.key === key) return pendingFacets.request;
   const request = api<CatalogFacets>(`/v1/catalog/facets?${query}`).catch(() => null);
   pendingFacets = { key, request };
@@ -70,6 +125,7 @@ async function loadFacets(value = filters.value) {
   if (result) {
     facets.value = result;
     lastFacetsKey = key;
+    storeCachedFacets(key, result);
   }
   return result;
 }
@@ -94,8 +150,18 @@ async function selectCategory(category: string) {
 const updateWatch = ({ id, isWatched }: { id: string; isWatched: boolean }) => {
   products.value = products.value.map((product) => product.id === id ? { ...product, isWatched } : product);
 };
-watch(() => route.query, () => { void Promise.all([load(true), loadFacets()]); }, { deep: true });
-onMounted(() => { void Promise.all([loadFacets(), load()]); });
+watch(() => route.query, () => {
+  const query = apiParams(filters.value);
+  query.delete("sort");
+  hydrateFacetsFromCache(query.toString());
+  void Promise.all([load(true), loadFacets(filters.value, { force: true })]);
+}, { deep: true });
+onMounted(() => {
+  const query = apiParams(filters.value);
+  query.delete("sort");
+  hydrateFacetsFromCache(query.toString());
+  void Promise.all([loadFacets(filters.value, { force: true }), load()]);
+});
 onMounted(() => {
   const saved = Number(localStorage.getItem("catalog-grid-columns"));
   if (saved === 3 || saved === 4) gridColumns.value = saved;
