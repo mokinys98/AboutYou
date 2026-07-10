@@ -27,7 +27,25 @@ const WORKFLOW_BY_CRON: Readonly<Record<string, string>> = {
   "47 * * * *": "sync-product-metadata.yml"
 };
 
-app.use("*", async (c, next) => cors({ origin: c.env.ALLOWED_ORIGIN, allowHeaders: ["Authorization", "Content-Type"], exposeHeaders: ["ETag"] })(c, next));
+const DEV_ORIGINS = new Set([
+  "http://localhost:3000",
+  "http://localhost:3001",
+  "http://localhost:3002",
+  "http://127.0.0.1:3000",
+  "http://127.0.0.1:3001",
+  "http://127.0.0.1:3002"
+]);
+
+export function allowedCorsOrigin(origin: string, allowedOrigin: string): string | null {
+  const configuredOrigins = allowedOrigin.split(",").map((value) => value.trim()).filter(Boolean);
+  return configuredOrigins.includes(origin) || DEV_ORIGINS.has(origin) ? origin : null;
+}
+
+app.use("*", async (c, next) => cors({
+  origin: (origin, context) => allowedCorsOrigin(origin, context.env.ALLOWED_ORIGIN),
+  allowHeaders: ["Authorization", "Content-Type"],
+  exposeHeaders: ["ETag"]
+})(c, next));
 app.get("/health", (c) => c.json({ ok: true }));
 
 app.use("/v1/*", async (c, next) => {
@@ -320,7 +338,7 @@ app.get("/v1/admin/dashboard", requireAdmin, async (c) => {
       disabledTargets
     },
     metadata: metadataSummary.data ?? {},
-    categories: (categories.data ?? []).slice(0, 20),
+    categories: categories.data ?? [],
     latestRuns: latestRuns.data ?? []
   });
 });

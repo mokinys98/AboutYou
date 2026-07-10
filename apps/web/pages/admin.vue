@@ -41,6 +41,7 @@ type DashboardStats = {
 
 const api = useApi();
 const activeTab = ref<"dashboard" | "sync">("dashboard");
+const categoryLevel = ref(2);
 const dashboard = ref<DashboardStats | null>(null);
 const targets = ref<Target[]>([]);
 const runs = ref<Run[]>([]);
@@ -52,7 +53,13 @@ const editForm = reactive({ label: "", url: "", kind: "category" as TargetKind, 
 
 const metadataCoverage = computed(() => pct(dashboard.value?.metadata.complete ?? 0, dashboard.value?.metadata.active ?? dashboard.value?.totals.activeProducts ?? 0));
 const productFill = computed(() => pct(dashboard.value?.totals.catalogProducts ?? 0, dashboard.value?.totals.products ?? 0));
-const topCategories = computed(() => [...(dashboard.value?.categories ?? [])].sort((a, b) => b.count - a.count).slice(0, 10));
+const categoryLevels = computed(() => {
+  const levels = [...new Set((dashboard.value?.categories ?? []).map((category) => category.level))].sort((a, b) => a - b);
+  return levels.length ? levels : [2];
+});
+const selectedLevelCategories = computed(() => (dashboard.value?.categories ?? []).filter((category) => category.level === categoryLevel.value));
+const topCategories = computed(() => [...selectedLevelCategories.value].sort((a, b) => b.count - a.count).slice(0, 10));
+const categoryBarMax = computed(() => Math.max(...topCategories.value.map((category) => category.count), 0));
 const metadataRows = computed(() => {
   const metadata = dashboard.value?.metadata ?? {};
   const active = metadata.active ?? dashboard.value?.totals.activeProducts ?? 0;
@@ -72,6 +79,7 @@ async function refresh() {
       api<Target[]>("/v1/sync-targets"),
       api<Run[]>("/v1/sync-runs")
     ]);
+    if (!categoryLevels.value.includes(categoryLevel.value)) categoryLevel.value = categoryLevels.value[0] ?? 2;
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : "Duomenų užkrauti nepavyko";
   }
@@ -202,12 +210,19 @@ onMounted(refresh);
       <div class="dashboard-grid">
         <section class="admin-panel dashboard-panel">
           <h2>Prekės pagal kategorijas</h2>
+          <div class="dashboard-panel-head">
+            <p class="panel-note">Lyginamas tik vienas kategorijų medžio lygis.</p>
+            <div class="category-level-tabs" aria-label="Kategorijų lygis">
+              <button v-for="level in categoryLevels" :key="level" type="button" :class="{ active: categoryLevel === level }" @click="categoryLevel = level">{{ level }} lygis</button>
+            </div>
+          </div>
           <div class="category-bars">
             <div v-for="category in topCategories" :key="category.path">
               <span>{{ category.name }}</span>
-              <i><b :style="{ width: `${pct(category.count, dashboard?.totals.catalogProducts ?? 0)}%` }"></b></i>
+              <i><b :style="{ width: `${pct(category.count, categoryBarMax)}%` }"></b></i>
               <strong>{{ formatNumber(category.count) }}</strong>
             </div>
+            <p v-if="!topCategories.length" class="panel-note">Šiame lygyje kategorijų nėra.</p>
           </div>
         </section>
 

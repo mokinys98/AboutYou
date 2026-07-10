@@ -591,6 +591,40 @@ a {
     min-width: 0
 }
 
+.dashboard-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin: -4px 0 16px
+}
+
+.dashboard-panel-head .panel-note {
+    margin: 0
+}
+
+.category-level-tabs {
+    display: flex;
+    gap: 6px;
+    flex: 0 0 auto
+}
+
+.category-level-tabs button {
+    min-height: 31px;
+    padding: 0 10px;
+    border: 1px solid var(--line);
+    background: #fff;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer
+}
+
+.category-level-tabs button.active {
+    border-color: #111;
+    background: #111;
+    color: #fff
+}
+
 .category-bars,
 .metadata-bars,
 .dashboard-runs {
@@ -910,6 +944,15 @@ td small {
     .dashboard-summary,
     .dashboard-grid {
         grid-template-columns: 1fr
+    }
+
+    .dashboard-panel-head {
+        display: block
+    }
+
+    .category-level-tabs {
+        margin-top: 10px;
+        flex-wrap: wrap
     }
 
     .category-bars div {

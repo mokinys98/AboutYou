@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { app, catalogCacheUrl, dispatchGitHubWorkflow, inspectProductDebugPayload, mapProductDebug, mapProductDetail, newestCatalogCutoff, parseFilters, priceComparisonColumn, workflowForCron } from "./index";
+import { allowedCorsOrigin, app, catalogCacheUrl, dispatchGitHubWorkflow, inspectProductDebugPayload, mapProductDebug, mapProductDetail, newestCatalogCutoff, parseFilters, priceComparisonColumn, workflowForCron } from "./index";
 
 describe("catalog API", () => {
   it("exposes an unauthenticated health check", async () => {
@@ -19,6 +19,29 @@ describe("catalog API", () => {
       ALLOWED_ORIGIN: "http://localhost:3000"
     });
     expect(response.status).toBe(401);
+  });
+
+  it("allows the deployed web origin and local Nuxt dev origins for CORS", async () => {
+    const allowedOrigin = "https://aboutyou-private-catalog-web.pages.dev";
+    expect(allowedCorsOrigin("https://aboutyou-private-catalog-web.pages.dev", allowedOrigin)).toBe("https://aboutyou-private-catalog-web.pages.dev");
+    expect(allowedCorsOrigin("http://localhost:3002", allowedOrigin)).toBe("http://localhost:3002");
+    expect(allowedCorsOrigin("https://example.com", allowedOrigin)).toBeNull();
+
+    const response = await app.request("/v1/catalog", {
+      method: "OPTIONS",
+      headers: {
+        Origin: "http://localhost:3002",
+        "Access-Control-Request-Method": "GET",
+        "Access-Control-Request-Headers": "authorization,content-type"
+      }
+    }, {
+      SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "test-service-role-key",
+      ALLOWED_ORIGIN: allowedOrigin
+    });
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get("access-control-allow-origin")).toBe("http://localhost:3002");
   });
 
   it("reports missing authentication configuration separately from an invalid session", async () => {
