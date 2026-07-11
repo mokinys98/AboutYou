@@ -10,6 +10,7 @@ import { normalizeCategoryPath, normalizeColor, normalizeColorShade } from "@cat
 import {
   cleanupOldDiagnostics, diagnosticRow, summarizeBlockedSchema, uploadDiagnosticHtml, type BlockedSchemaRow
 } from "./metadata-diagnostics";
+import { archiveRawPayload, cleanupRawArtifacts } from "./metadata-artifacts";
 import { classifyMetadataExtraction } from "./metadata-policy";
 
 const EnvSchema = z.object({
@@ -22,6 +23,8 @@ const EnvSchema = z.object({
   METADATA_SYNC_MAX_RUNTIME_MINUTES: z.coerce.number().int().min(1).max(70).default(60),
   METADATA_DEBUG_HTML_LIMIT: z.coerce.number().int().min(0).max(100).default(20),
   METADATA_DEBUG_RETENTION_DAYS: z.coerce.number().int().min(1).max(90).default(14),
+  METADATA_RAW_SAMPLE_LIMIT: z.coerce.number().int().min(1).max(1000).default(750),
+  METADATA_RAW_RETENTION_DAYS: z.coerce.number().int().min(1).max(90).default(30),
   SYNC_HEADLESS: z.string().default("true").transform((value) => value !== "false")
 });
 
@@ -43,6 +46,8 @@ type Counters = {
   retryable: number;
   blocked_schema: number;
   source_unavailable: number;
+  raw_archived: number;
+  raw_archive_failed: number;
 };
 
 const env = EnvSchema.parse(process.env);
@@ -51,7 +56,8 @@ const db = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
 });
 const counters: Counters = {
   claimed: 0, payload_ok: 0, complete: 0, source_absent: 0,
-  retryable: 0, blocked_schema: 0, source_unavailable: 0
+  retryable: 0, blocked_schema: 0, source_unavailable: 0,
+  raw_archived: 0, raw_archive_failed: 0
 };
 const startedAt = Date.now();
 try {
@@ -59,6 +65,16 @@ try {
   if (deleted) log("metadata_diagnostics_cleaned", { deleted });
 } catch (error) {
   log("metadata_diagnostics_cleanup_failed", { error: safeErrorCode(error) });
+}
+try {
+  const { data: sampleCount, error: refreshError } = await db.rpc("refresh_product_raw_sample_members", {
+    p_limit: env.METADATA_RAW_SAMPLE_LIMIT
+  });
+  if (refreshError) throw refreshError;
+  const deleted = await cleanupRawArtifacts(db, env.METADATA_RAW_RETENTION_DAYS);
+  log("metadata_raw_sample_refreshed", { sample_count: sampleCount, deleted_artifacts: deleted });
+} catch (error) {
+  log("metadata_raw_sample_refresh_failed", { error: safeErrorCode(error) });
 }
 const deadline = startedAt + env.METADATA_SYNC_MAX_RUNTIME_MINUTES * 60_000;
 let rateLimited = false;
@@ -87,6 +103,10 @@ try {
     const claims = (data ?? []) as Claim[];
     if (!claims.length) break;
     counters.claimed += claims.length;
+    const { data: sampleRows, error: sampleError } = await db.from("product_raw_sample_members")
+      .select("product_id").in("product_id", claims.map((claim) => claim.id));
+    if (sampleError) throw sampleError;
+    const sampleIds = new Set((sampleRows ?? []).map((row) => row.product_id as string));
 
     await runPool(claims, env.METADATA_SYNC_CONCURRENCY, async (claim) => {
       if (rateLimited) return;
@@ -142,9 +162,15 @@ try {
           counters[extractionFailure.kind === "blocked_schema" ? "blocked_schema" : "retryable"] += 1;
           await recordDiagnostic(claim, extractionFailure.code, {
             httpStatus, contentType, finalUrl, responseHtml
-          });
+          }, extractionFailure.kind === "blocked_schema" ? {
+            payload: extraction.rawPayload,
+            payloadHash: extraction.payloadHash
+          } : undefined);
           await fail(claim, extractionFailure.kind, extractionFailure.code, status);
           return;
+        }
+        if (!extraction.rawPayload || !extraction.payloadHash) {
+          throw new Error("Validated product detail payload is missing");
         }
         counters.payload_ok += 1;
 
@@ -174,13 +200,23 @@ try {
           p_product_id: claim.id,
           p_lease_token: claim.lease_token,
           p_parser_version: PRODUCT_DETAIL_PARSER_VERSION,
-          p_payload: extraction.rawPayload,
           p_payload_hash: extraction.payloadHash,
           p_source_endpoint: PRODUCT_DETAIL_ENDPOINT,
           p_result: result
         });
         if (completeError) throw completeError;
         counters.complete += 1;
+        if (sampleIds.has(claim.id)) {
+          const archived = await archiveRawPayload(db, {
+            productId: claim.id,
+            payload: extraction.rawPayload,
+            payloadHash: extraction.payloadHash,
+            parserVersion: PRODUCT_DETAIL_PARSER_VERSION,
+            sourceEndpoint: PRODUCT_DETAIL_ENDPOINT,
+            kind: "success_sample"
+          });
+          counters[archived ? "raw_archived" : "raw_archive_failed"] += 1;
+        }
         counters.source_absent += metadata.sections.filter((section) => section.status === "source_absent").length;
       } catch (error) {
         counters.retryable += 1;
@@ -236,8 +272,27 @@ type DiagnosticContext = {
   responseHtml?: string | null;
 };
 
-async function recordDiagnostic(claim: Claim, error: string, context: DiagnosticContext): Promise<void> {
+async function recordDiagnostic(
+  claim: Claim,
+  error: string,
+  context: DiagnosticContext,
+  raw?: { payload: Record<string, unknown> | null; payloadHash: string | null }
+): Promise<void> {
   const checkedAt = new Date();
+  if (raw?.payload && raw.payloadHash) {
+    const archived = await archiveRawPayload(db, {
+      productId: claim.id,
+      payload: raw.payload,
+      payloadHash: raw.payloadHash,
+      parserVersion: PRODUCT_DETAIL_PARSER_VERSION,
+      sourceEndpoint: PRODUCT_DETAIL_ENDPOINT,
+      kind: "blocked_schema",
+      errorCode: error,
+      retentionDays: env.METADATA_RAW_RETENTION_DAYS,
+      createdAt: checkedAt
+    });
+    counters[archived ? "raw_archived" : "raw_archive_failed"] += 1;
+  }
   let htmlStoragePath: string | null = null;
   if (context.responseHtml && debugHtmlSaved < env.METADATA_DEBUG_HTML_LIMIT) {
     try {

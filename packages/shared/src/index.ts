@@ -189,6 +189,7 @@ export type ProductDetailResponse = z.infer<typeof ProductDetailResponseSchema>;
 export const ProductDebugResponseSchema = z.object({
   product: CatalogItemSchema,
   detail: ProductDetailSchema,
+  rawAvailable: z.boolean(),
   source: z.object({
     breadcrumbs: z.array(z.object({
       position: z.number().int().nonnegative(),

@@ -6,6 +6,7 @@
   "scripts": {
     "sync": "node --env-file-if-exists=../../.env --import tsx src/index.ts",
     "sync:metadata": "node --env-file-if-exists=../../.env --import tsx src/metadata.ts",
+    "archive:raw": "node --env-file-if-exists=../../.env --import tsx src/archive-existing-raw.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

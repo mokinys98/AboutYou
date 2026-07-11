@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { EXCLUDED_BASICS_CATEGORIES, allowedCorsOrigin, app, catalogCacheUrl, dispatchGitHubWorkflow, inspectProductDebugPayload, inviteErrorResponse, mapProductDebug, mapProductDetail, newestCatalogCutoff, parseFilters, postgresArrayLiteral, priceComparisonColumn, teamMemberStatus, workflowForCron } from "./index";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { describe, expect, it, vi } from "vitest";
+import { EXCLUDED_BASICS_CATEGORIES, allowedCorsOrigin, app, catalogCacheUrl, dispatchGitHubWorkflow, downloadRawArtifact, inspectProductDebugPayload, inviteErrorResponse, mapProductDebug, mapProductDetail, newestCatalogCutoff, parseFilters, postgresArrayLiteral, priceComparisonColumn, teamMemberStatus, workflowForCron } from "./index";
 
 describe("catalog API", () => {
   it("exposes an unauthenticated health check", async () => {
@@ -145,7 +146,33 @@ describe("catalog API", () => {
       source_endpoint: "https://www.aboutyou.lt/p/test", parser_version: 2
     });
     expect(withRaw.raw).toEqual(expect.objectContaining({ payload: { imagesSection: { images: [] } }, parserVersion: 2 }));
+    expect(withRaw.rawAvailable).toBe(true);
+    expect(mapProductDebug(product, null, [], [], [], null).rawAvailable).toBe(false);
     expect(mapProductDebug(product, null, [], [], [], null).raw).toBeNull();
+  });
+
+  it("downloads and expands a private raw artifact", async () => {
+    const payload = { imagesSection: { images: [{ image: { src: "https://cdn.example/image.jpg" } }] } };
+    const compressed = await new Response(
+      new Blob([JSON.stringify(payload)]).stream().pipeThrough(new CompressionStream("gzip"))
+    ).blob();
+    const db = {
+      storage: { from: () => ({ download: async () => ({ data: compressed, error: null }) }) }
+    } as unknown as SupabaseClient;
+    const raw = await downloadRawArtifact(db, {
+      storage_path: "samples/v2/product/hash.json.gz", payload_hash: "hash",
+      created_at: "2026-07-11T12:00:00Z", source_endpoint: "source", parser_version: 2
+    });
+    expect(raw).toEqual(expect.objectContaining({ payload, parser_version: 2 }));
+  });
+
+  it("returns no raw payload when a stored artifact is corrupt", async () => {
+    const db = {
+      storage: { from: () => ({ download: async () => ({ data: new Blob(["not-gzip"]), error: null }) }) }
+    } as unknown as SupabaseClient;
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await expect(downloadRawArtifact(db, { storage_path: "broken.gz" })).resolves.toBeNull();
+    consoleError.mockRestore();
   });
 
   it("explains source breadcrumbs and image persistence for product debug", () => {

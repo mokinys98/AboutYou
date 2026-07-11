@@ -334,18 +334,23 @@ app.get("/v1/products/:id/debug", requireAdmin, async (c) => {
     { data: detailSections, error: detailSectionsError },
     { data: colorOptions, error: colorOptionsError },
     { data: sizeOptions, error: sizeOptionsError },
-    { data: raw, error: rawError }
+    { data: artifact, error: artifactError }
   ] = await Promise.all([
     c.get("db").from("catalog_items").select("*").eq("id", id.data).maybeSingle(),
     c.get("db").from("product_detail_sync").select("status,parser_version,static_synced_at,availability_synced_at").eq("product_id", id.data).maybeSingle(),
     c.get("db").from("product_detail_sections").select("section_key,source_label,status,items,position").eq("product_id", id.data).order("position"),
     c.get("db").from("product_color_options").select("external_id,label,url,selected,position").eq("product_id", id.data).order("position"),
     c.get("db").from("product_size_options").select("external_id,label,size_group,selected,selectable,availability,position").eq("product_id", id.data).order("position"),
-    c.get("db").from("product_detail_raw").select("payload,payload_hash,fetched_at,source_endpoint,parser_version").eq("product_id", id.data).maybeSingle()
+    c.get("db").from("product_sync_artifacts")
+      .select("storage_path,payload_hash,created_at,source_endpoint,parser_version")
+      .eq("product_id", id.data).eq("upload_status", "ready")
+      .in("artifact_kind", ["success_sample", "blocked_schema"])
+      .order("created_at", { ascending: false }).limit(1).maybeSingle()
   ]);
-  const queryError = error ?? detailSyncError ?? detailSectionsError ?? colorOptionsError ?? sizeOptionsError ?? rawError;
+  const queryError = error ?? detailSyncError ?? detailSectionsError ?? colorOptionsError ?? sizeOptionsError ?? artifactError;
   if (queryError) return c.json({ error: queryError.message }, 500);
   if (!product) return c.json({ error: "Produktas nerastas" }, 404);
+  const raw = artifact ? await downloadRawArtifact(c.get("db"), artifact) : null;
   return c.json(mapProductDebug(product, detailSync, detailSections ?? [], colorOptions ?? [], sizeOptions ?? [], raw));
 });
 
@@ -569,6 +574,7 @@ export function mapProductDebug(
     product: mappedProduct,
     detail: mapProductDetail(sync, sections, colorOptions, sizeOptions),
     source: inspectProductDebugPayload(raw?.payload, mappedProduct.imageUrls),
+    rawAvailable: Boolean(raw),
     raw: raw ? {
       payload: raw.payload,
       payloadHash: raw.payload_hash,
@@ -577,6 +583,26 @@ export function mapProductDebug(
       parserVersion: raw.parser_version
     } : null
   };
+}
+
+export async function downloadRawArtifact(db: SupabaseClient, artifact: Record<string, any>): Promise<Record<string, any> | null> {
+  if (!artifact.storage_path) return null;
+  try {
+    const { data, error } = await db.storage.from("sync-raw").download(artifact.storage_path);
+    if (error) throw error;
+    const decompressed = data.stream().pipeThrough(new DecompressionStream("gzip"));
+    const payload = JSON.parse(await new Response(decompressed).text()) as Record<string, unknown>;
+    return {
+      payload,
+      payload_hash: artifact.payload_hash,
+      fetched_at: artifact.created_at,
+      source_endpoint: artifact.source_endpoint,
+      parser_version: artifact.parser_version
+    };
+  } catch (error) {
+    console.error("[product/debug/raw]", { path: artifact.storage_path, error: error instanceof Error ? error.message : String(error) });
+    return null;
+  }
 }
 
 export function inspectProductDebugPayload(payload: unknown, storedImageUrls: string[]) {
