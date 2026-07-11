@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EXCLUDED_BASICS_CATEGORIES, allowedCorsOrigin, app, catalogCacheUrl, dispatchGitHubWorkflow, inspectProductDebugPayload, mapProductDebug, mapProductDetail, newestCatalogCutoff, parseFilters, postgresArrayLiteral, priceComparisonColumn, workflowForCron } from "./index";
+import { EXCLUDED_BASICS_CATEGORIES, allowedCorsOrigin, app, catalogCacheUrl, dispatchGitHubWorkflow, inspectProductDebugPayload, inviteErrorResponse, mapProductDebug, mapProductDetail, newestCatalogCutoff, parseFilters, postgresArrayLiteral, priceComparisonColumn, teamMemberStatus, workflowForCron } from "./index";
 
 describe("catalog API", () => {
   it("exposes an unauthenticated health check", async () => {
@@ -54,6 +54,22 @@ describe("catalog API", () => {
     });
     expect(response.status).toBe(503);
     await expect(response.json()).resolves.toEqual({ error: "API autentifikacija nesukonfigūruota" });
+  });
+
+  it("maps team member invitation states without exposing auth internals", () => {
+    expect(teamMemberStatus({ active: false, accepted_at: null })).toBe("disabled");
+    expect(teamMemberStatus({ active: true, accepted_at: null })).toBe("pending");
+    expect(teamMemberStatus({ active: true, accepted_at: "2026-07-11T10:00:00Z" })).toBe("active");
+  });
+
+  it("returns safe actionable invitation errors", () => {
+    expect(inviteErrorResponse({ message: "rate limit exceeded", status: 429 })).toMatchObject({ status: 429 });
+    expect(inviteErrorResponse({ message: "User already registered", status: 422 })).toMatchObject({ status: 409 });
+    expect(inviteErrorResponse({ message: "SMTP delivery failed", status: 500 })).toMatchObject({ status: 502 });
+    expect(inviteErrorResponse({ message: "unexpected provider response", status: 400 })).toMatchObject({
+      status: 400,
+      message: "Kvietimo išsiųsti nepavyko."
+    });
   });
 
   it("parses detailed colors, premium, basics exclusion and the source LPL comparison", () => {

@@ -415,6 +415,13 @@ a {
     color: var(--danger)
 }
 
+.success-state {
+    padding: 14px 18px;
+    margin: -24px 0 30px;
+    border: 1px solid #84ad20;
+    background: #f5ffd9
+}
+
 @keyframes pulse {
     to {
         background-position: -200%
@@ -524,6 +531,32 @@ a {
 .admin-panel {
     border-top: 1px solid #111;
     padding: 25px 0 40px
+}
+
+.user-invite-form {
+    display: grid;
+    grid-template-columns: minmax(240px, 520px) auto;
+    align-items: end;
+    gap: 12px;
+    margin-top: 20px
+}
+
+.user-invite-form label {
+    font-size: 12px;
+    font-weight: 700
+}
+
+.user-invite-form input {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid var(--line);
+    margin-top: 6px;
+    background: #fff
+}
+
+.auth-card form label {
+    display: block;
+    margin-top: 16px
 }
 
 .admin-tabs {
@@ -846,6 +879,9 @@ td small {
 }
 
 @media(max-width:760px) {
+    .user-invite-form {
+        grid-template-columns: 1fr
+    }
     .site-header {
         height: 58px;
         padding: 0 16px

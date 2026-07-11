@@ -1,4 +1,6 @@
 <script setup lang="ts">
+definePageMeta({ middleware: "admin" });
+
 type TargetKind = "category" | "brand" | "search";
 type Target = {
   id: string;
@@ -38,15 +40,25 @@ type DashboardStats = {
   categories: DashboardCategory[];
   latestRuns: DashboardRun[];
 };
+type TeamUser = {
+  email: string;
+  role: "admin" | "viewer";
+  status: "active" | "pending" | "disabled";
+  invitedAt: string | null;
+  acceptedAt: string | null;
+};
 
 const api = useApi();
-const activeTab = ref<"dashboard" | "sync">("dashboard");
+const activeTab = ref<"dashboard" | "sync" | "users">("dashboard");
 const categoryLevel = ref(2);
 const dashboard = ref<DashboardStats | null>(null);
 const targets = ref<Target[]>([]);
 const runs = ref<Run[]>([]);
+const users = ref<TeamUser[]>([]);
 const error = ref("");
+const success = ref("");
 const pending = ref("");
+const inviteEmail = ref("");
 const editingId = ref<string | null>(null);
 const form = reactive({ label: "", url: "", kind: "category" as TargetKind, priority: 100, enabled: true });
 const editForm = reactive({ label: "", url: "", kind: "category" as TargetKind, priority: 100, enabled: true });
@@ -74,15 +86,44 @@ const metadataRows = computed(() => {
 
 async function refresh() {
   try {
-    [dashboard.value, targets.value, runs.value] = await Promise.all([
+    [dashboard.value, targets.value, runs.value, users.value] = await Promise.all([
       api<DashboardStats>("/v1/admin/dashboard"),
       api<Target[]>("/v1/sync-targets"),
-      api<Run[]>("/v1/sync-runs")
+      api<Run[]>("/v1/sync-runs"),
+      api<TeamUser[]>("/v1/admin/users")
     ]);
     if (!categoryLevels.value.includes(categoryLevel.value)) categoryLevel.value = categoryLevels.value[0] ?? 2;
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : "Duomenų užkrauti nepavyko";
   }
+}
+
+async function inviteUser() {
+  error.value = "";
+  success.value = "";
+  pending.value = "invite-user";
+  const email = inviteEmail.value.trim().toLowerCase();
+  try {
+    await api<TeamUser>("/v1/admin/users/invite", { method: "POST", body: { email } });
+    inviteEmail.value = "";
+    success.value = `Kvietimas išsiųstas adresu ${email}.`;
+    users.value = await api<TeamUser[]>("/v1/admin/users");
+  } catch (cause) {
+    const apiError = cause && typeof cause === "object" && "data" in cause
+      ? (cause as { data?: { error?: unknown } }).data?.error
+      : null;
+    error.value = typeof apiError === "string"
+      ? apiError
+      : cause instanceof Error ? cause.message : "Kvietimo išsiųsti nepavyko.";
+  } finally {
+    pending.value = "";
+  }
+}
+
+function userStatusLabel(status: TeamUser["status"]) {
+  if (status === "active") return "Aktyvus";
+  if (status === "pending") return "Laukia priėmimo";
+  return "Išjungtas";
 }
 
 async function runAction(key: string, action: () => Promise<void>) {
@@ -177,10 +218,12 @@ onMounted(refresh);
   <main class="admin-page">
     <div class="page-title"><p class="eyebrow">ADMINISTRAVIMAS</p><h1>Valdymas</h1></div>
     <p v-if="error" class="error-state">{{ error }}</p>
+    <p v-if="success" class="success-state" role="status">{{ success }}</p>
 
     <nav class="admin-tabs" aria-label="Valdymo skyriai">
       <button type="button" :class="{ active: activeTab === 'dashboard' }" @click="activeTab = 'dashboard'">Dashboard</button>
       <button type="button" :class="{ active: activeTab === 'sync' }" @click="activeTab = 'sync'">Sinchronizavimas</button>
+      <button type="button" :class="{ active: activeTab === 'users' }" @click="activeTab = 'users'">Vartotojai</button>
     </nav>
 
     <section v-if="activeTab === 'dashboard'" class="admin-dashboard">
@@ -261,7 +304,7 @@ onMounted(refresh);
       </div>
     </section>
 
-    <template v-else>
+    <template v-else-if="activeTab === 'sync'">
       <section class="admin-panel">
         <h2>Pridėti grupę</h2>
         <form class="target-form" @submit.prevent="add">
@@ -312,6 +355,36 @@ onMounted(refresh);
       <section class="admin-panel">
         <h2>Paskutiniai darbai</h2>
         <div class="run-list"><div v-for="run in runs.slice(0, 20)" :key="run.id"><span class="status" :class="run.status">{{ run.status }}</span><strong>{{ run.sync_targets?.label }}</strong><time>{{ new Date(run.started_at).toLocaleString("lt-LT") }}</time><span>{{ run.products_count }} produktų</span></div></div>
+      </section>
+    </template>
+
+    <template v-else>
+      <section class="admin-panel">
+        <h2>Pakviesti vartotoją</h2>
+        <p class="panel-note">Naujam komandos nariui bus suteikta peržiūros teisė. Kvietimo nuorodoje jis galės susikurti slaptažodį.</p>
+        <form class="user-invite-form" @submit.prevent="inviteUser">
+          <label>El. paštas<input v-model="inviteEmail" type="email" autocomplete="email" required placeholder="vardas@example.com"></label>
+          <button class="primary" :disabled="pending === 'invite-user'">{{ pending === "invite-user" ? "Siunčiama…" : "Siųsti kvietimą" }}</button>
+        </form>
+      </section>
+
+      <section class="admin-panel">
+        <h2>Komandos nariai</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>El. paštas</th><th>Rolė</th><th>Būsena</th><th>Pakviestas</th><th>Priėmė kvietimą</th></tr></thead>
+            <tbody>
+              <tr v-for="member in users" :key="member.email">
+                <td><strong>{{ member.email }}</strong></td>
+                <td>{{ member.role === "admin" ? "Administratorius" : "Peržiūra" }}</td>
+                <td><span class="status" :class="member.status === 'active' ? 'success' : member.status === 'pending' ? 'warning' : ''">{{ userStatusLabel(member.status) }}</span></td>
+                <td>{{ member.invitedAt ? new Date(member.invitedAt).toLocaleString("lt-LT") : "–" }}</td>
+                <td>{{ member.acceptedAt ? new Date(member.acceptedAt).toLocaleString("lt-LT") : "–" }}</td>
+              </tr>
+              <tr v-if="!users.length"><td colspan="5" class="panel-note">Komandos narių nėra.</td></tr>
+            </tbody>
+          </table>
+        </div>
       </section>
     </template>
   </main>

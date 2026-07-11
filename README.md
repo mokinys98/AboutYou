@@ -50,6 +50,24 @@ Sinchronizavimo metu kas 5 s spausdinamas surinktų produktų ir srauto puslapi�
 
 Pagrindinis prisijungimo būdas yra el. paštas ir slaptažodis. Magic link paliktas kaip alternatyva: Supabase Auth URL Configuration pridėkite vietinį `http://localhost:3000/auth/callback` ir produkcinį Cloudflare Pages callback URL. Viešą naudotojų registraciją išjunkite. Produkciniam magic-link laiškų siuntimui sukonfigūruokite nuosavą SMTP tiekėją, nes numatytasis Supabase siuntimas yra skirtas tik bandymams ir turi griežtus limitus.
 
+### Komandos narių kvietimai
+
+Administratoriaus „Vartotojai“ skiltis kvietimus siunčia per Supabase Auth Admin API. Lokaliai API aplinkoje nustatykite `WEB_APP_URL=http://localhost:3000`; produkcijoje Worker `WEB_APP_URL` turi sutapti su Cloudflare Pages adresu. Supabase Authentication → URL Configuration leidžiamų redirect adresų sąraše pridėkite:
+
+- `http://localhost:3000/auth/invite`
+- `https://aboutyou-private-catalog-web.pages.dev/auth/invite`
+
+Supabase Authentication → Email Templates → Invite user šablonui naudokite temą `Kvietimas prisijungti prie Kainoraščio` ir turinį:
+
+```html
+<h2>Jūs pakviesti prisijungti</h2>
+<p>Paspauskite nuorodą ir susikurkite savo slaptažodį.</p>
+<p><a href="{{ .ConfirmationURL }}">Priimti kvietimą</a></p>
+<p>Jeigu kvietimo nesitikėjote, šį laišką ignoruokite.</p>
+```
+
+Produkcijoje prijunkite Resend per Supabase Custom SMTP, patvirtinkite atskirą siuntimo subdomeną ir jo SPF, DKIM bei DMARC įrašus. Autentifikacijos laiškams išjunkite Resend link tracking. Viešas registravimasis turi likti išjungtas. Lokaliame Supabase kvietimų laiškus galima peržiūrėti Mailpit (`supabase status` parodo jo adresą).
+
 Produkto detalės renkamos atskiru `sync:metadata` procesu tik iš struktūruoto
 `ArticleDetailService/GetProductBulk` payload. Darbai rezervuojami DB lease, todėl
 pakartotinis workflow neapdoroja jau užbaigto tos pačios parserio versijos produkto.

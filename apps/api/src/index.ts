@@ -9,6 +9,7 @@ type Bindings = {
   ALLOWED_ORIGIN: string;
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
+  WEB_APP_URL?: string;
 };
 type SchedulerBindings = Bindings & {
   GITHUB_TOKEN: string;
@@ -75,9 +76,12 @@ app.use("/v1/*", async (c, next) => {
     userId = payload.sub;
   } catch { return c.json({ error: "Neteisinga arba pasibaigusi sesija" }, 401); }
   const db = createClient(c.env.SUPABASE_URL, c.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
-  const { data: member, error } = await db.from("team_members").select("email,role,active").eq("user_id", userId).eq("active", true).maybeSingle();
+  const { data: member, error } = await db.from("team_members").select("email,role,active,accepted_at").eq("user_id", userId).eq("active", true).maybeSingle();
   if (error) return c.json({ error: "Komandos narystės patikrinti nepavyko" }, 503);
   if (!member) return c.json({ error: "Naudotojas nepriklauso komandai" }, 403);
+  if (!member.accepted_at && c.req.path !== "/v1/users/accept-invite") {
+    return c.json({ error: "Pirmiausia užbaikite kvietimą ir susikurkite slaptažodį" }, 403);
+  }
   c.set("db", db);
   c.set("member", { userId, role: member.role, email: member.email });
   await next();
@@ -89,6 +93,107 @@ const requireAdmin: MiddlewareHandler<{ Bindings: Bindings; Variables: Variables
 };
 
 app.get("/v1/me", (c) => c.json(c.get("member")));
+
+const InviteMemberInput = z.object({
+  email: z.string().trim().toLowerCase().email().max(320)
+});
+
+export function teamMemberStatus(member: { active: boolean; accepted_at: string | null }): "disabled" | "pending" | "active" {
+  if (!member.active) return "disabled";
+  return member.accepted_at ? "active" : "pending";
+}
+
+export function inviteErrorResponse(error: { message: string; status?: number; code?: string }): { status: 400 | 409 | 429 | 502; message: string } {
+  const message = error.message.toLowerCase();
+  if (error.status === 429 || message.includes("rate limit")) {
+    return { status: 429, message: "Viršytas kvietimų siuntimo limitas. Bandykite vėliau." };
+  }
+  if (message.includes("already") || message.includes("registered") || message.includes("exists")) {
+    return { status: 409, message: "Toks naudotojas jau egzistuoja." };
+  }
+  if (message.includes("smtp") || message.includes("email") || message.includes("mail")) {
+    return { status: 502, message: "Kvietimo laiško išsiųsti nepavyko. Patikrinkite el. pašto siuntimo nustatymus." };
+  }
+  return { status: 400, message: "Kvietimo išsiųsti nepavyko." };
+}
+
+app.get("/v1/admin/users", requireAdmin, async (c) => {
+  const { data, error } = await c.get("db")
+    .from("team_members")
+    .select("email,role,active,invited_at,accepted_at")
+    .order("created_at", { ascending: false });
+  if (error) return c.json({ error: "Vartotojų sąrašo įkelti nepavyko." }, 500);
+  return c.json((data ?? []).map((member) => ({
+    email: member.email,
+    role: member.role,
+    status: teamMemberStatus(member),
+    invitedAt: member.invited_at,
+    acceptedAt: member.accepted_at
+  })));
+});
+
+app.post("/v1/admin/users/invite", requireAdmin, async (c) => {
+  const input = InviteMemberInput.safeParse(await c.req.json().catch(() => null));
+  if (!input.success) return c.json({ error: "Įveskite galiojantį el. pašto adresą." }, 400);
+
+  const db = c.get("db");
+  const { data: existing, error: lookupError } = await db
+    .from("team_members")
+    .select("user_id")
+    .ilike("email", input.data.email)
+    .maybeSingle();
+  if (lookupError) return c.json({ error: "Vartotojo patikrinti nepavyko." }, 500);
+  if (existing) return c.json({ error: "Toks komandos narys jau egzistuoja." }, 409);
+
+  const webAppUrl = c.env.WEB_APP_URL?.replace(/\/$/, "");
+  if (!webAppUrl) return c.json({ error: "Kvietimų siuntimas nesukonfigūruotas." }, 503);
+
+  const { data: invited, error: inviteError } = await db.auth.admin.inviteUserByEmail(input.data.email, {
+    redirectTo: `${webAppUrl}/auth/invite`
+  });
+  if (inviteError || !invited.user) {
+    const mapped = inviteErrorResponse(inviteError ?? { message: "Invite user missing" });
+    return c.json({ error: mapped.message }, mapped.status);
+  }
+
+  const now = new Date().toISOString();
+  const { error: insertError } = await db.from("team_members").insert({
+    user_id: invited.user.id,
+    email: input.data.email,
+    role: "viewer",
+    active: true,
+    invited_at: now,
+    accepted_at: null,
+    invited_by: c.get("member").userId
+  });
+  if (insertError) {
+    const { error: cleanupError } = await db.auth.admin.deleteUser(invited.user.id);
+    if (cleanupError) console.error(JSON.stringify({ event: "invite_cleanup_failed", userId: invited.user.id, error: cleanupError.message }));
+    return c.json({ error: "Kvietimas išsiųstas, tačiau vartotojo sukurti nepavyko. Bandykite dar kartą." }, 500);
+  }
+
+  console.log(JSON.stringify({ event: "team_member_invited", userId: invited.user.id, invitedBy: c.get("member").userId }));
+  return c.json({
+    email: input.data.email,
+    role: "viewer",
+    status: "pending",
+    invitedAt: now,
+    acceptedAt: null
+  }, 201);
+});
+
+app.post("/v1/users/accept-invite", async (c) => {
+  const member = c.get("member");
+  const { data, error } = await c.get("db")
+    .from("team_members")
+    .update({ accepted_at: new Date().toISOString() })
+    .eq("user_id", member.userId)
+    .is("accepted_at", null)
+    .select("accepted_at")
+    .maybeSingle();
+  if (error) return c.json({ error: "Kvietimo priėmimo pažymėti nepavyko." }, 500);
+  return c.json({ accepted: true, acceptedAt: data?.accepted_at ?? null });
+});
 
 app.get("/v1/catalog", async (c) => {
   const parsed = parseFilters(c.req.query());

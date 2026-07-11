@@ -1,5 +1,16 @@
 <script setup lang="ts">
-const { user, signOut } = useAuth();
+const { user, signOut: authSignOut } = useAuth();
+const { isAdmin, loadMember, clearMember } = useMember();
+
+watch(user, (value) => {
+  if (value) void loadMember();
+  else clearMember();
+}, { immediate: true });
+
+async function signOut() {
+  clearMember();
+  await authSignOut();
+}
 </script>
 
 <template>
@@ -9,7 +20,7 @@ const { user, signOut } = useAuth();
       <nav>
         <NuxtLink to="/">Katalogas</NuxtLink>
         <NuxtLink to="/watchlist">Stebimos prekės</NuxtLink>
-        <NuxtLink to="/admin">Valdymas</NuxtLink>
+        <NuxtLink v-if="isAdmin" to="/admin">Valdymas</NuxtLink>
         <NuxtLink to="/profile">Profilis</NuxtLink>
         <button class="link-button" @click="signOut">Atsijungti</button>
       </nav>
