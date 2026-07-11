@@ -161,7 +161,7 @@ onUnmounted(() => {
       </details>
 
       <template v-for="group in visibleGroups" :key="group.key">
-        <details class="filter-popover" :open="activeFilter === group.key">
+        <details class="filter-popover" :class="{ 'filter-popover-align-left': group.key === 'features', 'material-filter': group.key === 'materials' }" :open="activeFilter === group.key">
           <summary :class="{ active: activeCount(group.key) }" @click.prevent="toggleFilter(group.key)">{{ group.label }} <span v-if="activeCount(group.key)" class="filter-count">{{ activeCount(group.key) }}</span></summary>
           <div class="filter-menu">
             <label v-if="group.items.length > 12" class="filter-search"><span class="sr-only">Ieškoti</span><input v-model="searches[group.key]" type="search" :placeholder="`Ieškoti: ${group.label.toLocaleLowerCase('lt')}`"></label>

@@ -1817,15 +1817,11 @@ td small {
 
 .filter-dropdown-row {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 8px;
-    overflow-x: auto;
-    padding-bottom: 2px;
-    scrollbar-width: none
-}
-
-.filter-dropdown-row::-webkit-scrollbar {
-    display: none
+    overflow: visible;
+    padding-bottom: 2px
 }
 
 .filter-popover {
@@ -1905,12 +1901,37 @@ td small {
     z-index: 30
 }
 
+.filter-popover-align-left>.filter-menu {
+    right: 0;
+    left: auto
+}
+
 .filter-menu .check {
     white-space: nowrap
 }
 
 .filter-menu .check small {
     margin-left: auto
+}
+
+.material-filter>.filter-menu {
+    width: min(320px, calc(100vw - 32px));
+    min-width: 0
+}
+
+.material-filter .check {
+    align-items: flex-start;
+    white-space: normal
+}
+
+.material-filter .check>span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    line-height: 1.35
+}
+
+.material-filter .check>small {
+    flex: 0 0 auto
 }
 
 .filter-count {
@@ -2170,6 +2191,10 @@ td small {
         box-shadow: none;
         border-top: 0;
         max-height: none
+    }
+
+    .filter-popover-align-left>.filter-menu {
+        right: auto
     }
 
     .less-filters,
