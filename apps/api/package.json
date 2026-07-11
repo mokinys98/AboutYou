@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev --env-file ../../.env",
+    "dev:real-db": "wrangler dev --env-file ../../.env --env-file ../../config/env/api-local.env",
     "build": "wrangler deploy --dry-run --outdir dist",
     "deploy": "wrangler deploy",
     "types": "wrangler types --include-runtime false",

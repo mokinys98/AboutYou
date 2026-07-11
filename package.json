@@ -9,7 +9,10 @@
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "dev:web": "npm run dev --workspace @catalog/web",
+    "dev:web:real": "npm run dev:real --workspace @catalog/web",
+    "dev:web:real-db": "npm run dev:real-db --workspace @catalog/web",
     "dev:api": "npm run dev --workspace @catalog/api",
+    "dev:api:real-db": "npm run dev:real-db --workspace @catalog/api",
     "sync": "npm run sync --workspace @catalog/sync",
     "sync:metadata": "npm run sync:metadata --workspace @catalog/sync",
     "test": "vitest run",

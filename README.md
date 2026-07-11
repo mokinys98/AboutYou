@@ -23,6 +23,17 @@ Nuxt 3, Hono, Supabase ir Playwright monorepo, periodiškai surenkantis pasirink
 6. Admin puslapyje pridėkite 5–10 `https://www.aboutyou.lt/...` kategorijų ar brandų URL.
 7. Vietinei sinchronizacijai paleiskite `npm run sync`.
 
+### Kūrimo režimai
+
+- Tikras Supabase ir tikras, jau įdiegtas API: `npm run dev:web:real`.
+- Tikras Supabase, bet lokalūs API ir web: viename terminale paleiskite
+  `npm run dev:api:real-db`, kitame – `npm run dev:web:real-db`.
+
+Abu režimai Supabase adresą ir raktus ima iš šakninio `.env`. Antrasis režimas
+tik perrašo web API adresą į `http://localhost:8787` ir lokalaus API leidžiamą
+web origin į `http://localhost:3000`; paslaptys papildomuose config failuose
+nedubliuojamos.
+
 Jei duomenų bazė jau buvo sukurta anksčiau, papildomai paleiskite
 `supabase/migrations/202607050002_product_attributes.sql`. Migracija iš karto
 priskiria jau turimus produktus jų kategorijų sync grupėms ir atkuria prekės

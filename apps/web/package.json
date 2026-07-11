@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "nuxt dev",
+    "dev:real": "nuxt dev --dotenv ../../.env",
+    "dev:real-db": "nuxt dev --dotenv ../../config/env/web-local-api.env",
     "build": "nuxt build",
     "generate": "nuxt generate",
     "typecheck": "nuxt typecheck"
@@ -18,4 +20,3 @@
   },
   "devDependencies": { "typescript": "latest", "vue-tsc": "latest" }
 }
-
