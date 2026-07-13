@@ -5,14 +5,16 @@ const { user, signOut } = useAuth();
 <template>
   <div>
     <header v-if="user" class="site-header">
-      <NuxtLink to="/" class="brand">KAINORAŠTIS</NuxtLink>
-      <nav>
-        <NuxtLink to="/">Katalogas</NuxtLink>
-        <NuxtLink to="/watchlist">Stebimos prekės</NuxtLink>
-        <NuxtLink to="/admin">Valdymas</NuxtLink>
-        <NuxtLink to="/profile">Profilis</NuxtLink>
-        <button class="link-button" @click="signOut">Atsijungti</button>
-      </nav>
+      <div class="site-header-inner">
+        <NuxtLink to="/" class="brand">KAINORAŠTIS</NuxtLink>
+        <nav>
+          <NuxtLink to="/">Katalogas</NuxtLink>
+          <NuxtLink to="/watchlist">Stebimos prekės</NuxtLink>
+          <NuxtLink to="/admin">Valdymas</NuxtLink>
+          <NuxtLink to="/profile">Profilis</NuxtLink>
+          <button class="link-button" @click="signOut">Atsijungti</button>
+        </nav>
+      </div>
     </header>
     <NuxtPage />
   </div>

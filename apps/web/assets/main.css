@@ -25,14 +25,20 @@ a {
 .site-header {
     height: 72px;
     border-bottom: 1px solid var(--line);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 3.5vw;
     position: sticky;
     top: 0;
     background: #fff;
     z-index: 50
+}
+
+.site-header-inner {
+    width: calc(100% - 32px);
+    max-width: 1300px;
+    height: 100%;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between
 }
 
 .brand {
@@ -847,8 +853,12 @@ td small {
 
 @media(max-width:760px) {
     .site-header {
-        height: 58px;
-        padding: 0 16px
+        height: 58px
+    }
+
+    .site-header-inner {
+        width: auto;
+        margin: 0 16px
     }
 
     .site-header nav a {
