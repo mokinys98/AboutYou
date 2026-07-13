@@ -29,6 +29,10 @@ export const EXCLUDED_BASICS_CATEGORIES = [
   "Vonios chalatai"
 ];
 
+export const EXCLUDED_ACCESSORIES_PATHS = [
+  "vyrams>aksesuarai"
+];
+
 export const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 const jwks = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 
@@ -224,6 +228,9 @@ app.get("/v1/catalog", async (c) => {
   if (filters.excludeBasics) {
     const excludedBasics = postgresArrayLiteral(EXCLUDED_BASICS_CATEGORIES);
     query = query.not("category_names", "ov", excludedBasics).not("categories", "ov", excludedBasics);
+  }
+  if (filters.excludeAccessories) {
+    query = query.not("category_paths", "ov", postgresArrayLiteral(EXCLUDED_ACCESSORIES_PATHS));
   }
   if (filters.priceMin !== undefined) query = query.gte("current_price", filters.priceMin);
   if (filters.priceMax !== undefined) query = query.lte("current_price", filters.priceMax);
@@ -580,6 +587,7 @@ export function parseFilters(query: Record<string, string>) {
     productTypes: list(query.product_types),
     isPremium: query.premium === "true",
     excludeBasics: query.exclude_basics === "true",
+    excludeAccessories: query.exclude_accessories === "true",
     priceMin: query.price_min ? Number(query.price_min) : undefined, priceMax: query.price_max ? Number(query.price_max) : undefined,
     discountMin: query.discount_min ? Number(query.discount_min) : undefined, belowObserved30d: query.below_observed_30d === "true",
     newOnly: query.new_only === "true",

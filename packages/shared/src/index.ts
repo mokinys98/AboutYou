@@ -96,6 +96,7 @@ export const CatalogFiltersSchema = z.object({
   productTypes: z.array(z.string()).default([]),
   isPremium: z.boolean().default(false),
   excludeBasics: z.boolean().default(false),
+  excludeAccessories: z.boolean().default(false),
   priceMin: z.number().int().nonnegative().optional(),
   priceMax: z.number().int().nonnegative().optional(),
   discountMin: z.number().min(0).max(100).optional(),

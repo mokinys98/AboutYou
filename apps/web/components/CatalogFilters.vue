@@ -39,6 +39,7 @@ const saleDiscount = computed({
 const belowLpl = computed(() => local.below_observed_30d === "true" && local.price_comparison === "source_lpl");
 const premiumOnly = computed(() => local.premium === "true");
 const excludeBasics = computed(() => local.exclude_basics === "true");
+const excludeAccessories = computed(() => local.exclude_accessories === "true");
 const filteredItems = (group: FilterGroup) => {
   const query = (searches[group.key] || "").trim().toLocaleLowerCase("lt");
   if (!query) return group.items.slice(0, 80);
@@ -69,6 +70,10 @@ const togglePremium = () => {
 };
 const toggleExcludeBasics = () => {
   local.exclude_basics = excludeBasics.value ? "" : "true";
+  apply();
+};
+const toggleExcludeAccessories = () => {
+  local.exclude_accessories = excludeAccessories.value ? "" : "true";
   apply();
 };
 const clear = () => {
@@ -102,6 +107,7 @@ const activeChips = computed(() => {
   if (local.price_min || local.price_max) chips.push({ key: "price", label: `${local.price_min || "0"}–${local.price_max || "∞"} €` });
   if (premiumOnly.value) chips.push({ key: "premium", label: "ABOUT YOU Premium" });
   if (excludeBasics.value) chips.push({ key: "exclude_basics", label: "Be kojinių ir apatinių" });
+  if (excludeAccessories.value) chips.push({ key: "exclude_accessories", label: "Be aksesuarų" });
   return chips;
 });
 
@@ -189,6 +195,9 @@ onUnmounted(() => {
         </button>
         <button class="quick-filter-pill" :class="{ active: excludeBasics }" type="button" :aria-pressed="excludeBasics" @click="toggleExcludeBasics">
           <i aria-hidden="true" />Be kojinių ir apatinių
+        </button>
+        <button class="quick-filter-pill" :class="{ active: excludeAccessories }" type="button" :aria-pressed="excludeAccessories" @click="toggleExcludeAccessories">
+          <i aria-hidden="true" />Be aksesuarų
         </button>
       </div>
       <button v-if="activeChips.length" class="clear-filters" type="button" @click="clear">Išvalyti viską</button>

@@ -74,13 +74,14 @@ describe("catalog API", () => {
   });
 
   it("parses detailed colors, premium, basics exclusion and the source LPL comparison", () => {
-    const parsed = parseFilters({ color_shades: "teal,olive", brand_tiers: "S,A", premium: "true", exclude_basics: "true", below_observed_30d: "true", price_comparison: "source_lpl" });
+    const parsed = parseFilters({ color_shades: "teal,olive", brand_tiers: "S,A", premium: "true", exclude_basics: "true", exclude_accessories: "true", below_observed_30d: "true", price_comparison: "source_lpl" });
     expect(parsed.success).toBe(true);
     if (parsed.success) {
       expect(parsed.data.colorShades).toEqual(["teal", "olive"]);
       expect(parsed.data.brandTiers).toEqual(["S", "A"]);
       expect(parsed.data.isPremium).toBe(true);
       expect(parsed.data.excludeBasics).toBe(true);
+      expect(parsed.data.excludeAccessories).toBe(true);
       expect(parsed.data.priceComparison).toBe("source_lpl");
       expect(parsed.data.belowObserved30d).toBe(true);
     }
