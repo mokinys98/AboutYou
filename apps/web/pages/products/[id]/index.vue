@@ -65,7 +65,10 @@ onMounted(async () => {
         <div class="detail-image"><img v-if="product.imageUrls[0]" :src="product.imageUrls[0]" :alt="product.name"></div>
         <div>
           <div class="detail-heading">
-            <div><p class="eyebrow">{{ product.brand }}</p><h1>{{ product.name }}</h1></div>
+            <div>
+              <div class="detail-brand-line"><p class="eyebrow">{{ product.brand }}</p><BrandTierRibbon :tier="product.brandTier" compact /></div>
+              <h1>{{ product.name }}</h1>
+            </div>
             <button class="detail-watch" :class="{ active: product.isWatched }" :disabled="watchPending" :aria-pressed="product.isWatched" @click="toggleWatch">
               {{ product.isWatched ? "♥ Stebima" : "♡ Stebėti" }}
             </button>

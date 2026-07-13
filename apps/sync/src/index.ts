@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { AboutYouRateLimitError, collectAboutYouTarget } from "@catalog/aboutyou-provider";
 import { normalizeCategoryPath } from "@catalog/shared";
-import { resolveFallbackCategory } from "./category-classifier";
+import { inferFallbackCategoryPath, resolveFallbackCategory } from "./category-classifier";
 
 const EnvSchema = z.object({
   SUPABASE_URL: z.string().url(),
@@ -69,8 +69,11 @@ try {
           product.productTypes,
           target.kind === "category" ? target.label : undefined
         );
+        const inferredPath = inferFallbackCategoryPath(product.name, product.productTypes);
         const categoryPath = sourceIsExact
           ? normalizeCategoryPath(sourceCategories)
+          : inferredPath.length
+            ? inferredPath
           : fallbackRoot
             ? normalizeCategoryPath(sourceCategories, fallbackRoot)
             : [];

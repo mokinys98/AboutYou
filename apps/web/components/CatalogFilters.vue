@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { colorShadeLabels, type CatalogFacets, type ColorShade } from "@catalog/shared";
+import { brandTierLabels, colorShadeLabels, type BrandTier, type CatalogFacets, type ColorShade } from "@catalog/shared";
 
 type FacetItem = { value: string; count: number; label?: string };
 type FilterGroup = { key: string; label: string; items: FacetItem[] };
@@ -19,6 +19,7 @@ const groups = computed<FilterGroup[]>(() => [
   { key: "sizes", label: "Dydis", items: props.facets?.sizes ?? [] },
   { key: "color_shades", label: "Spalva", items: (props.facets?.colorShades ?? []).map((item) => ({ ...item, label: colorShadeLabels[item.value] })) },
   { key: "brands", label: "Prekės ženklas", items: props.facets?.brands ?? [] },
+  { key: "brand_tiers", label: "Brando lygis", items: (props.facets?.brandTiers ?? []).map((item) => ({ ...item, label: `${item.value} · ${brandTierLabels[item.value as BrandTier]}` })) },
   { key: "other_sizes", label: "Kiti dydžiai", items: props.facets?.otherSizes ?? [] },
   { key: "materials", label: "Medžiaga", items: props.facets?.materials ?? [] },
   { key: "patterns", label: "Raštas", items: props.facets?.patterns ?? [] },
@@ -27,7 +28,7 @@ const groups = computed<FilterGroup[]>(() => [
   { key: "product_types", label: "Prekės rūšis", items: props.facets?.productTypes ?? [] }
 ]);
 const showMoreFilters = ref(false);
-const primaryGroupKeys = ["sizes", "color_shades", "brands"];
+const primaryGroupKeys = ["sizes", "color_shades", "brands", "brand_tiers"];
 const visibleGroups = computed(() => groups.value.filter((group) => showMoreFilters.value || primaryGroupKeys.includes(group.key)));
 const selected = (key: string, value: string) => (local[key] || "").split(",").includes(value);
 const activeCount = (key: string) => (local[key] || "").split(",").filter(Boolean).length;
@@ -99,7 +100,7 @@ const activeChips = computed(() => {
   if (local.discount_min) chips.push({ key: "discount_min", label: `Išpardavimas nuo ${local.discount_min} %` });
   if (belowLpl.value) chips.push({ key: "below_observed_30d", label: "Kaina < LPL" });
   if (local.price_min || local.price_max) chips.push({ key: "price", label: `${local.price_min || "0"}–${local.price_max || "∞"} €` });
-  if (premiumOnly.value) chips.push({ key: "premium", label: "Premium" });
+  if (premiumOnly.value) chips.push({ key: "premium", label: "ABOUT YOU Premium" });
   if (excludeBasics.value) chips.push({ key: "exclude_basics", label: "Be kojinių ir apatinių" });
   return chips;
 });

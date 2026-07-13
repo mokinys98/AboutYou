@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { inferFallbackCategories, resolveFallbackCategory } from "./category-classifier";
+import { inferFallbackCategories, inferFallbackCategoryPath, resolveFallbackCategory } from "./category-classifier";
 
 describe("fallback product category classifier", () => {
   it.each([
@@ -26,6 +26,20 @@ describe("fallback product category classifier", () => {
 
   it("retains the existing clothing fallback", () => {
     expect(inferFallbackCategories("Ilga pižama")).toEqual(["Apatiniai"]);
+  });
+
+  it.each([
+    ["Skrybėlaitė", ["Vyrams", "Aksesuarai", "Kepurės", "Skrybėlės"]],
+    ["Megzta kepurė", ["Vyrams", "Aksesuarai", "Kepurės", "Megztos kepurės"]],
+    ["Kuprinė", ["Vyrams", "Aksesuarai", "Krepšiai ir kuprinės", "Kuprinės"]],
+    ["Analoginis laikrodis", ["Vyrams", "Aksesuarai", "Laikrodžiai"]],
+    ["Apyrankė", ["Vyrams", "Aksesuarai", "Juvelyriniai dirbiniai", "Apyrankės"]],
+    ["Šalikas", ["Vyrams", "Aksesuarai", "Šalikai ir šaliai"]],
+    ["Sportbačiai be auliuko", ["Vyrams", "Batai", "Sportbačiai", "Sportbačiai žemu auliuku"]],
+    ["Šlepetės", ["Vyrams", "Batai", "Atviri batai", "Šlepetės"]],
+    ["Sportinės kojinės", ["Vyrams", "Drabužiai", "Apatiniai", "Kojinės"]]
+  ])("builds a canonical fallback path for %s", (name, path) => {
+    expect(inferFallbackCategoryPath(name)).toEqual(path);
   });
 });
 

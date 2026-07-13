@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { brandTierLabels, brandTiers, type BrandTier } from "@catalog/shared";
 definePageMeta({ middleware: "admin" });
 
 type TargetKind = "category" | "brand" | "search";
@@ -26,6 +27,10 @@ type DashboardStats = {
     premiumProducts: number;
     newProducts: number;
     belowObservedProducts: number;
+    exactCategoryProducts: number;
+    fallbackCategoryProducts: number;
+    uncategorizedProducts: number;
+    legacyCategories: number;
     enabledTargets: number;
     disabledTargets: number;
   };
@@ -47,14 +52,24 @@ type TeamUser = {
   invitedAt: string | null;
   acceptedAt: string | null;
 };
+type BrandTierRow = {
+  brandKey: string;
+  displayName: string;
+  activeProducts: number;
+  tier: BrandTier | null;
+  updatedAt: string | null;
+};
 
 const api = useApi();
-const activeTab = ref<"dashboard" | "sync" | "users">("dashboard");
+const activeTab = ref<"dashboard" | "tiers" | "sync" | "users">("dashboard");
 const categoryLevel = ref(2);
 const dashboard = ref<DashboardStats | null>(null);
 const targets = ref<Target[]>([]);
 const runs = ref<Run[]>([]);
 const users = ref<TeamUser[]>([]);
+const brandTierRows = ref<BrandTierRow[]>([]);
+const tierQuery = ref("");
+const tierFilter = ref<BrandTier | "unassigned" | "">("");
 const error = ref("");
 const success = ref("");
 const pending = ref("");
@@ -62,6 +77,14 @@ const inviteEmail = ref("");
 const editingId = ref<string | null>(null);
 const form = reactive({ label: "", url: "", kind: "category" as TargetKind, priority: 100, enabled: true });
 const editForm = reactive({ label: "", url: "", kind: "category" as TargetKind, priority: 100, enabled: true });
+const filteredBrandTiers = computed(() => {
+  const query = tierQuery.value.trim().toLocaleLowerCase("lt");
+  return brandTierRows.value.filter((row) => {
+    const matchesQuery = !query || row.displayName.toLocaleLowerCase("lt").includes(query);
+    const matchesTier = !tierFilter.value || (tierFilter.value === "unassigned" ? row.tier === null : row.tier === tierFilter.value);
+    return matchesQuery && matchesTier;
+  });
+});
 
 const metadataCoverage = computed(() => pct(dashboard.value?.metadata.complete ?? 0, dashboard.value?.metadata.active ?? dashboard.value?.totals.activeProducts ?? 0));
 const productFill = computed(() => pct(dashboard.value?.totals.catalogProducts ?? 0, dashboard.value?.totals.products ?? 0));
@@ -86,16 +109,48 @@ const metadataRows = computed(() => {
 
 async function refresh() {
   try {
-    [dashboard.value, targets.value, runs.value, users.value] = await Promise.all([
+    [dashboard.value, targets.value, runs.value, users.value, brandTierRows.value] = await Promise.all([
       api<DashboardStats>("/v1/admin/dashboard"),
       api<Target[]>("/v1/sync-targets"),
       api<Run[]>("/v1/sync-runs"),
-      api<TeamUser[]>("/v1/admin/users")
+      api<TeamUser[]>("/v1/admin/users"),
+      api<BrandTierRow[]>("/v1/admin/brand-tiers")
     ]);
     if (!categoryLevels.value.includes(categoryLevel.value)) categoryLevel.value = categoryLevels.value[0] ?? 2;
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : "Duomenų užkrauti nepavyko";
   }
+}
+
+async function saveBrandTier(row: BrandTierRow, tier: BrandTier) {
+  const previous = row.tier;
+  row.tier = tier;
+  await runAction(`tier:${row.brandKey}`, async () => {
+    try {
+      await api(`/v1/admin/brand-tiers/${encodeURIComponent(row.brandKey)}`, {
+        method: "PUT",
+        body: { displayName: row.displayName, tier }
+      });
+      success.value = `${row.displayName}: priskirtas ${tier} tier.`;
+    } catch (cause) {
+      row.tier = previous;
+      throw cause;
+    }
+  });
+}
+
+async function clearBrandTier(row: BrandTierRow) {
+  const previous = row.tier;
+  row.tier = null;
+  await runAction(`tier:${row.brandKey}`, async () => {
+    try {
+      await api(`/v1/admin/brand-tiers/${encodeURIComponent(row.brandKey)}`, { method: "DELETE" });
+      success.value = `${row.displayName}: tier pašalintas.`;
+    } catch (cause) {
+      row.tier = previous;
+      throw cause;
+    }
+  });
 }
 
 async function inviteUser() {
@@ -222,6 +277,7 @@ onMounted(refresh);
 
     <nav class="admin-tabs" aria-label="Valdymo skyriai">
       <button type="button" :class="{ active: activeTab === 'dashboard' }" @click="activeTab = 'dashboard'">Dashboard</button>
+      <button type="button" :class="{ active: activeTab === 'tiers' }" @click="activeTab = 'tiers'">Brandų tier'ai</button>
       <button type="button" :class="{ active: activeTab === 'sync' }" @click="activeTab = 'sync'">Sinchronizavimas</button>
       <button type="button" :class="{ active: activeTab === 'users' }" @click="activeTab = 'users'">Vartotojai</button>
     </nav>
@@ -283,10 +339,14 @@ onMounted(refresh);
         <section class="admin-panel dashboard-panel">
           <h2>Papildomi rodikliai</h2>
           <dl class="dashboard-facts">
-            <div><dt>Premium prekės</dt><dd>{{ formatNumber(dashboard?.totals.premiumProducts) }}</dd></div>
+            <div><dt>ABOUT YOU Premium</dt><dd>{{ formatNumber(dashboard?.totals.premiumProducts) }}</dd></div>
             <div><dt>Naujos per 30 d.</dt><dd>{{ formatNumber(dashboard?.totals.newProducts) }}</dd></div>
             <div><dt>Žemiau 30 d. minimumo</dt><dd>{{ formatNumber(dashboard?.totals.belowObservedProducts) }}</dd></div>
             <div><dt>Sync grupės</dt><dd>{{ formatNumber(dashboard?.totals.enabledTargets) }} aktyvios / {{ formatNumber(dashboard?.totals.disabledTargets) }} išjungtos</dd></div>
+            <div><dt>Tikslios kategorijos</dt><dd>{{ formatNumber(dashboard?.totals.exactCategoryProducts) }}</dd></div>
+            <div><dt>Fallback kategorijos</dt><dd>{{ formatNumber(dashboard?.totals.fallbackCategoryProducts) }}</dd></div>
+            <div><dt>Be kategorijos</dt><dd>{{ formatNumber(dashboard?.totals.uncategorizedProducts) }}</dd></div>
+            <div><dt>Legacy kategorijos</dt><dd>{{ formatNumber(dashboard?.totals.legacyCategories) }}</dd></div>
           </dl>
         </section>
 
@@ -303,6 +363,39 @@ onMounted(refresh);
         </section>
       </div>
     </section>
+
+    <template v-else-if="activeTab === 'tiers'">
+      <section class="admin-panel brand-tier-admin">
+        <div class="brand-tier-admin-head">
+          <div>
+            <p class="eyebrow">BRANDŲ KOKYBĖ</p>
+            <h2>Tier registras</h2>
+            <p class="panel-note">S–B tier'ai rodomi ant produktų. C ir D lieka filtravimui, o nepriskirti brandai ribbon negauna.</p>
+          </div>
+          <div class="brand-tier-legend" aria-label="Ribbon peržiūra">
+            <BrandTierRibbon tier="S" compact />
+            <BrandTierRibbon tier="A" compact />
+            <BrandTierRibbon tier="B" compact />
+          </div>
+        </div>
+        <div class="brand-tier-tools">
+          <label>Ieškoti<input v-model="tierQuery" type="search" placeholder="Brando pavadinimas"></label>
+          <label>Tier<select v-model="tierFilter"><option value="">Visi</option><option value="unassigned">Unassigned</option><option v-for="tier in brandTiers" :key="tier" :value="tier">{{ tier }} · {{ brandTierLabels[tier] }}</option></select></label>
+          <span>{{ formatNumber(filteredBrandTiers.length) }} brandų</span>
+        </div>
+        <div class="brand-tier-list">
+          <article v-for="row in filteredBrandTiers" :key="row.brandKey" class="brand-tier-row">
+            <div class="brand-tier-name"><strong>{{ row.displayName }}</strong><small>{{ formatNumber(row.activeProducts) }} aktyvių produktų</small></div>
+            <BrandTierRibbon :tier="row.tier" compact />
+            <div class="tier-picker" :aria-label="`${row.displayName} tier`">
+              <button v-for="tier in brandTiers" :key="tier" type="button" :class="{ active: row.tier === tier }" :disabled="pending === `tier:${row.brandKey}`" :title="brandTierLabels[tier]" @click="saveBrandTier(row, tier)">{{ tier }}</button>
+            </div>
+            <button type="button" class="text-action" :disabled="row.tier === null || pending === `tier:${row.brandKey}`" @click="clearBrandTier(row)">Nuimti</button>
+          </article>
+          <p v-if="!filteredBrandTiers.length" class="panel-note">Pagal pasirinktus filtrus brandų nėra.</p>
+        </div>
+      </section>
+    </template>
 
     <template v-else-if="activeTab === 'sync'">
       <section class="admin-panel">
