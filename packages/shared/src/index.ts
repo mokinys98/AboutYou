@@ -20,6 +20,17 @@ export const colorShades = [
 export const ColorShadeSchema = z.enum(colorShades);
 export type ColorShade = z.infer<typeof ColorShadeSchema>;
 
+export const brandTiers = ["S", "A", "B", "C", "D"] as const;
+export const BrandTierSchema = z.enum(brandTiers);
+export type BrandTier = z.infer<typeof BrandTierSchema>;
+export const brandTierLabels: Record<BrandTier, string> = {
+  S: "Luxury",
+  A: "Premium",
+  B: "Quality",
+  C: "Everyday",
+  D: "Budget"
+};
+
 export const colorShadeLabels: Record<ColorShade, string> = Object.fromEntries(
   colorShades.map((shade) => [shade, shade === "off_white" ? "Off White" : shade.replace(/_/g, " ").replace(/^./, (letter) => letter.toUpperCase())])
 ) as Record<ColorShade, string>;
@@ -70,6 +81,7 @@ export const CatalogSortSchema = z.enum(["price_asc", "price_desc", "discount_de
 export const PriceComparisonSchema = z.enum(["observed", "source_lpl"]);
 export const CatalogFiltersSchema = z.object({
   brands: z.array(z.string()).default([]),
+  brandTiers: z.array(BrandTierSchema).default([]),
   sources: z.array(z.string()).default([]),
   categories: z.array(z.string()).default([]),
   categoryPath: z.string().trim().min(1).optional(),
@@ -116,6 +128,7 @@ export const CatalogItemSchema = z.object({
   styles: z.array(z.string()).default([]),
   productTypes: z.array(z.string()).default([]),
   isPremium: z.boolean().default(false),
+  brandTier: BrandTierSchema.nullable().default(null),
   source: z.string(),
   currentPrice: z.number().int(),
   originalPrice: z.number().int().nullable(),
@@ -222,6 +235,7 @@ export interface CatalogResponse {
 
 export interface CatalogFacets {
   brands: Array<{ value: string; count: number }>;
+  brandTiers: Array<{ value: BrandTier; count: number }>;
   categories: CatalogCategoryFacet[];
   colors: Array<{ value: ColorFamily; count: number }>;
   colorShades: Array<{ value: ColorShade; count: number }>;

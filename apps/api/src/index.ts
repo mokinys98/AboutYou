@@ -2,7 +2,7 @@ import { Hono, type MiddlewareHandler } from "hono";
 import { cors } from "hono/cors";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { CatalogFiltersSchema, PRODUCT_DETAIL_PARSER_VERSION, isAllowedAboutYouUrl } from "@catalog/shared";
+import { BrandTierSchema, CatalogFiltersSchema, PRODUCT_DETAIL_PARSER_VERSION, isAllowedAboutYouUrl } from "@catalog/shared";
 import { z } from "zod";
 
 type Bindings = {
@@ -207,6 +207,7 @@ app.get("/v1/catalog", async (c) => {
 
   let query = c.get("db").from("catalog_items").select("*", filters.cursor ? undefined : { count: "exact" });
   if (filters.brands.length) query = query.in("brand", filters.brands);
+  if (filters.brandTiers.length) query = query.in("brand_tier", filters.brandTiers);
   if (filters.sources.length) query = query.in("source", filters.sources);
   if (filters.colors.length) query = query.in("color_family", filters.colors);
   if (filters.colorShades.length) query = query.in("color_shade", filters.colorShades);
@@ -275,9 +276,10 @@ app.get("/v1/catalog/facets", async (c) => {
     ...facetFilters,
     categories: facetFilters.categoryPath ? [facetFilters.categoryPath] : facetFilters.categories
   };
-  const [{ data, error }, { data: categoryFacets, error: categoryError }] = await Promise.all([
+  const [{ data, error }, { data: categoryFacets, error: categoryError }, { data: brandTierFacets, error: brandTierError }] = await Promise.all([
     c.get("db").rpc(facetFunction, { p_filters: effectiveFacetFilters }),
-    c.get("db").rpc("catalog_category_facets", { p_filters: effectiveFacetFilters })
+    c.get("db").rpc("catalog_category_facets", { p_filters: effectiveFacetFilters }),
+    c.get("db").rpc("catalog_brand_tier_facets", { p_filters: effectiveFacetFilters })
   ]);
   if (error) {
     console.error("[catalog/facets]", { code: error.code, message: error.message, details: error.details, hint: error.hint });
@@ -287,7 +289,11 @@ app.get("/v1/catalog/facets", async (c) => {
     console.error("[catalog/category-facets]", { code: categoryError.code, message: categoryError.message, details: categoryError.details, hint: categoryError.hint });
     return c.json({ error: categoryError.message }, 500);
   }
-  const body = JSON.stringify({ ...(data ?? {}), categories: categoryFacets ?? [] });
+  if (brandTierError) {
+    console.error("[catalog/brand-tier-facets]", { code: brandTierError.code, message: brandTierError.message, details: brandTierError.details, hint: brandTierError.hint });
+    return c.json({ error: brandTierError.message }, 500);
+  }
+  const body = JSON.stringify({ ...(data ?? {}), categories: categoryFacets ?? [], brandTiers: brandTierFacets ?? [] });
   c.executionCtx.waitUntil(edgeCache.put(cacheKey, new Response(body, { headers: { "content-type": "application/json", "cache-control": "max-age=300" } })));
   return new Response(body, { headers: { "content-type": "application/json", "cache-control": "private, max-age=0" } });
 });
@@ -391,6 +397,51 @@ app.delete("/v1/watchlist/:productId", async (c) => {
   return error ? c.json({ error: error.message }, 500) : c.json({ watched: false });
 });
 
+const BrandTierInput = z.object({
+  displayName: z.string().trim().min(1).max(120),
+  tier: BrandTierSchema
+});
+
+export function normalizeBrandKey(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLocaleLowerCase("lt");
+}
+
+app.get("/v1/admin/brand-tiers", requireAdmin, async (c) => {
+  const { data, error } = await c.get("db").from("brand_tier_admin_items").select("*")
+    .order("active_products", { ascending: false }).order("display_name");
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json((data ?? []).map((row) => ({
+    brandKey: row.brand_key,
+    displayName: row.display_name,
+    activeProducts: Number(row.active_products ?? 0),
+    tier: row.tier ?? null,
+    updatedAt: row.updated_at ?? null
+  })));
+});
+
+app.put("/v1/admin/brand-tiers/:brandKey", requireAdmin, async (c) => {
+  const brandKey = normalizeBrandKey(c.req.param("brandKey"));
+  const input = BrandTierInput.safeParse(await c.req.json().catch(() => null));
+  if (!input.success || normalizeBrandKey(input.data.displayName) !== brandKey) {
+    return c.json({ error: "Neteisingi brando tier duomenys" }, 400);
+  }
+  const { data, error } = await c.get("db").from("brand_tiers").upsert({
+    brand_key: brandKey,
+    display_name: input.data.displayName,
+    tier: input.data.tier,
+    updated_at: new Date().toISOString(),
+    updated_by: c.get("member").userId
+  }, { onConflict: "brand_key" }).select("brand_key,display_name,tier,updated_at").single();
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ brandKey: data.brand_key, displayName: data.display_name, tier: data.tier, updatedAt: data.updated_at });
+});
+
+app.delete("/v1/admin/brand-tiers/:brandKey", requireAdmin, async (c) => {
+  const brandKey = normalizeBrandKey(c.req.param("brandKey"));
+  const { error } = await c.get("db").from("brand_tiers").delete().eq("brand_key", brandKey);
+  return error ? c.json({ error: error.message }, 500) : c.json({ deleted: true });
+});
+
 app.get("/v1/sync-targets", requireAdmin, async (c) => {
   const { data, error } = await c.get("db").from("sync_targets").select("*,sources(slug,name)").order("priority");
   return error ? c.json({ error: error.message }, 500) : c.json(data);
@@ -405,6 +456,10 @@ app.get("/v1/admin/dashboard", requireAdmin, async (c) => {
   let premiumProducts: number;
   let newProducts: number;
   let belowObservedProducts: number;
+  let exactCategoryProducts: number;
+  let fallbackCategoryProducts: number;
+  let uncategorizedProducts: number;
+  let legacyCategories: number;
   let enabledTargets: number;
   let disabledTargets: number;
   let categories: DashboardQueryResult<Array<Record<string, unknown>>>;
@@ -419,6 +474,10 @@ app.get("/v1/admin/dashboard", requireAdmin, async (c) => {
       premiumProducts,
       newProducts,
       belowObservedProducts,
+      exactCategoryProducts,
+      fallbackCategoryProducts,
+      uncategorizedProducts,
+      legacyCategories,
       categories,
       metadataSummary,
       enabledTargets,
@@ -432,6 +491,10 @@ app.get("/v1/admin/dashboard", requireAdmin, async (c) => {
       counted(db.from("catalog_items").select("id", { count: "exact", head: true }).eq("is_premium", true)),
       counted(db.from("catalog_items").select("id", { count: "exact", head: true }).gte("first_seen_at", newestCatalogCutoff())),
       counted(db.from("catalog_items").select("id", { count: "exact", head: true }).eq("below_observed_30d", true)),
+      counted(db.from("products").select("id", { count: "exact", head: true }).eq("active", true).not("category_path_updated_at", "is", null)),
+      counted(db.from("products").select("id", { count: "exact", head: true }).eq("active", true).is("category_path_updated_at", null)),
+      counted(db.from("catalog_items").select("id", { count: "exact", head: true }).eq("category_paths", "{}")),
+      counted(db.from("categories").select("id", { count: "exact", head: true }).is("path", null)),
       db.rpc("catalog_category_facets", { p_filters: {} }),
       db.rpc("product_detail_sync_summary", { p_parser_version: PRODUCT_DETAIL_PARSER_VERSION }),
       counted(db.from("sync_targets").select("id", { count: "exact", head: true }).eq("enabled", true)),
@@ -457,6 +520,10 @@ app.get("/v1/admin/dashboard", requireAdmin, async (c) => {
       premiumProducts,
       newProducts,
       belowObservedProducts,
+      exactCategoryProducts,
+      fallbackCategoryProducts,
+      uncategorizedProducts,
+      legacyCategories,
       enabledTargets,
       disabledTargets
     },
@@ -506,7 +573,7 @@ app.post("/v1/sync-targets/:id/request-sync", requireAdmin, async (c) => {
 export function parseFilters(query: Record<string, string>) {
   const list = (value?: string) => value ? value.split(",").map(decodeURIComponent).filter(Boolean) : [];
   return CatalogFiltersSchema.safeParse({
-    brands: list(query.brands), sources: list(query.sources), categories: list(query.categories), categoryPath: query.category ? decodeURIComponent(query.category) : undefined, colors: list(query.colors),
+    brands: list(query.brands), brandTiers: list(query.brand_tiers), sources: list(query.sources), categories: list(query.categories), categoryPath: query.category ? decodeURIComponent(query.category) : undefined, colors: list(query.colors),
     colorShades: list(query.color_shades),
     sizes: list(query.sizes), otherSizes: list(query.other_sizes), materials: list(query.materials),
     patterns: list(query.patterns), features: list(query.features), styles: list(query.styles),
@@ -555,7 +622,7 @@ function mapCatalogItem(row: Record<string, any>, isWatched = false) {
   return { id: row.id, externalId: row.external_id, name: row.name, brand: row.brand, productUrl: row.product_url,
     imageUrls: row.image_urls ?? [], colorOriginal: row.color_original, colorFamily: row.color_family, colorShade: row.color_shade ?? "other", categories: row.category_names ?? row.categories ?? [], categoryPaths: row.category_paths ?? [],
     sizes: row.sizes ?? [], otherSizes: row.other_sizes ?? [], materials: row.materials ?? [], patterns: row.patterns ?? [],
-    features: row.features ?? [], styles: row.styles ?? [], productTypes: row.product_types ?? [], isPremium: row.is_premium ?? false,
+    features: row.features ?? [], styles: row.styles ?? [], productTypes: row.product_types ?? [], isPremium: row.is_premium ?? false, brandTier: row.brand_tier ?? null,
     source: row.source, currentPrice: row.current_price, originalPrice: row.original_price, sourceLpl30: row.source_lpl_30,
     observedMin30d: row.observed_min_30d, discountPct: Number(row.discount_pct), currency: row.currency, updatedAt: row.updated_at,
     firstSeenAt: row.first_seen_at, isWatched };

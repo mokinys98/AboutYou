@@ -33,6 +33,7 @@ async function toggleWatch() {
     <div class="product-image-wrap">
       <img v-if="product.imageUrls[0]" :src="product.imageUrls[0]" :alt="product.name" class="product-image" loading="lazy">
       <div v-else class="image-placeholder">Nuotraukos nėra</div>
+      <BrandTierRibbon :tier="product.brandTier" />
       <span v-if="discount" class="discount-badge">-{{ discount }}%</span>
     </div>
     <button class="watch-button" :class="{ active: watched }" :disabled="watchPending" :aria-label="watched ? 'Pašalinti iš stebimų prekių' : 'Stebėti prekę'" :aria-pressed="watched" @click.stop.prevent="toggleWatch">{{ watched ? "♥" : "♡" }}</button>

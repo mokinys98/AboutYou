@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { describe, expect, it, vi } from "vitest";
-import { EXCLUDED_BASICS_CATEGORIES, allowedCorsOrigin, app, catalogCacheUrl, dispatchGitHubWorkflow, downloadRawArtifact, inspectProductDebugPayload, inviteErrorResponse, mapProductDebug, mapProductDetail, newestCatalogCutoff, parseFilters, postgresArrayLiteral, priceComparisonColumn, teamMemberStatus, workflowForCron } from "./index";
+import { EXCLUDED_BASICS_CATEGORIES, allowedCorsOrigin, app, catalogCacheUrl, dispatchGitHubWorkflow, downloadRawArtifact, inspectProductDebugPayload, inviteErrorResponse, mapProductDebug, mapProductDetail, newestCatalogCutoff, normalizeBrandKey, parseFilters, postgresArrayLiteral, priceComparisonColumn, teamMemberStatus, workflowForCron } from "./index";
 
 describe("catalog API", () => {
   it("exposes an unauthenticated health check", async () => {
@@ -74,10 +74,11 @@ describe("catalog API", () => {
   });
 
   it("parses detailed colors, premium, basics exclusion and the source LPL comparison", () => {
-    const parsed = parseFilters({ color_shades: "teal,olive", premium: "true", exclude_basics: "true", below_observed_30d: "true", price_comparison: "source_lpl" });
+    const parsed = parseFilters({ color_shades: "teal,olive", brand_tiers: "S,A", premium: "true", exclude_basics: "true", below_observed_30d: "true", price_comparison: "source_lpl" });
     expect(parsed.success).toBe(true);
     if (parsed.success) {
       expect(parsed.data.colorShades).toEqual(["teal", "olive"]);
+      expect(parsed.data.brandTiers).toEqual(["S", "A"]);
       expect(parsed.data.isPremium).toBe(true);
       expect(parsed.data.excludeBasics).toBe(true);
       expect(parsed.data.priceComparison).toBe("source_lpl");
@@ -86,6 +87,12 @@ describe("catalog API", () => {
     expect(priceComparisonColumn("source_lpl")).toBe("below_source_lpl_30d");
     expect(priceComparisonColumn("observed")).toBe("below_observed_30d");
     expect(postgresArrayLiteral(EXCLUDED_BASICS_CATEGORIES)).toContain('"Kojinės"');
+  });
+
+  it("normalizes brand keys without collapsing distinct subbrands", () => {
+    expect(normalizeBrandKey("  Polo   Ralph Lauren ")).toBe("polo ralph lauren");
+    expect(normalizeBrandKey("Calvin Klein Jeans")).not.toBe(normalizeBrandKey("Calvin Klein"));
+    expect(parseFilters({ brand_tiers: "S,X" }).success).toBe(false);
   });
 
   it("parses a stable category path separately from legacy category names", () => {
