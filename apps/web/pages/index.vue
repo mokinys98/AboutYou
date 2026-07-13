@@ -133,19 +133,14 @@ async function updateFilters(value: Record<string, string>) { await router.push(
 async function selectCategory(category: string) {
   const next: Record<string, string> = { ...filters.value, category: filters.value.category === category ? "" : category };
   delete next.categories;
-  const nextFacets = await loadFacets(next);
-  if (nextFacets) {
-    const contextual: Array<[string, Array<{ value: string }>]> = [
-      ["sizes", nextFacets.sizes], ["other_sizes", nextFacets.otherSizes], ["materials", nextFacets.materials],
-      ["patterns", nextFacets.patterns], ["features", nextFacets.features], ["styles", nextFacets.styles], ["product_types", nextFacets.productTypes]
-    ];
-    for (const [key, items] of contextual) {
-      if (!next[key]) continue;
-      const available = new Set(items.map((item) => item.value));
-      next[key] = next[key].split(",").filter((value) => available.has(value)).join(",");
-    }
+  for (const key of ["sizes", "other_sizes", "materials", "patterns", "features", "styles", "product_types"]) delete next[key];
+  loading.value = true;
+  try {
+    await updateFilters(next);
+  } catch (cause) {
+    loading.value = false;
+    error.value = cause instanceof Error ? cause.message : "Kategorijos atidaryti nepavyko";
   }
-  await updateFilters(next);
 }
 const updateWatch = ({ id, isWatched }: { id: string; isWatched: boolean }) => {
   products.value = products.value.map((product) => product.id === id ? { ...product, isWatched } : product);
@@ -191,8 +186,16 @@ watch(gridColumns, (value) => localStorage.setItem("catalog-grid-columns", Strin
         <div class="catalog-mobile-toolbar"><button class="filter-trigger" @click="filtersOpen = true">Filtrai</button><label>Rūšiuoti<select :value="filters.sort || 'newest'" @change="updateFilters({ ...filters, sort: ($event.target as HTMLSelectElement).value })"><option value="newest">Naujausi</option><option value="price_asc">Kaina ↑</option><option value="price_desc">Kaina ↓</option><option value="discount_desc">Nuolaida</option></select></label></div>
         <CatalogFilters :model-value="filters" :facets="facets" :open="filtersOpen" @update:model-value="updateFilters" @update:open="filtersOpen = $event" />
         <p v-if="error" class="error-state">{{ error }}</p>
-        <div v-else-if="loading && !products.length" class="loading-grid" :style="{ '--catalog-columns': gridColumns }"><div v-for="n in 8" :key="n" /></div>
-        <div v-else-if="products.length" class="product-grid" :style="{ '--catalog-columns': gridColumns }"><ProductCard v-for="product in products" :key="product.id" :product="product" @watch-changed="updateWatch" /></div>
+        <div v-else-if="loading && !products.length" class="loading-grid" :style="{ '--catalog-columns': gridColumns }" role="status" aria-label="Kraunamos prekės"><div v-for="n in 8" :key="n" /></div>
+        <div v-else-if="products.length" class="product-grid-shell" :class="{ 'is-refreshing': loading }" :aria-busy="loading">
+          <div v-if="loading" class="catalog-refresh-anchor">
+            <div class="catalog-refresh-status" role="status" aria-live="polite">
+              <span class="catalog-refresh-spinner" aria-hidden="true" />
+              <span>Atnaujinamos prekės…</span>
+            </div>
+          </div>
+          <div class="product-grid" :style="{ '--catalog-columns': gridColumns }"><ProductCard v-for="product in products" :key="product.id" :product="product" @watch-changed="updateWatch" /></div>
+        </div>
         <div v-else class="empty-state"><h2>Produktų nerasta</h2><p>Pakeiskite filtrus arba paleiskite naują sinchronizavimą.</p></div>
         <button v-if="nextCursor" class="load-more" :disabled="loading" @click="load(false)">{{ loading ? "Kraunama…" : "Rodyti daugiau" }}</button>
       </section>

@@ -25,14 +25,20 @@ a {
 .site-header {
     height: 72px;
     border-bottom: 1px solid var(--line);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 3.5vw;
     position: sticky;
     top: 0;
     background: #fff;
     z-index: 50
+}
+
+.site-header-inner {
+    width: calc(100% - 32px);
+    max-width: 1300px;
+    height: 100%;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between
 }
 
 .brand {
@@ -305,6 +311,71 @@ a {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 30px 14px
+}
+
+.product-grid-shell {
+    position: relative;
+    min-width: 0
+}
+
+.product-grid-shell .product-grid {
+    transition: opacity .18s ease
+}
+
+.product-grid-shell.is-refreshing .product-grid {
+    opacity: .48;
+    pointer-events: none
+}
+
+.catalog-refresh-anchor {
+    position: sticky;
+    top: 88px;
+    height: 0;
+    display: flex;
+    justify-content: center;
+    z-index: 12;
+    pointer-events: none
+}
+
+.catalog-refresh-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    min-height: 40px;
+    margin-top: 16px;
+    padding: 9px 14px;
+    border-radius: 999px;
+    background: #111;
+    color: #fff;
+    box-shadow: 0 4px 18px #0003;
+    font-size: 12px;
+    font-weight: 700
+}
+
+.catalog-refresh-spinner {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 auto;
+    border: 2px solid #ffffff55;
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: catalog-spin .7s linear infinite
+}
+
+@keyframes catalog-spin {
+    to {
+        transform: rotate(360deg)
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .catalog-refresh-spinner {
+        animation-duration: 1.4s
+    }
+
+    .product-grid-shell .product-grid {
+        transition: none
+    }
 }
 
 .product-card {
@@ -882,9 +953,18 @@ td small {
     .user-invite-form {
         grid-template-columns: 1fr
     }
+
+    .catalog-refresh-anchor {
+        top: 70px
+    }
+
     .site-header {
-        height: 58px;
-        padding: 0 16px
+        height: 58px
+    }
+
+    .site-header-inner {
+        width: auto;
+        margin: 0 16px
     }
 
     .site-header nav a {
