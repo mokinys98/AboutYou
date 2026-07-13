@@ -161,7 +161,7 @@ select p.id, p.external_id, p.name, p.brand, p.product_url, p.image_urls, p.colo
   coalesce(array_agg(distinct category_value) filter (where category_value is not null), '{}') as categories,
   p.sizes, p.other_sizes, p.materials, p.patterns, p.features, p.styles, p.product_types,
   p.color_shade,
-  (o.source_lpl_30 is not null and o.current_price <= o.source_lpl_30) as below_source_lpl_30d,
+  (o.source_lpl_30 is not null and o.current_price < o.source_lpl_30) as below_source_lpl_30d,
   p.first_seen_at,
   coalesce(array_agg(distinct c.name) filter (where c.name is not null), '{}') as category_names,
   coalesce(array_agg(distinct c.path) filter (where c.path is not null), '{}') as category_paths,
