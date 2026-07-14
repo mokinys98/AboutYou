@@ -63,7 +63,7 @@ export function canonicalAlertFilters(filters: CatalogAlertFilters): CatalogAler
 }
 
 export function hasMeaningfulAlertFilters(filters: CatalogAlertFilters): boolean {
-  return Boolean(filters.categoryPath || filters.isPremium || filters.excludeBasics || filters.priceMin !== undefined ||
+  return Boolean(filters.categoryPath || filters.isPremium || filters.excludeBasics || filters.excludeAccessories || filters.priceMin !== undefined ||
     filters.priceMax !== undefined || filters.discountMin !== undefined || filters.belowObserved30d ||
     filters.brands.length || filters.brandTiers.length || filters.sources.length || filters.categories.length ||
     filters.colors.length || filters.colorShades.length || filters.sizes.length || filters.otherSizes.length ||
@@ -121,6 +121,7 @@ export function notificationUrl(payload: TelegramNotification, webAppUrl: string
   if (filters.categoryPath) query.set("category", filters.categoryPath);
   if (filters.isPremium) query.set("premium", "true");
   if (filters.excludeBasics) query.set("exclude_basics", "true");
+  if (filters.excludeAccessories) query.set("exclude_accessories", "true");
   if (filters.priceMin !== undefined) query.set("price_min", String(filters.priceMin / 100));
   if (filters.priceMax !== undefined) query.set("price_max", String(filters.priceMax / 100));
   if (filters.discountMin !== undefined) query.set("discount_min", String(filters.discountMin));

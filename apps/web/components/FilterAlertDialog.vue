@@ -16,6 +16,7 @@ function alertFilters(): Partial<CatalogAlertFilters> {
     sizes: list("sizes"), otherSizes: list("other_sizes"), materials: list("materials"), patterns: list("patterns"),
     features: list("features"), styles: list("styles"), productTypes: list("product_types"),
     isPremium: props.filters.premium === "true", excludeBasics: props.filters.exclude_basics === "true",
+    excludeAccessories: props.filters.exclude_accessories === "true",
     priceMin: props.filters.price_min ? Math.round(Number(props.filters.price_min) * 100) : undefined,
     priceMax: props.filters.price_max ? Math.round(Number(props.filters.price_max) * 100) : undefined,
     discountMin: props.filters.discount_min ? Number(props.filters.discount_min) : undefined,

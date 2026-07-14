@@ -4,6 +4,7 @@ import { alertFilterFingerprint, canonicalAlertFilters, hasMeaningfulAlertFilter
 const filters = {
   brands: [], brandTiers: [], sources: [], categories: [], colors: [], colorShades: [], sizes: [], otherSizes: [],
   materials: [], patterns: [], features: [], styles: [], productTypes: [], isPremium: false, excludeBasics: false,
+  excludeAccessories: false,
   belowObserved30d: false, priceComparison: "observed" as const
 };
 const product = (id: string, images: string[]) => ({
@@ -18,6 +19,7 @@ describe("Telegram alerts", () => {
     expect(await alertFilterFingerprint(first)).toBe(await alertFilterFingerprint(second));
     expect(hasMeaningfulAlertFilters(filters)).toBe(false);
     expect(hasMeaningfulAlertFilters({ ...filters, isPremium: true })).toBe(true);
+    expect(hasMeaningfulAlertFilters({ ...filters, excludeAccessories: true })).toBe(true);
   });
 
   it("selects one image per product for filter batches and up to ten for one product", () => {
@@ -31,11 +33,12 @@ describe("Telegram alerts", () => {
 
   it("builds internal product and filter links and escapes notification text", () => {
     const filterPayload: TelegramNotification = {
-      kind: "filter", alertId: "a", name: "A&B <nauji>", filters: { ...filters, brands: ["Nike"], priceMax: 5000 },
+      kind: "filter", alertId: "a", name: "A&B <nauji>", filters: { ...filters, brands: ["Nike"], priceMax: 5000, excludeAccessories: true },
       triggers: ["newMatches"], totalCount: 2, products: [product("1", [])]
     };
     expect(notificationUrl(filterPayload, "https://catalog.example/")).toContain("brands=Nike");
     expect(notificationUrl(filterPayload, "https://catalog.example/")).toContain("price_max=50");
+    expect(notificationUrl(filterPayload, "https://catalog.example/")).toContain("exclude_accessories=true");
     expect(notificationText(filterPayload)).toContain("A&amp;B &lt;nauji&gt;");
     expect(notificationUrl({ ...filterPayload, kind: "product" }, "https://catalog.example")).toBe("https://catalog.example/products/1");
   });
