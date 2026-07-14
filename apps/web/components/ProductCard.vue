@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import type { CatalogItem } from "@catalog/shared";
-const props = defineProps<{ product: CatalogItem }>();
+const props = withDefaults(defineProps<{ product: CatalogItem; showAlert?: boolean }>(), {
+  showAlert: false
+});
 const emit = defineEmits<{ watchChanged: [value: { id: string; isWatched: boolean }] }>();
 const api = useApi();
 const { enabled: debugEnabled } = useProductDebug();
@@ -41,7 +43,7 @@ function onAlertSaved(value: { id: string; isWatched: true }) {
       <span v-if="discount" class="discount-badge">-{{ discount }}%</span>
     </div>
     <button class="watch-button" :class="{ active: watched }" :disabled="watchPending" :aria-label="watched ? 'Pašalinti iš stebimų prekių' : 'Stebėti prekę'" :aria-pressed="watched" @click.stop.prevent="toggleWatch">{{ watched ? "♥" : "♡" }}</button>
-    <ProductAlertDialog :product="product" @saved="onAlertSaved" />
+    <ProductAlertDialog v-if="showAlert" :product="product" @saved="onAlertSaved" />
     <button class="watch-button product-page-button" type="button" aria-label="Produkto puslapis" :aria-pressed="false" @click.stop.prevent="navigateTo(`/products/${product.id}`)">
       <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 8h12l1 12H5L6 8Zm3 2V7a3 3 0 0 1 6 0v3" /></svg>
     </button>
