@@ -50,6 +50,10 @@ async function toggleWatch() {
   }
 }
 
+function markWatched() {
+  if (product.value) product.value.isWatched = true;
+}
+
 onMounted(async () => {
   try { product.value = await api<ProductDetailResponse>(`/v1/products/${route.params.id}`); }
   catch (cause) { error.value = cause instanceof Error ? cause.message : "Produkto užkrauti nepavyko"; }
@@ -73,6 +77,7 @@ onMounted(async () => {
               {{ product.isWatched ? "♥ Stebima" : "♡ Stebėti" }}
             </button>
           </div>
+          <ProductAlertDialog :product="product" :size-options="product.detail.sizeOptions" compact @saved="markWatched" />
           <p v-if="watchError" class="error">{{ watchError }}</p>
           <p class="detail-price">{{ format(product.currentPrice) }}</p>
           <p v-if="product.originalPrice"><s>{{ format(product.originalPrice) }}</s></p>

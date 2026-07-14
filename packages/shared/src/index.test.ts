@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { buildCategoryTree, catalogRootCategories, cents, expandClothingCategoryPath, isAllowedAboutYouUrl, normalizeCategoryPath, normalizeColor, normalizeColorShade, ProductSchema } from "./index";
+import { buildCategoryTree, catalogRootCategories, cents, CreateAlertSchema, expandClothingCategoryPath, isAllowedAboutYouUrl, normalizeCategoryPath, normalizeColor, normalizeColorShade, ProductAlertConditionsSchema, ProductSchema, UpdateAlertSchema } from "./index";
 
 describe("shared catalog rules", () => {
+  it("validates filter and product alert contracts", () => {
+    expect(CreateAlertSchema.safeParse({ kind: "filter", name: "Nike", filters: { brands: ["Nike"] } }).success).toBe(true);
+    expect(UpdateAlertSchema.parse({ conditions: { newMatches: true } }).conditions).toEqual({ newMatches: true });
+    expect(ProductAlertConditionsSchema.safeParse({ belowObserved30d: false, belowSourceLpl30d: false, backInCatalog: false, sizeOptions: [] }).success).toBe(false);
+    expect(ProductAlertConditionsSchema.safeParse({ priceBelow: 5000 }).success).toBe(true);
+  });
   it("parses localized euro prices", () => {
     expect(cents("1 299,95 €")).toBe(129995);
     expect(cents("39 €")).toBe(3900);

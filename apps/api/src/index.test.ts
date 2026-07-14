@@ -13,6 +13,17 @@ describe("catalog API", () => {
     await expect(response.json()).resolves.toEqual({ ok: true });
   });
 
+  it("rejects Telegram webhooks without the configured secret", async () => {
+    const response = await app.request("/telegram/webhook", { method: "POST", body: "{}", headers: { "content-type": "application/json" } }, {
+      SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "test-service-role-key",
+      ALLOWED_ORIGIN: "http://localhost:3000",
+      TELEGRAM_WEBHOOK_SECRET: "expected-secret",
+      TELEGRAM_BOT_TOKEN: "test-token"
+    });
+    expect(response.status).toBe(401);
+  });
+
   it("protects catalog routes", async () => {
     const response = await app.request("/v1/catalog", {}, {
       SUPABASE_URL: "https://example.supabase.co",

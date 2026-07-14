@@ -102,6 +102,21 @@ Ribas valdo `METADATA_SYNC_MAX_PRODUCTS`, `METADATA_SYNC_CLAIM_SIZE`,
 - Worker `GITHUB_TOKEN` laikykite tik Cloudflare secret; `GITHUB_OWNER`, `GITHUB_REPO` ir `GITHUB_REF` nustatyti `apps/api/wrangler.jsonc`.
 - Pirmiausia įkelkite workflow pakeitimus į `main`, tik tada diekite Worker, kad pereinant nuo GitHub `schedule` prie Cloudflare Cron nebūtų dvigubų paleidimų.
 
+### Telegram alertai
+
+1. Per `@BotFather` sukurkite botą, nustatykite jo pavadinimą, aprašymą ir komandas `start`, `status`, `alerts`, `help`.
+2. Worker aplinkoje pridėkite paslaptis `TELEGRAM_BOT_TOKEN` ir `TELEGRAM_WEBHOOK_SECRET`; `TELEGRAM_BOT_USERNAME` įrašykite į `apps/api/wrangler.jsonc` be `@` simbolio.
+3. Pritaikykite `supabase/migrations/202607140001_telegram_alerts.sql`, tada iš naujo įdiekite API Worker. Worker kas 5 min. įvertina alertus ir išsiunčia outbox pranešimus.
+4. Vieną kartą užregistruokite webhook, pakeisdami reikšmes tikromis:
+
+```bash
+curl -X POST "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://<api-worker-domain>/telegram/webhook","secret_token":"<TELEGRAM_WEBHOOK_SECRET>","allowed_updates":["message"],"drop_pending_updates":true}'
+```
+
+5. Patikrinkite webhook per Telegram `getWebhookInfo`, profilyje prijunkite paskyrą ir išsiųskite testinį pranešimą. Boto tokenas ir webhook paslaptis negali būti dedami į Nuxt viešus aplinkos kintamuosius.
+
 ## Patikra
 
 ```bash
