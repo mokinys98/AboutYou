@@ -18,12 +18,18 @@ async function load() {
   finally { loading.value = false; }
 }
 async function connectTelegram() {
+  const telegramWindow = window.open("about:blank", "_blank");
+  if (telegramWindow) telegramWindow.opener = null;
   pending.value = "connect"; error.value = "";
   try {
     const result = await api<{ url: string }>("/v1/telegram/link", { method: "POST" });
-    window.open(result.url, "_blank", "noopener,noreferrer");
+    if (telegramWindow) telegramWindow.location.replace(result.url);
+    else window.location.assign(result.url);
     info.value = "Telegram lange paspauskite START, tada čia atnaujinkite būseną.";
-  } catch (cause) { error.value = cause instanceof Error ? cause.message : "Telegram prijungimo pradėti nepavyko"; }
+  } catch (cause) {
+    telegramWindow?.close();
+    error.value = cause instanceof Error ? cause.message : "Telegram prijungimo pradėti nepavyko";
+  }
   finally { pending.value = ""; }
 }
 async function disconnectTelegram() {
