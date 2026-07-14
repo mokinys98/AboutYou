@@ -36,7 +36,7 @@ const saleDiscount = computed({
   get: () => Number(local.discount_min) || 10,
   set: (value: number) => { local.discount_min = String(value); }
 });
-const belowOrEqualLpl = computed(() => local.below_observed_30d === "true" && local.price_comparison === "source_lpl");
+const belowLpl = computed(() => local.below_observed_30d === "true" && local.price_comparison === "source_lpl");
 const premiumOnly = computed(() => local.premium === "true");
 const excludeBasics = computed(() => local.exclude_basics === "true");
 const filteredItems = (group: FilterGroup) => {
@@ -53,8 +53,8 @@ const toggle = (key: string, value: string) => {
   activeFilter.value = key;
   apply();
 };
-const toggleBelowOrEqualLpl = () => {
-  if (belowOrEqualLpl.value) {
+const toggleBelowLpl = () => {
+  if (belowLpl.value) {
     local.below_observed_30d = "";
     local.price_comparison = "";
   } else {
@@ -98,7 +98,7 @@ const activeChips = computed(() => {
     }
   }
   if (local.discount_min) chips.push({ key: "discount_min", label: `Išpardavimas nuo ${local.discount_min} %` });
-  if (belowOrEqualLpl.value) chips.push({ key: "below_observed_30d", label: "Kaina ≤ LPL" });
+  if (belowLpl.value) chips.push({ key: "below_observed_30d", label: "Kaina < LPL" });
   if (local.price_min || local.price_max) chips.push({ key: "price", label: `${local.price_min || "0"}–${local.price_max || "∞"} €` });
   if (premiumOnly.value) chips.push({ key: "premium", label: "ABOUT YOU Premium" });
   if (excludeBasics.value) chips.push({ key: "exclude_basics", label: "Be kojinių ir apatinių" });
@@ -149,13 +149,13 @@ onUnmounted(() => {
       </details>
 
       <details class="filter-popover discount-filter" :open="activeFilter === 'discount'">
-        <summary :class="{ active: local.discount_min || belowOrEqualLpl }" @click.prevent="toggleFilter('discount')"><span class="sale-dot" aria-hidden="true" />Išpardavimas <span v-if="local.discount_min" class="filter-count">nuo {{ local.discount_min }} %</span><span v-if="belowOrEqualLpl" class="filter-count">≤ LPL</span></summary>
+        <summary :class="{ active: local.discount_min || belowLpl }" @click.prevent="toggleFilter('discount')"><span class="sale-dot" aria-hidden="true" />Išpardavimas <span v-if="local.discount_min" class="filter-count">nuo {{ local.discount_min }} %</span><span v-if="belowLpl" class="filter-count">&lt; LPL</span></summary>
         <div class="filter-menu">
           <div class="discount-value"><span>Minimali nuolaida nuo LPL</span><strong>{{ saleDiscount }} %</strong></div>
           <input v-model.number="saleDiscount" class="discount-range" type="range" min="10" max="70" step="10" aria-label="Minimali nuolaida procentais" @change="apply">
           <div class="discount-scale" aria-hidden="true"><span v-for="value in [10, 20, 30, 40, 50, 60, 70]" :key="value">{{ value }}</span></div>
-          <button class="filter-switch" :class="{ active: belowOrEqualLpl }" type="button" role="switch" :aria-checked="belowOrEqualLpl" @click="toggleBelowOrEqualLpl">
-            <span><strong>Rodyti kainą ≤ LPL</strong><small>Įtraukia prekes, kurių mūsų kaina lygi LPL.</small></span><i aria-hidden="true" />
+          <button class="filter-switch" :class="{ active: belowLpl }" type="button" role="switch" :aria-checked="belowLpl" @click="toggleBelowLpl">
+            <span><strong>Rodyti kainą &lt; LPL</strong><small>Įtraukia tik prekes, kurių mūsų kaina mažesnė už LPL.</small></span><i aria-hidden="true" />
           </button>
           <button class="filter-apply" type="button" @click="apply(); activeFilter = null">Taikyti</button>
         </div>

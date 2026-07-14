@@ -609,7 +609,7 @@
       }
 
       const hasCurrentPrice = Number.isFinite(product.currentPrice);
-      const over = hasCurrentPrice && product.currentPrice >= product.lplPrice;
+      const over = hasCurrentPrice && product.currentPrice > product.lplPrice;
       const delta = hasCurrentPrice ? product.currentPrice - product.lplPrice : null;
       const diff = Number.isFinite(delta) ? ` / dabar ${delta > 0 ? "+" : ""}${formatPrice(delta)}` : "";
       const badge = existing || document.createElement("div");
@@ -630,7 +630,7 @@
       const product = productForCard(card);
       const cheaper = Number.isFinite(product.currentPrice) &&
         Number.isFinite(product.lplPrice) &&
-        product.currentPrice <= product.lplPrice;
+        product.currentPrice < product.lplPrice;
       card.element.classList.toggle("ay-hidden-by-lpl-filter", STATE.filterCheaperThanLpl && !cheaper);
     }
     if (STATE.filterCheaperThanLpl) sortCheaperCardsByDelta();
@@ -1230,7 +1230,7 @@
       .filter((product) => product.productId && Number.isFinite(product.currentPrice))
       .filter((product) => {
         if (!STATE.filterCheaperThanLpl) return true;
-        return Number.isFinite(product.lplPrice) && product.currentPrice <= product.lplPrice;
+        return Number.isFinite(product.lplPrice) && product.currentPrice < product.lplPrice;
       })
       .sort((left, right) => {
         const leftDelta = Number.isFinite(left.lplPrice) ? left.currentPrice - left.lplPrice : Infinity;
@@ -1283,10 +1283,10 @@
     const cheaperThanLpl = allProducts.filter((product) => {
       return Number.isFinite(product.currentPrice) &&
         Number.isFinite(product.lplPrice) &&
-        product.currentPrice <= product.lplPrice;
+        product.currentPrice < product.lplPrice;
     }).length;
     const total = Number.isFinite(STATE.stream.total) ? ` / ${STATE.stream.total}` : "";
-    status.textContent = `${STATE.products.size}${total} duomenu, ${STATE.cards.length} DOM, LPL ${productsWithLpl}, <= LPL ${cheaperThanLpl}`;
+    status.textContent = `${STATE.products.size}${total} duomenu, ${STATE.cards.length} DOM, LPL ${productsWithLpl}, < LPL ${cheaperThanLpl}`;
   }
 
   function updateActiveButtons() {
@@ -1311,7 +1311,7 @@
         <button type="button" data-load-count="all">Užkrauti visas</button>
       </div>
       <button type="button" data-action="stop-loading" disabled>STOP krovimą</button>
-      <button type="button" data-action="filter-cheaper-than-lpl">Rodyti pigiau arba lygu LPL: nuo didžiausio minuso iki 0</button>
+      <button type="button" data-action="filter-cheaper-than-lpl">Rodyti tik pigiau nei LPL: nuo didžiausio minuso iki 0</button>
       <button type="button" data-action="clear-results">Isvalyti rezultatus</button>
       <div class="ay-status"></div>
       <details open>
