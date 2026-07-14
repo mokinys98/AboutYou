@@ -237,9 +237,18 @@ try {
 }
 
 if (counters.complete > 0) {
-  const { error: catalogRefreshError } = await db.rpc("refresh_catalog_items_read");
-  if (catalogRefreshError) throw catalogRefreshError;
-  log("catalog_read_model_refreshed", { products_updated: counters.complete });
+  const { data: refreshVersion, error: refreshRequestError } = await db.rpc("request_catalog_items_read_refresh");
+  if (refreshRequestError) {
+    log("catalog_read_model_refresh_request_failed", {
+      products_updated: counters.complete,
+      error: refreshRequestError.message
+    });
+  } else {
+    log("catalog_read_model_refresh_requested", {
+      products_updated: counters.complete,
+      requested_version: refreshVersion
+    });
+  }
 }
 
 const { data: coverage, error: coverageError } = await db.rpc("product_detail_sync_summary", {

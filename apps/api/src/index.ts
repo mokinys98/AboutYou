@@ -635,8 +635,12 @@ app.put("/v1/admin/brand-tiers/:brandKey", requireAdmin, async (c) => {
   }, { onConflict: "brand_key" }).select("brand_key,display_name,tier,updated_at").single();
   if (error) return c.json({ error: error.message }, 500);
   c.executionCtx.waitUntil((async () => {
-    const { error: refreshError } = await c.get("db").rpc("refresh_catalog_items_read");
-    if (refreshError) console.error("[catalog/read-model-refresh]", refreshError.message);
+    const { data: requestedVersion, error: refreshError } = await c.get("db").rpc("request_catalog_items_read_refresh");
+    if (refreshError) {
+      console.error(JSON.stringify({ event: "catalog_read_model_refresh_request_failed", error: refreshError.message }));
+    } else {
+      console.log(JSON.stringify({ event: "catalog_read_model_refresh_requested", requestedVersion }));
+    }
   })());
   return c.json({ brandKey: data.brand_key, displayName: data.display_name, tier: data.tier, updatedAt: data.updated_at });
 });
@@ -646,8 +650,12 @@ app.delete("/v1/admin/brand-tiers/:brandKey", requireAdmin, async (c) => {
   const { error } = await c.get("db").from("brand_tiers").delete().eq("brand_key", brandKey);
   if (error) return c.json({ error: error.message }, 500);
   c.executionCtx.waitUntil((async () => {
-    const { error: refreshError } = await c.get("db").rpc("refresh_catalog_items_read");
-    if (refreshError) console.error("[catalog/read-model-refresh]", refreshError.message);
+    const { data: requestedVersion, error: refreshError } = await c.get("db").rpc("request_catalog_items_read_refresh");
+    if (refreshError) {
+      console.error(JSON.stringify({ event: "catalog_read_model_refresh_request_failed", error: refreshError.message }));
+    } else {
+      console.log(JSON.stringify({ event: "catalog_read_model_refresh_requested", requestedVersion }));
+    }
   })());
   return c.json({ deleted: true });
 });

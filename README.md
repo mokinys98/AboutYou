@@ -11,6 +11,9 @@ Nuxt 3, Hono, Supabase ir Playwright monorepo, periodiškai surenkantis pasirink
 - `packages/shared` – Zod schemos ir bendri tipai.
 - `supabase/migrations` – duomenų bazės schema, RPC ir RLS.
 
+Katalogo materialized read modelio dirty/cron architektūra, incidento metrikos ir
+operacinės procedūros aprašytos [docs/catalog-read-model-stabilization.md](docs/catalog-read-model-stabilization.md).
+
 `aboutyou-price-sort.user.js` veikia kaip diagnostikos įrankis naršyklėje, o jo tiesioginio ABOUT YOU produktų srauto kolektorius taip pat naudojamas `apps/sync`. Jei tiesioginis srautas pasikeičia, provideris automatiškai bando DOM slinkimo fallback ir nepilno rezultato nežymi sėkmingu.
 
 ## Paleidimas
