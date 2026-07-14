@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { describe, expect, it, vi } from "vitest";
-import { EXCLUDED_BASICS_CATEGORIES, allowedCorsOrigin, app, catalogCacheUrl, dispatchGitHubWorkflow, downloadRawArtifact, inspectProductDebugPayload, inviteErrorResponse, mapProductDebug, mapProductDetail, newestCatalogCutoff, normalizeBrandKey, parseFilters, postgresArrayLiteral, priceComparisonColumn, teamMemberStatus, workflowForCron } from "./index";
+import { EXCLUDED_BASICS_CATEGORIES, allowedCorsOrigin, app, catalogCacheUrl, catalogCursorFilter, dispatchGitHubWorkflow, downloadRawArtifact, inspectProductDebugPayload, inviteErrorResponse, mapProductDebug, mapProductDetail, newestCatalogCutoff, normalizeBrandKey, parseFilters, postgresArrayLiteral, priceComparisonColumn, sortDefinition, teamMemberStatus, workflowForCron } from "./index";
 
 describe("catalog API", () => {
   it("exposes an unauthenticated health check", async () => {
@@ -105,6 +105,16 @@ describe("catalog API", () => {
     }
   });
 
+  it("parses decoded material names containing a literal percent sign", () => {
+    const decoded = parseFilters({ materials: "100% Medvilnė" });
+    const encoded = parseFilters({ materials: "100%25%20Medviln%C4%97" });
+    const malformed = parseFilters({ materials: "%E0%A4%A" });
+
+    expect(decoded.success && decoded.data.materials).toEqual(["100% Medvilnė"]);
+    expect(encoded.success && encoded.data.materials).toEqual(["100% Medvilnė"]);
+    expect(malformed.success && malformed.data.materials).toEqual(["%E0%A4%A"]);
+  });
+
   it("isolates personalized catalog cache entries by user", () => {
     const first = catalogCacheUrl("https://api.example/v1/catalog?sort=newest", "user-a").toString();
     const second = catalogCacheUrl("https://api.example/v1/catalog?sort=newest", "user-b").toString();
@@ -116,6 +126,19 @@ describe("catalog API", () => {
     const parsed = parseFilters({ new_only: "true" });
     expect(parsed.success && parsed.data.newOnly).toBe(true);
     expect(newestCatalogCutoff(new Date("2026-07-06T12:00:00.000Z"))).toBe("2026-06-06T12:00:00.000Z");
+  });
+
+  it("supports source LPL sorting with null values placed after known prices", () => {
+    const ascending = parseFilters({ sort: "source_lpl_asc" });
+    const descending = parseFilters({ sort: "source_lpl_desc" });
+    expect(ascending.success && ascending.data.sort).toBe("source_lpl_asc");
+    expect(descending.success && descending.data.sort).toBe("source_lpl_desc");
+    expect(sortDefinition("source_lpl_asc")).toMatchObject({ column: "source_lpl_30", ascending: true, nullable: true });
+    expect(sortDefinition("source_lpl_desc")).toMatchObject({ column: "source_lpl_30", ascending: false, nullable: true });
+    expect(catalogCursorFilter(sortDefinition("source_lpl_asc"), { value: 1999, id: "product-a" }))
+      .toBe("source_lpl_30.gt.1999,and(source_lpl_30.eq.1999,id.gt.product-a),source_lpl_30.is.null");
+    expect(catalogCursorFilter(sortDefinition("source_lpl_desc"), { value: null, id: "product-b" }))
+      .toBe("and(source_lpl_30.is.null,id.lt.product-b)");
   });
 
   it("maps Cloudflare cron triggers to the expected GitHub workflows", () => {

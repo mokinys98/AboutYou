@@ -242,10 +242,9 @@ app.get("/v1/catalog", async (c) => {
 
   const cursor = decodeCursor(filters.cursor);
   const sort = sortDefinition(filters.sort);
-  query = query.order(sort.column, { ascending: sort.ascending }).order("id", { ascending: sort.ascending }).limit(filters.limit + 1);
+  query = query.order(sort.column, { ascending: sort.ascending, nullsFirst: false }).order("id", { ascending: sort.ascending }).limit(filters.limit + 1);
   if (cursor) {
-    const operator = sort.ascending ? "gt" : "lt";
-    query = query.or(`${sort.column}.${operator}.${cursor.value},and(${sort.column}.eq.${cursor.value},id.${operator}.${cursor.id})`);
+    query = query.or(catalogCursorFilter(sort, cursor));
   }
   const { data, error, count } = await query;
   if (error) return c.json({ error: error.message }, 500);
@@ -578,9 +577,19 @@ app.post("/v1/sync-targets/:id/request-sync", requireAdmin, async (c) => {
 });
 
 export function parseFilters(query: Record<string, string>) {
-  const list = (value?: string) => value ? value.split(",").map(decodeURIComponent).filter(Boolean) : [];
+  // Hono normally gives us decoded query values, but parseFilters is also used
+  // with encoded values in tests and internal callers. Preserve literal `%`
+  // characters while decoding any valid percent-encoded bytes.
+  const decodeFilterValue = (value: string) => {
+    try {
+      return decodeURIComponent(value.replace(/%(?![\dA-Fa-f]{2})/g, "%25"));
+    } catch {
+      return value;
+    }
+  };
+  const list = (value?: string) => value ? value.split(",").map(decodeFilterValue).filter(Boolean) : [];
   return CatalogFiltersSchema.safeParse({
-    brands: list(query.brands), brandTiers: list(query.brand_tiers), sources: list(query.sources), categories: list(query.categories), categoryPath: query.category ? decodeURIComponent(query.category) : undefined, colors: list(query.colors),
+    brands: list(query.brands), brandTiers: list(query.brand_tiers), sources: list(query.sources), categories: list(query.categories), categoryPath: query.category ? decodeFilterValue(query.category) : undefined, colors: list(query.colors),
     colorShades: list(query.color_shades),
     sizes: list(query.sizes), otherSizes: list(query.other_sizes), materials: list(query.materials),
     patterns: list(query.patterns), features: list(query.features), styles: list(query.styles),
@@ -612,12 +621,26 @@ export function catalogCacheUrl(requestUrl: string, userId: string): URL {
   return url;
 }
 
-function sortDefinition(sort: string) {
+export function sortDefinition(sort: string) {
   if (sort === "price_asc") return { column: "current_price", ascending: true } as const;
   if (sort === "price_desc") return { column: "current_price", ascending: false } as const;
+  if (sort === "source_lpl_asc") return { column: "source_lpl_30", ascending: true, nullable: true } as const;
+  if (sort === "source_lpl_desc") return { column: "source_lpl_30", ascending: false, nullable: true } as const;
   if (sort === "discount_desc") return { column: "discount_pct", ascending: false } as const;
   if (sort === "first_seen") return { column: "first_seen_at", ascending: false } as const;
   return { column: "updated_at", ascending: false } as const;
+}
+
+type CatalogSortDefinition = ReturnType<typeof sortDefinition>;
+type CatalogCursor = { value: string | number | null; id: string };
+
+export function catalogCursorFilter(sort: CatalogSortDefinition, cursor: CatalogCursor): string {
+  const operator = sort.ascending ? "gt" : "lt";
+  if ("nullable" in sort && sort.nullable) {
+    if (cursor.value === null) return `and(${sort.column}.is.null,id.${operator}.${cursor.id})`;
+    return `${sort.column}.${operator}.${cursor.value},and(${sort.column}.eq.${cursor.value},id.${operator}.${cursor.id}),${sort.column}.is.null`;
+  }
+  return `${sort.column}.${operator}.${cursor.value},and(${sort.column}.eq.${cursor.value},id.${operator}.${cursor.id})`;
 }
 
 export function newestCatalogCutoff(now = new Date()): string {
@@ -764,7 +787,7 @@ async function counted<T>(query: PromiseLike<{ count: number | null; error: { me
 }
 
 function encodeCursor(value: unknown): string { return btoa(JSON.stringify(value)); }
-function decodeCursor(value?: string): { value: string | number; id: string } | null { try { return value ? JSON.parse(atob(value)) : null; } catch { return null; } }
+function decodeCursor(value?: string): { value: string | number | null; id: string } | null { try { return value ? JSON.parse(atob(value)) : null; } catch { return null; } }
 async function sha256(value: string): Promise<string> { const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)); return Array.from(new Uint8Array(hash), (b) => b.toString(16).padStart(2, "0")).join(""); }
 function getEdgeCache(): Cache { return (caches as unknown as { default: Cache }).default; }
 

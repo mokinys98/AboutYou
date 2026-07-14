@@ -11,6 +11,8 @@ const sortOptions = [
   { value: "newest", label: "Naujausi" },
   { value: "price_asc", label: "Kaina: nuo mažiausios" },
   { value: "price_desc", label: "Kaina: nuo didžiausios" },
+  { value: "source_lpl_desc", label: "Paskutinė mažiausia kaina: nuo didžiausios" },
+  { value: "source_lpl_asc", label: "Paskutinė mažiausia kaina: nuo mažiausios" },
   { value: "discount_desc", label: "Didžiausia nuolaida" }
 ];
 const currentSort = computed(() => sortOptions.find((option) => option.value === props.sort)?.label ?? "Naujausi");

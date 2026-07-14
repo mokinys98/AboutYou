@@ -77,7 +77,15 @@ export const SyncTargetSchema = z.object({
 });
 export type SyncTarget = z.infer<typeof SyncTargetSchema>;
 
-export const CatalogSortSchema = z.enum(["price_asc", "price_desc", "discount_desc", "newest", "first_seen"]);
+export const CatalogSortSchema = z.enum([
+  "price_asc",
+  "price_desc",
+  "source_lpl_asc",
+  "source_lpl_desc",
+  "discount_desc",
+  "newest",
+  "first_seen"
+]);
 export const PriceComparisonSchema = z.enum(["observed", "source_lpl"]);
 export const CatalogFiltersSchema = z.object({
   brands: z.array(z.string()).default([]),
