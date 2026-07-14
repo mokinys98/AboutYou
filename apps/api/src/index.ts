@@ -181,7 +181,11 @@ app.post("/v1/telegram/link", async (c) => {
     token_hash: await sha256(token), user_id: c.get("member").userId, expires_at: expiresAt
   });
   if (error) return c.json({ error: "Telegram nuorodos sukurti nepavyko" }, 500);
-  return c.json({ url: `https://t.me/${c.env.TELEGRAM_BOT_USERNAME.replace(/^@/, "")}?start=${token}`, expiresAt });
+  const botUsername = c.env.TELEGRAM_BOT_USERNAME.replace(/^@/, "");
+  return c.json({
+    url: `tg://resolve?domain=${encodeURIComponent(botUsername)}&start=${encodeURIComponent(token)}`,
+    expiresAt
+  });
 });
 
 app.delete("/v1/telegram/connection", async (c) => {
