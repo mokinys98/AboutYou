@@ -2538,6 +2538,22 @@ td small {
     z-index: 2
 }
 
+.product-card-actions {
+    position: absolute;
+    z-index: 4;
+    top: 10px;
+    right: 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px
+}
+
+.product-card-actions .watch-button,
+.product-card-actions .alert-bell {
+    position: static
+}
+
 .watch-button {
     position: absolute;
     right: 10px;
@@ -2653,6 +2669,7 @@ td small {
 .alert-row-actions .danger { color: #a31818; border-color: #d9aaaa }
 
 @media(max-width:760px) {
+    .product-card-actions { top: 7px; right: 7px; gap: 6px }
     .alert-bell { top: 83px; right: 7px; width: 32px; height: 32px }
     .product-debug-button { top: 121px }
     .telegram-setting, .alert-row { display: grid; grid-template-columns: 1fr }

@@ -42,12 +42,14 @@ function onAlertSaved(value: { id: string; isWatched: true }) {
       <BrandTierRibbon :tier="product.brandTier" />
       <span v-if="discount" class="discount-badge">-{{ discount }}%</span>
     </div>
-    <button class="watch-button" :class="{ active: watched }" :disabled="watchPending" :aria-label="watched ? 'Pašalinti iš stebimų prekių' : 'Stebėti prekę'" :aria-pressed="watched" @click.stop.prevent="toggleWatch">{{ watched ? "♥" : "♡" }}</button>
-    <ProductAlertDialog v-if="showAlert" :product="product" @saved="onAlertSaved" />
-    <button class="watch-button product-page-button" type="button" aria-label="Produkto puslapis" :aria-pressed="false" @click.stop.prevent="navigateTo(`/products/${product.id}`)">
-      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 8h12l1 12H5L6 8Zm3 2V7a3 3 0 0 1 6 0v3" /></svg>
-    </button>
-    <button v-if="debugEnabled" class="watch-button product-debug-button" type="button" aria-label="Produkto debug informacija" @click.stop.prevent="navigateTo(`/products/${product.id}/debug`)">&lt;/&gt;</button>
+    <div class="product-card-actions">
+      <button class="watch-button" :class="{ active: watched }" :disabled="watchPending" :aria-label="watched ? 'Pašalinti iš stebimų prekių' : 'Stebėti prekę'" :aria-pressed="watched" @click.stop.prevent="toggleWatch">{{ watched ? "♥" : "♡" }}</button>
+      <ProductAlertDialog v-if="showAlert" :product="product" @saved="onAlertSaved" />
+      <button class="watch-button product-page-button" type="button" aria-label="Produkto puslapis" :aria-pressed="false" @click.stop.prevent="navigateTo(`/products/${product.id}`)">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 8h12l1 12H5L6 8Zm3 2V7a3 3 0 0 1 6 0v3" /></svg>
+      </button>
+      <button v-if="debugEnabled" class="watch-button product-debug-button" type="button" aria-label="Produkto debug informacija" @click.stop.prevent="navigateTo(`/products/${product.id}/debug`)">&lt;/&gt;</button>
+    </div>
     <div class="product-copy">
       <p class="product-brand">{{ product.brand || product.source }}</p>
       <span class="product-name">{{ product.name }}</span>
