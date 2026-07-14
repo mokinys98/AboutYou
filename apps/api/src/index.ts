@@ -2,14 +2,18 @@ import { Hono, type MiddlewareHandler } from "hono";
 import { cors } from "hono/cors";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { BrandTierSchema, CatalogFiltersSchema, PRODUCT_DETAIL_PARSER_VERSION, isAllowedAboutYouUrl } from "@catalog/shared";
+import { BrandTierSchema, CatalogAlertFiltersSchema, CatalogFiltersSchema, CreateAlertSchema, PRODUCT_DETAIL_PARSER_VERSION, UpdateAlertSchema, isAllowedAboutYouUrl } from "@catalog/shared";
 import { z } from "zod";
+import { alertFilterFingerprint, canonicalAlertFilters, hasMeaningfulAlertFilters, mapAlertRow, processTelegramAlerts, sendTelegramText } from "./telegram";
 
 type Bindings = {
   ALLOWED_ORIGIN: string;
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
   WEB_APP_URL?: string;
+  TELEGRAM_BOT_TOKEN?: string;
+  TELEGRAM_BOT_USERNAME?: string;
+  TELEGRAM_WEBHOOK_SECRET?: string;
 };
 type SchedulerBindings = Bindings & {
   GITHUB_TOKEN: string;
@@ -62,6 +66,61 @@ app.use("*", async (c, next) => cors({
 })(c, next));
 app.get("/health", (c) => c.json({ ok: true }));
 
+const TelegramUpdateSchema = z.object({
+  update_id: z.number().int(),
+  message: z.object({
+    text: z.string().optional(),
+    chat: z.object({ id: z.number().int(), type: z.string() }),
+    from: z.object({ id: z.number().int(), username: z.string().optional() }).optional()
+  }).optional()
+});
+
+app.post("/telegram/webhook", async (c) => {
+  if (!c.env.TELEGRAM_WEBHOOK_SECRET || c.req.header("X-Telegram-Bot-Api-Secret-Token") !== c.env.TELEGRAM_WEBHOOK_SECRET) {
+    return c.json({ error: "Neteisinga Telegram webhook paslaptis" }, 401);
+  }
+  if (!c.env.SUPABASE_URL || !c.env.SUPABASE_SERVICE_ROLE_KEY || !c.env.TELEGRAM_BOT_TOKEN) {
+    return c.json({ error: "Telegram integracija nesukonfigūruota" }, 503);
+  }
+  const parsed = TelegramUpdateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: "Neteisingas Telegram update" }, 400);
+  const db = createClient(c.env.SUPABASE_URL, c.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+  const { error: updateError } = await db.from("telegram_updates").insert({ update_id: parsed.data.update_id });
+  if (updateError?.code === "23505") return c.json({ ok: true, duplicate: true });
+  if (updateError) return c.json({ error: "Telegram update išsaugoti nepavyko" }, 500);
+
+  const message = parsed.data.message;
+  if (!message?.text || message.chat.type !== "private" || !message.from) return c.json({ ok: true });
+  const [rawCommand, argument] = message.text.trim().split(/\s+/, 2);
+  const command = rawCommand?.split("@", 1)[0];
+  try {
+    if (command === "/start" && argument) {
+      const tokenHash = await sha256(argument);
+      const { data: userId, error } = await db.rpc("consume_telegram_link_token", {
+        p_token_hash: tokenHash,
+        p_telegram_user_id: message.from.id,
+        p_chat_id: message.chat.id,
+        p_username: message.from.username ?? null
+      });
+      if (error) throw new Error(error.message);
+      await sendTelegramText(message.chat.id, userId
+        ? "✅ Telegram sėkmingai prijungtas. Nuo šiol čia gausite katalogo alertus."
+        : "Ši prijungimo nuoroda negalioja arba jau buvo panaudota. Sugeneruokite naują profilyje.", c.env);
+    } else if (command === "/status") {
+      const { data } = await db.from("telegram_connections").select("status").eq("telegram_user_id", message.from.id).maybeSingle();
+      await sendTelegramText(message.chat.id, data?.status === "connected" ? "✅ Telegram prijungtas." : "Telegram neprijungtas. Atidarykite profilį kataloge.", c.env);
+    } else if (command === "/alerts") {
+      const url = `${c.env.WEB_APP_URL?.replace(/\/$/, "") ?? ""}/profile#alerts`;
+      await sendTelegramText(message.chat.id, `Alertus galite valdyti profilyje:\n${url}`, c.env);
+    } else {
+      await sendTelegramText(message.chat.id, "Komandos:\n/status – ryšio būsena\n/alerts – valdyti alertus\n/help – pagalba", c.env);
+    }
+  } catch (error) {
+    console.error(JSON.stringify({ event: "telegram_webhook_command_failed", updateId: parsed.data.update_id, error: error instanceof Error ? error.message : String(error) }));
+  }
+  return c.json({ ok: true });
+});
+
 app.use("/v1/*", async (c, next) => {
   const token = c.req.header("Authorization")?.replace(/^Bearer\s+/i, "");
   if (!token) return c.json({ error: "Prisijungimas būtinas" }, 401);
@@ -97,6 +156,151 @@ const requireAdmin: MiddlewareHandler<{ Bindings: Bindings; Variables: Variables
 };
 
 app.get("/v1/me", (c) => c.json(c.get("member")));
+
+app.get("/v1/telegram/connection", async (c) => {
+  const { data, error } = await c.get("db").from("telegram_connections")
+    .select("status,username,linked_at,last_error").eq("user_id", c.get("member").userId).maybeSingle();
+  if (error) return c.json({ error: "Telegram būsenos gauti nepavyko" }, 500);
+  return c.json({
+    connected: data?.status === "connected",
+    status: data?.status ?? null,
+    username: data?.username ?? null,
+    linkedAt: data?.linked_at ?? null,
+    lastError: data?.last_error ?? null
+  });
+});
+
+app.post("/v1/telegram/link", async (c) => {
+  if (!c.env.TELEGRAM_BOT_USERNAME || c.env.TELEGRAM_BOT_USERNAME === "your_catalog_bot") return c.json({ error: "Telegram boto vardas nesukonfigūruotas" }, 503);
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  const token = btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const expiresAt = new Date(Date.now() + 10 * 60_000).toISOString();
+  const db = c.get("db");
+  await db.from("telegram_link_tokens").delete().eq("user_id", c.get("member").userId).is("used_at", null);
+  const { error } = await db.from("telegram_link_tokens").insert({
+    token_hash: await sha256(token), user_id: c.get("member").userId, expires_at: expiresAt
+  });
+  if (error) return c.json({ error: "Telegram nuorodos sukurti nepavyko" }, 500);
+  return c.json({ url: `https://t.me/${c.env.TELEGRAM_BOT_USERNAME.replace(/^@/, "")}?start=${token}`, expiresAt });
+});
+
+app.delete("/v1/telegram/connection", async (c) => {
+  const { error } = await c.get("db").from("telegram_connections").delete().eq("user_id", c.get("member").userId);
+  return error ? c.json({ error: "Telegram atjungti nepavyko" }, 500) : c.json({ connected: false });
+});
+
+app.post("/v1/telegram/test", async (c) => {
+  const { data, error } = await c.get("db").from("telegram_connections")
+    .select("chat_id,status").eq("user_id", c.get("member").userId).maybeSingle();
+  if (error) return c.json({ error: "Telegram ryšio patikrinti nepavyko" }, 500);
+  if (!data || data.status !== "connected") return c.json({ error: "Telegram neprijungtas" }, 409);
+  try {
+    await sendTelegramText(data.chat_id, "✅ Testinis KAINORAŠČIO pranešimas pristatytas sėkmingai.", c.env);
+    return c.json({ sent: true });
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : "Testinio pranešimo išsiųsti nepavyko" }, 502);
+  }
+});
+
+app.get("/v1/alerts", async (c) => {
+  const { data, error } = await c.get("db").from("alerts")
+    .select("*,products(name,brand,image_urls)").eq("user_id", c.get("member").userId)
+    .order("created_at", { ascending: false });
+  if (error) return c.json({ error: "Alertų įkelti nepavyko" }, 500);
+  return c.json((data ?? []).map(mapAlertRow));
+});
+
+app.post("/v1/alerts", async (c) => {
+  const input = CreateAlertSchema.safeParse(await c.req.json().catch(() => null));
+  if (!input.success) return c.json({ error: input.error.flatten() }, 400);
+  const db = c.get("db");
+  const userId = c.get("member").userId;
+  if (input.data.kind === "filter") {
+    const filters = canonicalAlertFilters(input.data.filters);
+    if (!hasMeaningfulAlertFilters(filters)) return c.json({ error: "Pasirinkite bent vieną katalogo filtrą" }, 400);
+    const { data, error } = await db.from("alerts").insert({
+      user_id: userId, kind: "filter", name: input.data.name, filters,
+      filter_fingerprint: await alertFilterFingerprint(filters), conditions: { newMatches: true }, state: {}
+    }).select("*,products(name,brand,image_urls)").single();
+    if (error?.code === "23505") return c.json({ error: "Toks filtro alertas jau egzistuoja" }, 409);
+    return error ? c.json({ error: "Filtro alerto sukurti nepavyko" }, 500) : c.json(mapAlertRow(data), 201);
+  }
+
+  const { data: existing } = await db.from("alerts").select("id").eq("user_id", userId)
+    .eq("product_id", input.data.productId).eq("kind", "product").maybeSingle();
+  if (existing) return c.json({ error: "Šios prekės alertas jau egzistuoja" }, 409);
+  const { error: watchError } = await db.rpc("set_product_watch", { p_user_id: userId, p_product_id: input.data.productId, p_watched: true });
+  if (watchError) return c.json({ error: watchError.message.includes("Product not found") ? "Produktas nerastas" : "Produkto alerto sukurti nepavyko" }, watchError.message.includes("Product not found") ? 404 : 500);
+  const { data: state, error: stateError } = await db.rpc("current_product_alert_state", { p_product_id: input.data.productId });
+  const { data, error } = stateError ? { data: null, error: stateError } : await db.from("alerts").update({
+    name: input.data.name, conditions: input.data.conditions, state, last_evaluated_at: new Date().toISOString(), updated_at: new Date().toISOString()
+  }).eq("user_id", userId).eq("product_id", input.data.productId).select("*,products(name,brand,image_urls)").single();
+  if (error) {
+    await db.rpc("set_product_watch", { p_user_id: userId, p_product_id: input.data.productId, p_watched: false });
+    return c.json({ error: "Produkto alerto sukurti nepavyko" }, 500);
+  }
+  return c.json(mapAlertRow(data), 201);
+});
+
+app.patch("/v1/alerts/:id", async (c) => {
+  const id = z.string().uuid().safeParse(c.req.param("id"));
+  const input = UpdateAlertSchema.safeParse(await c.req.json().catch(() => null));
+  if (!id.success || !input.success) return c.json({ error: "Neteisingi alerto pakeitimai" }, 400);
+  const db = c.get("db");
+  const userId = c.get("member").userId;
+  const { data: alert, error: lookupError } = await db.from("alerts").select("id,kind,product_id,enabled")
+    .eq("id", id.data).eq("user_id", userId).maybeSingle();
+  if (lookupError) return c.json({ error: "Alerto patikrinti nepavyko" }, 500);
+  if (!alert) return c.json({ error: "Alertas nerastas" }, 404);
+  if (alert.kind === "filter" && input.data.conditions && !("newMatches" in input.data.conditions)) return c.json({ error: "Neteisingos filtro alerto sąlygos" }, 400);
+  if (alert.kind === "product" && input.data.filters) return c.json({ error: "Produkto alertas neturi katalogo filtrų" }, 400);
+
+  const changes: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (input.data.name !== undefined) changes.name = input.data.name;
+  if (input.data.enabled !== undefined) changes.enabled = input.data.enabled;
+  if (input.data.conditions !== undefined) changes.conditions = input.data.conditions;
+  if (alert.kind === "filter" && input.data.filters) {
+    const filters = canonicalAlertFilters(CatalogAlertFiltersSchema.parse(input.data.filters));
+    if (!hasMeaningfulAlertFilters(filters)) return c.json({ error: "Pasirinkite bent vieną katalogo filtrą" }, 400);
+    changes.filters = filters;
+    changes.filter_fingerprint = await alertFilterFingerprint(filters);
+    changes.state = {};
+    changes.last_evaluated_at = new Date().toISOString();
+  }
+  if (alert.kind === "product" && input.data.conditions) {
+    const { data: state, error } = await db.rpc("current_product_alert_state", { p_product_id: alert.product_id });
+    if (error || !state) return c.json({ error: "Produkto būsenos gauti nepavyko" }, 500);
+    changes.state = state;
+    changes.last_evaluated_at = new Date().toISOString();
+  }
+  if (input.data.enabled === true && !alert.enabled) {
+    changes.last_evaluated_at = new Date().toISOString();
+    if (alert.kind === "filter") changes.state = {};
+    else {
+      const { data: state, error } = await db.rpc("current_product_alert_state", { p_product_id: alert.product_id });
+      if (error || !state) return c.json({ error: "Produkto būsenos gauti nepavyko" }, 500);
+      changes.state = state;
+    }
+  }
+  const { data, error } = await db.from("alerts").update(changes).eq("id", id.data).eq("user_id", userId)
+    .select("*,products(name,brand,image_urls)").single();
+  if (error?.code === "23505") return c.json({ error: "Toks filtro alertas jau egzistuoja" }, 409);
+  return error ? c.json({ error: "Alerto atnaujinti nepavyko" }, 500) : c.json(mapAlertRow(data));
+});
+
+app.delete("/v1/alerts/:id", async (c) => {
+  const id = z.string().uuid().safeParse(c.req.param("id"));
+  if (!id.success) return c.json({ error: "Neteisingas alerto ID" }, 400);
+  const db = c.get("db"); const userId = c.get("member").userId;
+  const { data: alert } = await db.from("alerts").select("kind,product_id").eq("id", id.data).eq("user_id", userId).maybeSingle();
+  if (!alert) return c.json({ error: "Alertas nerastas" }, 404);
+  if (alert.kind === "product") {
+    const { error } = await db.rpc("set_product_watch", { p_user_id: userId, p_product_id: alert.product_id, p_watched: false });
+    return error ? c.json({ error: "Produkto alerto ištrinti nepavyko" }, 500) : c.json({ deleted: true });
+  }
+  const { error } = await db.from("alerts").delete().eq("id", id.data).eq("user_id", userId);
+  return error ? c.json({ error: "Alerto ištrinti nepavyko" }, 500) : c.json({ deleted: true });
+});
 
 const InviteMemberInput = z.object({
   email: z.string().trim().toLowerCase().email().max(320)
@@ -374,20 +578,20 @@ app.get("/v1/watchlist", async (c) => {
 app.put("/v1/watchlist/:productId", async (c) => {
   const productId = z.string().uuid().safeParse(c.req.param("productId"));
   if (!productId.success) return c.json({ error: "Neteisingas produkto ID" }, 400);
-  const { error } = await c.get("db").from("product_watches").upsert(
-    { user_id: c.get("member").userId, product_id: productId.data },
-    { onConflict: "user_id,product_id", ignoreDuplicates: true }
-  );
-  if (error?.code === "23503") return c.json({ error: "Produktas nerastas" }, 404);
-  return error ? c.json({ error: error.message }, 500) : c.json({ watched: true });
+  const { data, error } = await c.get("db").rpc("set_product_watch", {
+    p_user_id: c.get("member").userId, p_product_id: productId.data, p_watched: true
+  });
+  if (error?.message.includes("Product not found")) return c.json({ error: "Produktas nerastas" }, 404);
+  return error ? c.json({ error: error.message }, 500) : c.json(data);
 });
 
 app.delete("/v1/watchlist/:productId", async (c) => {
   const productId = z.string().uuid().safeParse(c.req.param("productId"));
   if (!productId.success) return c.json({ error: "Neteisingas produkto ID" }, 400);
-  const { error } = await c.get("db").from("product_watches").delete()
-    .eq("user_id", c.get("member").userId).eq("product_id", productId.data);
-  return error ? c.json({ error: error.message }, 500) : c.json({ watched: false });
+  const { data, error } = await c.get("db").rpc("set_product_watch", {
+    p_user_id: c.get("member").userId, p_product_id: productId.data, p_watched: false
+  });
+  return error ? c.json({ error: error.message }, 500) : c.json(data);
 });
 
 const BrandTierInput = z.object({
@@ -834,6 +1038,21 @@ export default {
     return app.fetch(request, env, ctx);
   },
   async scheduled(controller, env) {
+    if (controller.cron === "*/5 * * * *") {
+      if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_WEBHOOK_SECRET || !env.TELEGRAM_BOT_USERNAME || env.TELEGRAM_BOT_USERNAME === "your_catalog_bot") {
+        console.warn(JSON.stringify({ event: "telegram_alerts_skipped", reason: "Telegram integracija nesukonfigūruota" }));
+        return;
+      }
+      const db = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+      try {
+        const result = await processTelegramAlerts(db, env);
+        console.log(JSON.stringify({ event: "telegram_alerts_processed", ...result }));
+      } catch (error) {
+        console.error(JSON.stringify({ event: "telegram_alerts_failed", error: error instanceof Error ? error.message : String(error) }));
+        throw error;
+      }
+      return;
+    }
     const workflow = workflowForCron(controller.cron);
     try {
       await dispatchGitHubWorkflow(workflow, env);

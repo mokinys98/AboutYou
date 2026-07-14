@@ -117,6 +117,87 @@ export const CatalogFiltersSchema = z.object({
 });
 export type CatalogFilters = z.infer<typeof CatalogFiltersSchema>;
 
+export const CatalogAlertFiltersSchema = CatalogFiltersSchema.omit({
+  newOnly: true,
+  sort: true,
+  cursor: true,
+  limit: true
+});
+export type CatalogAlertFilters = z.infer<typeof CatalogAlertFiltersSchema>;
+
+export const ProductAlertSizeSchema = z.object({
+  id: z.string().trim().min(1).max(160),
+  label: z.string().trim().min(1).max(80)
+});
+export const ProductAlertConditionsSchema = z.object({
+  priceBelow: z.number().int().nonnegative().optional(),
+  belowObserved30d: z.boolean().default(true),
+  belowSourceLpl30d: z.boolean().default(true),
+  backInCatalog: z.boolean().default(true),
+  sizeOptions: z.array(ProductAlertSizeSchema).max(30).default([])
+}).refine((conditions) => conditions.priceBelow !== undefined || conditions.belowObserved30d ||
+  conditions.belowSourceLpl30d || conditions.backInCatalog || conditions.sizeOptions.length > 0,
+{ message: "Pasirinkite bent vieną produkto alerto sąlygą" });
+export type ProductAlertConditions = z.infer<typeof ProductAlertConditionsSchema>;
+
+const AlertBaseSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  enabled: z.boolean(),
+  lastEvaluatedAt: z.string(),
+  lastTriggeredAt: z.string().nullable(),
+  lastDeliveryError: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string()
+});
+export const FilterAlertSchema = AlertBaseSchema.extend({
+  kind: z.literal("filter"),
+  filters: CatalogAlertFiltersSchema,
+  conditions: z.object({ newMatches: z.literal(true) }),
+  product: z.null()
+});
+export const ProductAlertSchema = AlertBaseSchema.extend({
+  kind: z.literal("product"),
+  filters: z.null(),
+  conditions: ProductAlertConditionsSchema,
+  product: z.object({ id: z.string().uuid(), name: z.string(), brand: z.string(), imageUrl: z.string().nullable() })
+});
+export const AlertSchema = z.discriminatedUnion("kind", [FilterAlertSchema, ProductAlertSchema]);
+export type Alert = z.infer<typeof AlertSchema>;
+
+export const CreateAlertSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("filter"),
+    name: z.string().trim().min(1).max(120),
+    filters: CatalogAlertFiltersSchema,
+    conditions: z.object({ newMatches: z.literal(true) }).default({ newMatches: true })
+  }),
+  z.object({
+    kind: z.literal("product"),
+    name: z.string().trim().min(1).max(120),
+    productId: z.string().uuid(),
+    conditions: ProductAlertConditionsSchema
+  })
+]);
+export type CreateAlert = z.infer<typeof CreateAlertSchema>;
+
+export const UpdateAlertSchema = z.object({
+  name: z.string().trim().min(1).max(120).optional(),
+  enabled: z.boolean().optional(),
+  filters: CatalogAlertFiltersSchema.optional(),
+  conditions: z.union([z.object({ newMatches: z.literal(true) }), ProductAlertConditionsSchema]).optional()
+}).refine((value) => Object.keys(value).length > 0, { message: "Nėra pakeitimų" });
+export type UpdateAlert = z.infer<typeof UpdateAlertSchema>;
+
+export const TelegramConnectionSchema = z.object({
+  connected: z.boolean(),
+  status: z.enum(["connected", "blocked", "disconnected"]).nullable(),
+  username: z.string().nullable(),
+  linkedAt: z.string().nullable(),
+  lastError: z.string().nullable()
+});
+export type TelegramConnection = z.infer<typeof TelegramConnectionSchema>;
+
 export const CatalogItemSchema = z.object({
   id: z.string().uuid(),
   externalId: z.string(),

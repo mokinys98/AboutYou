@@ -2563,10 +2563,103 @@ td small {
 }
 
 .product-debug-button {
-    top: 98px;
+    top: 142px;
     font-family: monospace;
     font-size: 10px;
     font-weight: 800
+}
+
+.alert-bell {
+    position: absolute;
+    z-index: 4;
+    top: 98px;
+    right: 10px;
+    width: 36px;
+    height: 36px;
+    border: 0;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 2px 10px #0002;
+    cursor: pointer;
+    font-size: 16px
+}
+
+.alert-bell.compact {
+    position: static;
+    width: auto;
+    min-width: 44px;
+    margin: 8px 0 18px;
+    padding: 0 14px;
+    border-radius: 0;
+    border: 1px solid var(--ink);
+    box-shadow: none
+}
+
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: #0009;
+    overflow-y: auto
+}
+
+.alert-dialog {
+    position: relative;
+    width: min(620px, 100%);
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+    padding: clamp(24px, 5vw, 44px);
+    background: #fff;
+    box-shadow: 0 24px 80px #0005
+}
+
+.alert-dialog h2 { margin: 5px 35px 22px 0 }
+.dialog-close { position: absolute; top: 14px; right: 16px; border: 0; background: transparent; font-size: 30px; cursor: pointer }
+.alert-dialog form, .field { display: grid; gap: 9px }
+.alert-dialog form { gap: 16px }
+.field { font-size: 12px; font-weight: 700 }
+.field input { min-height: 44px; padding: 9px 12px; border: 1px solid var(--line); font: inherit; font-size: 15px }
+.alert-check { display: flex; align-items: center; gap: 9px }
+.alert-sizes { display: flex; flex-wrap: wrap; gap: 10px 18px; border: 1px solid var(--line); padding: 15px }
+.alert-sizes legend { padding: 0 7px; font-weight: 700 }
+.dialog-actions, .profile-actions, .alert-row-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap }
+.dialog-actions { justify-content: flex-end; margin-top: 8px }
+.dialog-actions button, .profile-actions button, .alert-row-actions button { min-height: 40px; padding: 8px 14px; border: 1px solid var(--ink); background: #fff; cursor: pointer }
+.dialog-actions .primary, .profile-actions .primary { background: var(--ink); color: #fff }
+.alert-notice { padding: 12px 14px; background: #fff7d6 }
+.success-state { padding: 12px 14px; background: #e8f7ed; color: #176b35 }
+
+.catalog-alert-row { display: flex; justify-content: flex-end; padding: 8px 0 18px }
+.filter-alert-button { min-height: 42px; padding: 8px 15px; border: 1px solid var(--ink); background: #fff; cursor: pointer; font-weight: 700 }
+.filter-alert-button:disabled { opacity: .4; cursor: not-allowed }
+.telegram-setting { max-width: none; align-items: center }
+.profile-alerts { margin: 45px 0 60px }
+.section-heading { display: flex; justify-content: space-between; align-items: end; border-bottom: 1px solid var(--ink); margin-bottom: 18px }
+.section-heading h2 { margin-top: 4px }
+.section-heading > span { font-size: 28px; padding-bottom: 12px }
+.alert-list { display: grid }
+.alert-row { display: grid; grid-template-columns: 82px minmax(0, 1fr) auto; gap: 18px; align-items: center; padding: 18px 0; border-bottom: 1px solid var(--line) }
+.alert-row:not(:has(img)) { grid-template-columns: minmax(0, 1fr) auto }
+.alert-row.disabled { opacity: .58 }
+.alert-row img { width: 82px; height: 104px; object-fit: cover; background: var(--surface) }
+.alert-row h3 { margin: 3px 0 8px }
+.alert-row p { margin: 0 0 8px }
+.alert-row small { display: block; color: var(--muted) }
+.alert-kind { font-size: 10px; letter-spacing: .12em; font-weight: 800 }
+.alert-row-actions { justify-content: flex-end }
+.alert-row-actions .danger { color: #a31818; border-color: #d9aaaa }
+
+@media(max-width:760px) {
+    .alert-bell { top: 83px; right: 7px; width: 32px; height: 32px }
+    .product-debug-button { top: 121px }
+    .telegram-setting, .alert-row { display: grid; grid-template-columns: 1fr }
+    .alert-row:not(:has(img)) { grid-template-columns: 1fr }
+    .alert-row-actions { justify-content: flex-start }
+    .catalog-alert-row { justify-content: stretch }
+    .filter-alert-button { width: 100% }
 }
 
 .profile-setting {
