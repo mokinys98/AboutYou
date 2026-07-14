@@ -120,6 +120,12 @@ Galimos procesoriaus būsenos: `clean`, `busy`, `refreshed`, `failed`.
 8. Patikrinti PostgreSQL timeout logus, state lentelę, cron istoriją, API katalogą,
    facet'us ir Supabase security/performance advisors.
 
+2026-07-14 produkcijos canary: GitHub Actions run `29368453386` apdorojo 50/50
+produktų per 29 s (`retryable=0`, `blocked_schema=0`) ir baigėsi sėkmingai. Sync tik
+pakėlė `requested_version` iki 7; po canary PostgreSQL loguose naujų statement timeout
+įrašų nebuvo. Kitas įprastas 21:15 cron ciklas užbaigė 7 versiją per 39,8 s ir paliko
+state clean (`requested_version=completed_version=7`).
+
 Istorinė produkcijos migracija `20260714191558_set_catalog_refresh_statement_timeout`
 nustatė 60 s. Vėlesnė stabilizavimo migracija yra vienintelis aktualus šaltinis 90 s
 ir 3 s limitams; istorinio failo turinio keisti negalima.
