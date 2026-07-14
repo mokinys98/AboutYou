@@ -117,6 +117,10 @@ try {
     }
   }
   await withHeartbeat("Valoma sena kainų istorija", () => db.rpc("cleanup_price_history"));
+  await withHeartbeat("Atnaujinamas katalogo skaitymo modelis", async () => {
+    const { error } = await db.rpc("refresh_catalog_items_read");
+    if (error) throw error;
+  });
 } finally {
   await browser.close();
 }

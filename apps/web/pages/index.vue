@@ -154,7 +154,7 @@ onMounted(() => {
   const query = apiParams(filters.value);
   query.delete("sort");
   hydrateFacetsFromCache(query.toString());
-  void Promise.all([loadFacets(filters.value, { force: true }), load()]);
+  void Promise.all([loadFacets(filters.value), load()]);
 });
 onMounted(() => {
   const saved = Number(localStorage.getItem("catalog-grid-columns"));

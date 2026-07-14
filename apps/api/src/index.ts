@@ -209,7 +209,7 @@ app.get("/v1/catalog", async (c) => {
   const cached = await edgeCache.match(cacheKey);
   if (cached) return cached;
 
-  let query = c.get("db").from("catalog_items").select("*", filters.cursor ? undefined : { count: "exact" });
+  let query = c.get("db").from("catalog_items_read").select("*", filters.cursor ? undefined : { count: "exact" });
   if (filters.brands.length) query = query.in("brand", filters.brands);
   if (filters.brandTiers.length) query = query.in("brand_tier", filters.brandTiers);
   if (filters.sources.length) query = query.in("source", filters.sources);
@@ -277,29 +277,16 @@ app.get("/v1/catalog/facets", async (c) => {
   const cached = await edgeCache.match(cacheKey);
   if (cached) return cached;
   const { sort: _sort, cursor: _cursor, limit: _limit, ...facetFilters } = parsed.data;
-  const facetFunction = facetFilters.newOnly ? "catalog_news_facets" : "catalog_facets";
   const effectiveFacetFilters = {
     ...facetFilters,
     categories: facetFilters.categoryPath ? [facetFilters.categoryPath] : facetFilters.categories
   };
-  const [{ data, error }, { data: categoryFacets, error: categoryError }, { data: brandTierFacets, error: brandTierError }] = await Promise.all([
-    c.get("db").rpc(facetFunction, { p_filters: effectiveFacetFilters }),
-    c.get("db").rpc("catalog_category_facets", { p_filters: effectiveFacetFilters }),
-    c.get("db").rpc("catalog_brand_tier_facets", { p_filters: effectiveFacetFilters })
-  ]);
+  const { data, error } = await c.get("db").rpc("catalog_facets_cached", { p_filters: effectiveFacetFilters });
   if (error) {
     console.error("[catalog/facets]", { code: error.code, message: error.message, details: error.details, hint: error.hint });
     return c.json({ error: error.message }, 500);
   }
-  if (categoryError) {
-    console.error("[catalog/category-facets]", { code: categoryError.code, message: categoryError.message, details: categoryError.details, hint: categoryError.hint });
-    return c.json({ error: categoryError.message }, 500);
-  }
-  if (brandTierError) {
-    console.error("[catalog/brand-tier-facets]", { code: brandTierError.code, message: brandTierError.message, details: brandTierError.details, hint: brandTierError.hint });
-    return c.json({ error: brandTierError.message }, 500);
-  }
-  const body = JSON.stringify({ ...(data ?? {}), categories: categoryFacets ?? [], brandTiers: brandTierFacets ?? [] });
+  const body = JSON.stringify(data ?? {});
   c.executionCtx.waitUntil(edgeCache.put(cacheKey, new Response(body, { headers: { "content-type": "application/json", "cache-control": "max-age=300" } })));
   return new Response(body, { headers: { "content-type": "application/json", "cache-control": "private, max-age=0" } });
 });
@@ -439,13 +426,22 @@ app.put("/v1/admin/brand-tiers/:brandKey", requireAdmin, async (c) => {
     updated_by: c.get("member").userId
   }, { onConflict: "brand_key" }).select("brand_key,display_name,tier,updated_at").single();
   if (error) return c.json({ error: error.message }, 500);
+  c.executionCtx.waitUntil((async () => {
+    const { error: refreshError } = await c.get("db").rpc("refresh_catalog_items_read");
+    if (refreshError) console.error("[catalog/read-model-refresh]", refreshError.message);
+  })());
   return c.json({ brandKey: data.brand_key, displayName: data.display_name, tier: data.tier, updatedAt: data.updated_at });
 });
 
 app.delete("/v1/admin/brand-tiers/:brandKey", requireAdmin, async (c) => {
   const brandKey = normalizeBrandKey(c.req.param("brandKey"));
   const { error } = await c.get("db").from("brand_tiers").delete().eq("brand_key", brandKey);
-  return error ? c.json({ error: error.message }, 500) : c.json({ deleted: true });
+  if (error) return c.json({ error: error.message }, 500);
+  c.executionCtx.waitUntil((async () => {
+    const { error: refreshError } = await c.get("db").rpc("refresh_catalog_items_read");
+    if (refreshError) console.error("[catalog/read-model-refresh]", refreshError.message);
+  })());
+  return c.json({ deleted: true });
 });
 
 app.get("/v1/sync-targets", requireAdmin, async (c) => {

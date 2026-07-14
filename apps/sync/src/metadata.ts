@@ -236,6 +236,12 @@ try {
   await browser.close();
 }
 
+if (counters.complete > 0) {
+  const { error: catalogRefreshError } = await db.rpc("refresh_catalog_items_read");
+  if (catalogRefreshError) throw catalogRefreshError;
+  log("catalog_read_model_refreshed", { products_updated: counters.complete });
+}
+
 const { data: coverage, error: coverageError } = await db.rpc("product_detail_sync_summary", {
   p_parser_version: PRODUCT_DETAIL_PARSER_VERSION
 });
