@@ -22,7 +22,12 @@ type SchedulerBindings = Bindings & {
   GITHUB_REF: string;
 };
 type Variables = { db: SupabaseClient; member: { userId: string; role: "admin" | "viewer"; email: string } };
-type DashboardQueryResult<T = unknown> = { data: T | null; error: { message: string } | null };
+type SupabaseQueryError = {
+  code?: string;
+  message: string;
+  details?: string | null;
+  hint?: string | null;
+};
 
 export const EXCLUDED_BASICS_CATEGORIES = [
   "Apatiniai",
@@ -666,69 +671,56 @@ app.get("/v1/sync-targets", requireAdmin, async (c) => {
 });
 
 app.get("/v1/admin/dashboard", requireAdmin, async (c) => {
-  const db = c.get("db");
-  let totalProducts: number;
-  let activeProducts: number;
-  let catalogProducts: number;
-  let metadataProducts: number;
-  let premiumProducts: number;
-  let newProducts: number;
-  let belowObservedProducts: number;
-  let exactCategoryProducts: number;
-  let fallbackCategoryProducts: number;
-  let uncategorizedProducts: number;
-  let legacyCategories: number;
-  let enabledTargets: number;
-  let disabledTargets: number;
-  let categories: DashboardQueryResult<Array<Record<string, unknown>>>;
-  let metadataSummary: DashboardQueryResult<Record<string, unknown>>;
-  let latestRuns: DashboardQueryResult<Array<Record<string, unknown>>>;
   try {
-    [
-      totalProducts,
-      activeProducts,
-      catalogProducts,
-      metadataProducts,
-      premiumProducts,
-      newProducts,
-      belowObservedProducts,
-      exactCategoryProducts,
-      fallbackCategoryProducts,
-      uncategorizedProducts,
-      legacyCategories,
-      categories,
-      metadataSummary,
-      enabledTargets,
-      disabledTargets,
-      latestRuns
-    ] = await Promise.all([
-      counted(db.from("products").select("id", { count: "exact", head: true })),
-      counted(db.from("products").select("id", { count: "exact", head: true }).eq("active", true)),
-      counted(db.from("catalog_items").select("id", { count: "exact", head: true })),
-      counted(db.from("products").select("id", { count: "exact", head: true }).eq("active", true).not("metadata_updated_at", "is", null)),
-      counted(db.from("catalog_items").select("id", { count: "exact", head: true }).eq("is_premium", true)),
-      counted(db.from("catalog_items").select("id", { count: "exact", head: true }).gte("first_seen_at", newestCatalogCutoff())),
-      counted(db.from("catalog_items").select("id", { count: "exact", head: true }).eq("below_observed_30d", true)),
-      counted(db.from("products").select("id", { count: "exact", head: true }).eq("active", true).not("category_path_updated_at", "is", null)),
-      counted(db.from("products").select("id", { count: "exact", head: true }).eq("active", true).is("category_path_updated_at", null)),
-      counted(db.from("catalog_items").select("id", { count: "exact", head: true }).eq("category_paths", "{}")),
-      counted(db.from("categories").select("id", { count: "exact", head: true }).is("path", null)),
-      db.rpc("catalog_category_facets", { p_filters: {} }),
-      db.rpc("product_detail_sync_summary", { p_parser_version: PRODUCT_DETAIL_PARSER_VERSION }),
-      counted(db.from("sync_targets").select("id", { count: "exact", head: true }).eq("enabled", true)),
-      counted(db.from("sync_targets").select("id", { count: "exact", head: true }).eq("enabled", false)),
-      db.from("sync_runs").select("id,status,started_at,finished_at,products_count,error,sync_targets(label)").order("started_at", { ascending: false }).limit(8)
-    ]);
+    return c.json(await loadAdminDashboard(c.get("db")));
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : "Dashboard statistikos uzkrauti nepavyko";
     return c.json({ error: message }, 500);
   }
+});
 
-  const queryError = categories.error ?? metadataSummary.error ?? latestRuns.error;
-  if (queryError) return c.json({ error: queryError.message }, 500);
+export async function loadAdminDashboard(db: Pick<SupabaseClient, "from" | "rpc">, now = new Date()) {
+  const [
+    totalProducts,
+    activeProducts,
+    catalogProducts,
+    metadataProducts,
+    premiumProducts,
+    newProducts,
+    belowObservedProducts,
+    exactCategoryProducts,
+    fallbackCategoryProducts,
+    uncategorizedProducts,
+    legacyCategories,
+    facets,
+    metadataSummary,
+    enabledTargets,
+    disabledTargets,
+    latestRuns
+  ] = await Promise.all([
+    counted("dashboard.products.total", db.from("products").select("id", { count: "exact", head: true })),
+    counted("dashboard.products.active", db.from("products").select("id", { count: "exact", head: true }).eq("active", true)),
+    counted("dashboard.catalog.total", db.from("catalog_items_read").select("id", { count: "exact", head: true })),
+    counted("dashboard.products.metadata_complete", db.from("products").select("id", { count: "exact", head: true }).eq("active", true).not("metadata_updated_at", "is", null)),
+    counted("dashboard.catalog.premium", db.from("catalog_items_read").select("id", { count: "exact", head: true }).eq("is_premium", true)),
+    counted("dashboard.catalog.new_30d", db.from("catalog_items_read").select("id", { count: "exact", head: true }).gte("first_seen_at", newestCatalogCutoff(now))),
+    counted("dashboard.catalog.below_observed_30d", db.from("catalog_items_read").select("id", { count: "exact", head: true }).eq("below_observed_30d", true)),
+    counted("dashboard.categories.exact_products", db.from("products").select("id", { count: "exact", head: true }).eq("active", true).not("category_path_updated_at", "is", null)),
+    counted("dashboard.categories.fallback_products", db.from("products").select("id", { count: "exact", head: true }).eq("active", true).is("category_path_updated_at", null)),
+    counted("dashboard.catalog.uncategorized", db.from("catalog_items_read").select("id", { count: "exact", head: true }).eq("category_paths", "{}")),
+    counted("dashboard.categories.legacy", db.from("categories").select("id", { count: "exact", head: true }).is("path", null)),
+    db.rpc("catalog_facets_cached", { p_filters: {} }),
+    db.rpc("product_detail_sync_summary", { p_parser_version: PRODUCT_DETAIL_PARSER_VERSION }),
+    counted("dashboard.sync_targets.enabled", db.from("sync_targets").select("id", { count: "exact", head: true }).eq("enabled", true)),
+    counted("dashboard.sync_targets.disabled", db.from("sync_targets").select("id", { count: "exact", head: true }).eq("enabled", false)),
+    db.from("sync_runs").select("id,status,started_at,finished_at,products_count,error,sync_targets(label)").order("started_at", { ascending: false }).limit(8)
+  ]);
 
-  return c.json({
-    generatedAt: new Date().toISOString(),
+  const queryError = facets.error ?? metadataSummary.error ?? latestRuns.error;
+  if (queryError) throw new Error(queryError.message);
+
+  return {
+    generatedAt: now.toISOString(),
     parserVersion: PRODUCT_DETAIL_PARSER_VERSION,
     totals: {
       products: totalProducts,
@@ -746,10 +738,16 @@ app.get("/v1/admin/dashboard", requireAdmin, async (c) => {
       disabledTargets
     },
     metadata: metadataSummary.data ?? {},
-    categories: categories.data ?? [],
+    categories: dashboardCategories(facets.data),
     latestRuns: latestRuns.data ?? []
-  });
-});
+  };
+}
+
+export function dashboardCategories(payload: unknown): Array<Record<string, unknown>> {
+  if (!payload || typeof payload !== "object" || !("categories" in payload)) return [];
+  const categories = (payload as { categories?: unknown }).categories;
+  return Array.isArray(categories) ? categories : [];
+}
 
 const TargetInput = z.object({ kind: z.enum(["category", "brand", "search"]), label: z.string().min(2).max(100), url: z.string().url(), priority: z.number().int().min(0).max(1000).default(100), enabled: z.boolean().default(true) });
 app.post("/v1/sync-targets", requireAdmin, async (c) => {
@@ -992,9 +990,23 @@ async function watchedProductIds(db: SupabaseClient, userId: string, productIds:
   return new Set((data ?? []).map((item) => item.product_id));
 }
 
-async function counted<T>(query: PromiseLike<{ count: number | null; error: { message: string } | null }>): Promise<number> {
+export async function counted(operation: string, query: PromiseLike<{ count: number | null; error: SupabaseQueryError | null }>): Promise<number> {
+  const startedAt = performance.now();
   const { count, error } = await query;
-  if (error) throw new Error(error.message);
+  if (error) {
+    const normalizedMessage = error.message.toLowerCase();
+    console.error(JSON.stringify({
+      event: "supabase_query_failed",
+      operation,
+      durationMs: Math.round((performance.now() - startedAt) * 100) / 100,
+      code: error.code ?? null,
+      message: error.message,
+      details: error.details ?? null,
+      hint: error.hint ?? null,
+      timedOut: error.code === "57014" || normalizedMessage.includes("statement timeout") || normalizedMessage.includes("canceling statement")
+    }));
+    throw new Error(error.message);
+  }
   return count ?? 0;
 }
 

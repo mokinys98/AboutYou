@@ -1,64 +1,7 @@
 <script setup lang="ts">
 import { brandTierLabels, brandTiers, type BrandTier } from "@catalog/shared";
+import { loadAdminResources, type AdminResourceKey, type BrandTierRow, type DashboardStats, type Run, type Target, type TargetKind, type TeamUser } from "~/utils/adminData";
 definePageMeta({ middleware: "admin" });
-
-type TargetKind = "category" | "brand" | "search";
-type Target = {
-  id: string;
-  label: string;
-  url: string;
-  kind: TargetKind;
-  enabled: boolean;
-  priority: number;
-  last_success_at: string | null;
-  last_error: string | null;
-};
-type Run = { id: string; status: string; started_at: string; products_count: number; error: string | null; sync_targets?: { label: string } };
-type DashboardCategory = { id: string; parentId: string | null; name: string; level: number; path: string; count: number };
-type DashboardRun = Run & { finished_at?: string | null };
-type DashboardStats = {
-  generatedAt: string;
-  parserVersion: number;
-  totals: {
-    products: number;
-    activeProducts: number;
-    catalogProducts: number;
-    metadataProducts: number;
-    premiumProducts: number;
-    newProducts: number;
-    belowObservedProducts: number;
-    exactCategoryProducts: number;
-    fallbackCategoryProducts: number;
-    uncategorizedProducts: number;
-    legacyCategories: number;
-    enabledTargets: number;
-    disabledTargets: number;
-  };
-  metadata: {
-    active?: number;
-    complete?: number;
-    pending?: number;
-    retryable?: number;
-    blockedSchema?: number;
-    sourceUnavailable?: number;
-  };
-  categories: DashboardCategory[];
-  latestRuns: DashboardRun[];
-};
-type TeamUser = {
-  email: string;
-  role: "admin" | "viewer";
-  status: "active" | "pending" | "disabled";
-  invitedAt: string | null;
-  acceptedAt: string | null;
-};
-type BrandTierRow = {
-  brandKey: string;
-  displayName: string;
-  activeProducts: number;
-  tier: BrandTier | null;
-  updatedAt: string | null;
-};
 
 const api = useApi();
 const activeTab = ref<"dashboard" | "tiers" | "sync" | "users">("dashboard");
@@ -73,6 +16,7 @@ const tierFilter = ref<BrandTier | "unassigned" | "">("");
 const error = ref("");
 const success = ref("");
 const pending = ref("");
+const loadErrors = reactive<Partial<Record<AdminResourceKey, string>>>({});
 const inviteEmail = ref("");
 const editingId = ref<string | null>(null);
 const form = reactive({ label: "", url: "", kind: "category" as TargetKind, priority: 100, enabled: true });
@@ -108,18 +52,15 @@ const metadataRows = computed(() => {
 });
 
 async function refresh() {
-  try {
-    [dashboard.value, targets.value, runs.value, users.value, brandTierRows.value] = await Promise.all([
-      api<DashboardStats>("/v1/admin/dashboard"),
-      api<Target[]>("/v1/sync-targets"),
-      api<Run[]>("/v1/sync-runs"),
-      api<TeamUser[]>("/v1/admin/users"),
-      api<BrandTierRow[]>("/v1/admin/brand-tiers")
-    ]);
-    if (!categoryLevels.value.includes(categoryLevel.value)) categoryLevel.value = categoryLevels.value[0] ?? 2;
-  } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : "Duomenų užkrauti nepavyko";
-  }
+  const result = await loadAdminResources(api);
+  for (const key of Object.keys(loadErrors) as AdminResourceKey[]) delete loadErrors[key];
+  Object.assign(loadErrors, result.errors);
+  if (result.data.dashboard) dashboard.value = result.data.dashboard;
+  if (result.data.syncTargets) targets.value = result.data.syncTargets;
+  if (result.data.syncRuns) runs.value = result.data.syncRuns;
+  if (result.data.users) users.value = result.data.users;
+  if (result.data.brandTiers) brandTierRows.value = result.data.brandTiers;
+  if (!categoryLevels.value.includes(categoryLevel.value)) categoryLevel.value = categoryLevels.value[0] ?? 2;
 }
 
 async function saveBrandTier(row: BrandTierRow, tier: BrandTier) {
@@ -259,7 +200,7 @@ function formatPct(value: number) {
   return `${value.toLocaleString("lt-LT")}%`;
 }
 
-function runDuration(run: DashboardRun) {
+function runDuration(run: Run) {
   if (!run.finished_at) return "vyksta";
   const seconds = Math.max(0, Math.round((new Date(run.finished_at).getTime() - new Date(run.started_at).getTime()) / 1000));
   if (seconds < 60) return `${seconds} s`;
@@ -283,6 +224,7 @@ onMounted(refresh);
     </nav>
 
     <section v-if="activeTab === 'dashboard'" class="admin-dashboard">
+      <p v-if="loadErrors.dashboard" class="error-state">Dashboard duomenų atnaujinti nepavyko: {{ loadErrors.dashboard }}</p>
       <div class="dashboard-summary">
         <article>
           <span>Visos prekės</span>
@@ -366,6 +308,7 @@ onMounted(refresh);
 
     <template v-else-if="activeTab === 'tiers'">
       <section class="admin-panel brand-tier-admin">
+        <p v-if="loadErrors.brandTiers" class="error-state">Brandų tier'ų atnaujinti nepavyko: {{ loadErrors.brandTiers }}</p>
         <div class="brand-tier-admin-head">
           <div>
             <p class="eyebrow">BRANDŲ KOKYBĖ</p>
@@ -411,6 +354,7 @@ onMounted(refresh);
 
       <section class="admin-panel">
         <h2>Aktyvios grupės</h2>
+        <p v-if="loadErrors.syncTargets" class="error-state">Sinchronizavimo grupių atnaujinti nepavyko: {{ loadErrors.syncTargets }}</p>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Grupė</th><th>Būsena</th><th>Paskutinis atnaujinimas</th><th>Veiksmai</th></tr></thead>
@@ -447,6 +391,7 @@ onMounted(refresh);
 
       <section class="admin-panel">
         <h2>Paskutiniai darbai</h2>
+        <p v-if="loadErrors.syncRuns" class="error-state">Sinchronizavimo darbų atnaujinti nepavyko: {{ loadErrors.syncRuns }}</p>
         <div class="run-list"><div v-for="run in runs.slice(0, 20)" :key="run.id"><span class="status" :class="run.status">{{ run.status }}</span><strong>{{ run.sync_targets?.label }}</strong><time>{{ new Date(run.started_at).toLocaleString("lt-LT") }}</time><span>{{ run.products_count }} produktų</span></div></div>
       </section>
     </template>
@@ -454,6 +399,7 @@ onMounted(refresh);
     <template v-else>
       <section class="admin-panel">
         <h2>Pakviesti vartotoją</h2>
+        <p v-if="loadErrors.users" class="error-state">Vartotojų atnaujinti nepavyko: {{ loadErrors.users }}</p>
         <p class="panel-note">Naujam komandos nariui bus suteikta peržiūros teisė. Kvietimo nuorodoje jis galės susikurti slaptažodį.</p>
         <form class="user-invite-form" @submit.prevent="inviteUser">
           <label>El. paštas<input v-model="inviteEmail" type="email" autocomplete="email" required placeholder="vardas@example.com"></label>

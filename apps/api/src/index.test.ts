@@ -1,6 +1,6 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { describe, expect, it, vi } from "vitest";
-import { EXCLUDED_BASICS_CATEGORIES, allowedCorsOrigin, app, catalogCacheUrl, catalogCursorFilter, dispatchGitHubWorkflow, downloadRawArtifact, inspectProductDebugPayload, inviteErrorResponse, mapProductDebug, mapProductDetail, newestCatalogCutoff, normalizeBrandKey, parseFilters, postgresArrayLiteral, priceComparisonColumn, sortDefinition, teamMemberStatus, workflowForCron } from "./index";
+import { EXCLUDED_BASICS_CATEGORIES, allowedCorsOrigin, app, catalogCacheUrl, catalogCursorFilter, counted, dispatchGitHubWorkflow, downloadRawArtifact, inspectProductDebugPayload, inviteErrorResponse, loadAdminDashboard, mapProductDebug, mapProductDetail, newestCatalogCutoff, normalizeBrandKey, parseFilters, postgresArrayLiteral, priceComparisonColumn, sortDefinition, teamMemberStatus, workflowForCron } from "./index";
 
 describe("catalog API", () => {
   it("exposes an unauthenticated health check", async () => {
@@ -137,6 +137,60 @@ describe("catalog API", () => {
     const parsed = parseFilters({ new_only: "true" });
     expect(parsed.success && parsed.data.newOnly).toBe(true);
     expect(newestCatalogCutoff(new Date("2026-07-06T12:00:00.000Z"))).toBe("2026-06-06T12:00:00.000Z");
+  });
+
+  it("loads admin dashboard catalog statistics from the read model and cached facets", async () => {
+    const category = { id: "category-1", parentId: null, name: "Drabužiai", level: 2, path: "vyrams>drabuziai", count: 7 };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.includes("/rest/v1/rpc/catalog_facets_cached")) {
+        return Response.json({ categories: [category] });
+      }
+      if (url.includes("/rest/v1/rpc/product_detail_sync_summary")) {
+        return Response.json({ active: 1, complete: 1 });
+      }
+      if (url.includes("/rest/v1/sync_runs")) return Response.json([]);
+      return new Response(null, { status: 200, headers: { "content-range": "0-0/1" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const db = createClient("https://example.supabase.co", "test-service-role-key", { auth: { persistSession: false } });
+
+    try {
+      const dashboard = await loadAdminDashboard(db, new Date("2026-07-15T12:00:00.000Z"));
+      const urls = fetchMock.mock.calls.map(([input]) => input instanceof Request ? input.url : String(input));
+
+      expect(urls.some((url) => url.includes("/rest/v1/catalog_items_read?"))).toBe(true);
+      expect(urls.some((url) => /\/rest\/v1\/catalog_items(?:\?|$)/.test(url))).toBe(false);
+      expect(urls.some((url) => url.includes("/rest/v1/rpc/catalog_facets_cached"))).toBe(true);
+      expect(urls.some((url) => url.includes("/rest/v1/rpc/catalog_category_facets"))).toBe(false);
+      expect(dashboard.categories).toEqual([category]);
+      expect(dashboard.generatedAt).toBe("2026-07-15T12:00:00.000Z");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("logs a named structured Supabase timeout from counted queries", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const query = Promise.resolve({
+      count: null,
+      error: { code: "57014", message: "canceling statement due to statement timeout", details: "query exceeded limit", hint: "use the read model" }
+    });
+
+    await expect(counted("dashboard.catalog.total", query)).rejects.toThrow("statement timeout");
+    expect(consoleError).toHaveBeenCalledOnce();
+    const log = JSON.parse(String(consoleError.mock.calls[0]?.[0]));
+    expect(log).toMatchObject({
+      event: "supabase_query_failed",
+      operation: "dashboard.catalog.total",
+      code: "57014",
+      message: "canceling statement due to statement timeout",
+      details: "query exceeded limit",
+      hint: "use the read model",
+      timedOut: true,
+      durationMs: expect.any(Number)
+    });
+    consoleError.mockRestore();
   });
 
   it("supports source LPL sorting with null values placed after known prices", () => {
