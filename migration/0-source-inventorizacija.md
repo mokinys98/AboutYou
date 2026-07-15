@@ -1,6 +1,6 @@
 # 0 fazė — source inventorizacija ir atkuriamas backup
 
-**Būsena:** pradėta, neužbaigta  
+**Būsena:** source techninis baseline surinktas, backup dar nesukurtas  
 **Pradėta:** 2026-07-15  
 **Tikslas:** užfiksuoti valdomo Supabase projekto faktinę būklę ir sukurti atkuriamą backup prieš bet kokius produkcinius pakeitimus.  
 **Source pakeitimai šioje fazėje:** draudžiami, išskyrus atskirai patvirtintą backup ar diagnostikos veiksmą.
@@ -201,15 +201,15 @@ Storage objektams sudaromas atskiras manifestas su `bucket`, object key, dydžiu
 
 | Patikra | Rezultatas | Būsena |
 |---|---|---|
-| Source Postgres versija | — | Laukiama DB prieigos |
-| Source extensions ir versijos | — | Laukiama DB prieigos |
-| DB dydis ir 50 didžiausių lentelių | — | Laukiama DB prieigos |
-| Roles / grants / object owners | — | Laukiama DB prieigos |
-| `supabase_migrations` ledger | — | Laukiama DB prieigos |
-| pg_cron job'ai ir 100 paskutinių vykdymų | — | Laukiama DB prieigos |
-| Aktyvios / laukiančios užklausos | — | Laukiama saugaus diagnostikos lango |
-| Pagrindinių lentelių row counts | — | Laukiama DB prieigos |
-| Storage bucket count / bytes | — | Laukiama DB prieigos |
+| Source Postgres versija | PostgreSQL 17.6 | Atlikta 2026-07-15 |
+| Source extensions ir versijos | `pg_cron` 1.6.4, `pg_stat_statements` 1.11, `pgcrypto` 1.3, `plpgsql` 1.0, `supabase_vault` 0.3.1, `uuid-ossp` 1.1 | Atlikta; PG17 nesuderinamų extensions nerasta |
+| DB dydis ir 25 didžiausios lentelės | 870 550 675 B / 830 MB; didžiausios lentelės aprašytos 7.4 skyriuje | Atlikta 2026-07-15 |
+| Roles / grants / object owners | `public` 34 objektai priklauso `postgres`; Auth ir Storage objektai priklauso atitinkamoms Supabase admin rolėms; `service_role` turi 29 public lentelių grant'us | Pradinis baseline atliktas; funkcijų auditas turi stop signalų |
+| `supabase_migrations` ledger | 14 įrašų, kai repo yra 44 SQL failai | Atlikta; patvirtintas ledger neatitikimas |
+| pg_cron job'ai ir 7 dienų vykdymų santrauka | 2 job'ai; refresh išjungtas, cleanup įjungtas; detaliau 7.5 skyriuje | Atlikta 2026-07-15 |
+| Aktyvios / laukiančios užklausos | Matavimo metu 1 active, 10 idle ir background sesijos; query tekstai nefiksuoti | Pradinis baseline atliktas |
+| Pagrindinių lentelių row counts | `products` 51 535, `offers` 51 535, `auth.users` 2 | Atlikta 2026-07-15 |
+| Storage bucket count / bytes | 2 privatūs bucket'ai, antro matavimo metu 682 objektai, 6 155 261 B / apie 5,87 MiB | Atlikta 2026-07-15; source tebėra aktyvus |
 | Auth, SMTP, redirect ir OAuth inventorius | — | Laukiama Dashboard konfigūracijos peržiūros |
 | Roles/schema/data dump | — | Laukiama DB prieigos ir šifruotos backup vietos |
 | Dump SHA-256 manifestas | — | Laukiama dump |
@@ -269,13 +269,104 @@ Viršijimas nėra brangus: R2 Standard saugojimas kainuoja 0,015 USD už GB-mont
 
 **Tarpinė išvada:** R2 Free labai realiai gali tikti pradžiai, bet galutinį atsakymą pateiksime tik išmatavę DB, sugeneravę pirmą suspaustą dump ir suskaičiavę `sync-debug` bei `sync-raw` objektų baitus.
 
+### 7.4. Faktinė 2026-07-15 talpa
+
+Source DB fizinis dydis yra **830 MB**, o visi Storage objektai sudaro tik apie **5,87 MiB**:
+
+| Bucket | Objektai | Baitai | Apytikslis dydis | Public |
+|---|---:|---:|---:|---|
+| `sync-debug` | 6 | 845 939 | 826 KiB | ne |
+| `sync-raw` | 676 | 5 309 322 | 5,06 MiB | ne |
+| **Iš viso** | **682** | **6 155 261** | **5,87 MiB** | — |
+
+Pirmas bendras matavimas kelios minutės anksčiau rodė 681 objektą ir 6 147 317 baitų. Vieno objekto skirtumas patvirtina, kad source matavimo metu tebėra aktyvus ir priima write'us. Final parity skaičiai turi būti imami tik cutover freeze lange.
+
+Didžiausi DB objektai:
+
+| Objektas | Apytikslės eilutės | Fizinis dydis |
+|---|---:|---:|
+| `public.catalog_items_read` | 47 368 | 219 MB |
+| `public.catalog_item_facet_values_read` | 1 054 836 | 141 MB |
+| `public.products` | 51 535 | 117 MB |
+| `public.product_detail_sections` | 188 722 | 105 MB |
+| `public.product_size_options` | 285 009 | 60 MB |
+| `public.product_color_options` | 173 591 | 35 MB |
+| `public.daily_prices` | 220 101 | 34 MB |
+| `public.product_detail_sync` | 51 535 | 29 MB |
+| `public.product_categories` | 197 860 | 28 MB |
+| `public.price_changes` | 125 684 | 20 MB |
+
+Du read-model objektai kartu užima apie **360 MB**, arba maždaug 43 % visos DB. Tai svarbu tiek backup dydžiui, tiek 250k apkrovos projekcijai.
+
+Net konservatyviai skaičiuojant visą dabartinį 830 MB DB dydį kiekvienai iš 14 kopijų, gautume apie 11,6 GB prieš suspaudimą. Kadangi loginis SQL dump bus suspaustas, o Storage sudaro tik apie 6 MB, **R2 10 GB Free limitas dabartinei apimčiai tikėtinai pakaks**. Galutinis skaičius bus fiksuojamas pagal pirmo realaus suspausto ir užšifruoto backup failo dydį.
+
+### 7.5. Refresh, cron ir WAL baseline
+
+`pg_cron` faktinė būsena:
+
+| Job | Grafikas | Active | 7 dienų rezultatas |
+|---|---|---:|---|
+| `catalog-read-model-refresh` | `*/5 * * * *` | ne | 210 succeeded, 12 failed |
+| `catalog-read-model-refresh-history-cleanup` | `15 3 * * *` | taip | 1 succeeded |
+
+Refresh state 2026-07-15:
+
+- `requested_version = 32`;
+- `completed_version = 24`;
+- neapdorotas skirtumas: 8 versijos;
+- `last_status = pending`;
+- paskutinio užbaigto bandymo trukmė: 120 297 ms;
+- paskutinė klaida: `57014: canceling statement due to statement timeout`;
+- periodinis refresh job'as dabar išjungtas.
+
+Tai yra **stop signalas automatiniam refresh įjungimui target aplinkoje**. Rehearsal restore turi importuoti cron kontroliuojamai ir neaktyvuoti refresh, kol neįdiegtas circuit breaker bei neatliktas apkrovos testas.
+
+`pg_stat_wal` nuo 2026-06-30 statistikos atstatymo užfiksavo apie **28 GB WAL** (`30 267 025 721` baitą). Tai nėra tuo metu diske laikomo WAL dydis, bet yra aiškus write amplification / refresh aktyvumo baseline, kurį reikės palyginti su staging.
+
+### 7.6. Migracijų ledger neatitikimas
+
+Source `supabase_migrations.schema_migrations` turi tik 14 versijų, o repo kataloge yra 44 SQL failai. Be to, keturios source ledger versijos neturi tokio paties pavadinimo failų repo:
+
+- `20260713110946`
+- `20260713111346`
+- `20260713111604`
+- `20260713111722`
+
+Tai patvirtina plano taisyklę: target schema atkuriama iš oficialaus source dump, o ne aklai perleidžiant repo migracijas. Atskiras švarus future migration baseline sprendžiamas tik po restore parity.
+
+### 7.7. Pradinis RLS patikrinimas
+
+Read-only katalogų patikra nerado nė vienos paprastos ar partitioned `public` lentelės su išjungtu RLS. Tai teigiamas pradinis signalas, tačiau pilnas policy, grants, funkcijų ir `SECURITY DEFINER` auditas dar nebaigtas.
+
+### 7.8. Roles, grants ir `SECURITY DEFINER` stop signalai
+
+Objektų ownership baseline:
+
+- 34 `public` schemos lentelių, view, materialized view ir sequence objektai priklauso `postgres`;
+- 24 `auth` objektai priklauso `supabase_auth_admin`;
+- 8 `storage` objektai priklauso `supabase_storage_admin`;
+- `service_role` turi po 29 `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `REFERENCES`, `TRIGGER` ir `TRUNCATE` grant'us `public` lentelėms;
+- `pg_policies` negrąžino `public` policy įrašų. Esant įjungtam RLS tai reiškia default-deny paprastoms klientų rolėms, o aplikacijos DB darbą daugiausia atlieka `service_role` per Worker.
+
+Rastos keturios `public` schemos `SECURITY DEFINER` funkcijos, kurias gali vykdyti `PUBLIC`:
+
+| Funkcija | Papildomi grants | Rizika, kurią reikia patikrinti |
+|---|---|---|
+| `catalog_news_facets(jsonb)` | `anon`, `authenticated`, `service_role` | Gali būti sąmoningas viešas read endpoint, bet reikia patikrinti search path ir duomenų ribas |
+| `cleanup_price_history()` | `service_role` | `PUBLIC` neturi turėti galimybės paleisti destructive cleanup be aiškaus pagrindimo |
+| `finish_sync_run(uuid, sync_run_status, integer, integer, text)` | `service_role` | `PUBLIC` galėtų keisti sync būseną, jei PostgREST eksponuoja funkciją |
+| `record_price_observation(uuid, integer, integer, integer, char)` | `service_role` | `PUBLIC` galėtų inicijuoti privileged price write logiką |
+
+Šiame etape grants nekeičiami. Prieš rehearsal restore reikia peržiūrėti faktinius funkcijų body, `search_path`, vidinį autorizavimą ir PostgREST pasiekiamumą. Jei vieša prieiga nereikalinga, pataisa turi būti atskira audituota migracija su `REVOKE EXECUTE ... FROM PUBLIC, anon, authenticated` ir tiksliniu `GRANT ... TO service_role`.
+
 ## 8. Sprendimai ir įėjimo duomenys, kurių reikia tęsimui
 
-- [ ] `SOURCE_DATABASE_URL` pakeistas į iš šios aplinkos pasiekiamą Supabase **Session pooler** connection string.
+- [x] `SOURCE_DATABASE_URL` pakeistas į iš šios aplinkos pasiekiamą Supabase **Session pooler** connection string.
 - [ ] Patvirtinta šifruota lokali backup staging vieta už repo ribų.
 - [x] Patvirtintas off-host backup target ir retention: Cloudflare R2 Standard, EU, 7 daily + 4 weekly + 3 monthly.
 - [ ] Sukurtas privatus R2 bucket ir tik jam apribotas API token.
-- [ ] Nurodytas saugus langas read-only DB diagnostikai ir dump.
+- [x] Read-only DB diagnostika atlikta; produkciniai duomenys nekeisti.
+- [ ] Nurodytas saugus langas pilnam roles/schema/data dump.
 - [ ] Patvirtinta, kas gali peržiūrėti Auth / SMTP / redirect / OAuth konfigūraciją Dashboard'e.
 
 Slaptų reikšmių į šį failą ar pokalbį pateikti nereikia.
@@ -284,8 +375,8 @@ Slaptų reikšmių į šį failą ar pokalbį pateikti nereikia.
 
 Kol kas statusas yra **STOP**. Į 1 fazę galima eiti tik kai:
 
-- [ ] užfiksuotos source versijos, extensions, roles, grants, cron ir migracijų ledger;
-- [ ] užfiksuoti pagrindinių lentelių bei Storage objektų skaičiai ir dydžiai;
+- [x] užfiksuotos source versijos, extensions, roles, grants, cron ir migracijų ledger; rastos saugos rizikos perkeltos į privalomą auditą;
+- [x] užfiksuoti pagrindinių lentelių bei Storage objektų skaičiai ir dydžiai;
 - [ ] sukurti roles, schema ir data dump;
 - [ ] dump turi SHA-256 manifestą ir šifruotą off-host kopiją;
 - [ ] Auth / SMTP / redirect / OAuth konfigūracija inventorizuota be secret'ų;
@@ -293,4 +384,4 @@ Kol kas statusas yra **STOP**. Į 1 fazę galima eiti tik kai:
 
 ## 10. Kitas veiksmas
 
-Kai 8 skyriaus prieigos ir backup vieta paruoštos, vykdyti source SQL inventorizaciją, oficialų trijų dalių dump ir užpildyti 7 skyriaus rezultatus. Tik po to pradėti Contabo staging platformos paruošimą.
+Paruošti privatų R2 bucket, tik jam apribotą API token ir šifruotą lokalią staging vietą. Tada saugiu dump langu sukurti oficialų trijų dalių backup, jį suspausti, užšifruoti, apskaičiuoti SHA-256, įkelti į R2 ir patikrinti objektų dydžius bei checksum manifestą. Tik po Auth konfigūracijos inventoriaus galima uždaryti 0 fazę ir pradėti Contabo staging platformą.
