@@ -7,7 +7,7 @@
 
 | Fazė | Dokumentas | Būsena |
 |---|---|---|
-| 0 | [Source inventorizacija ir backup](0-source-inventorizacija.md) | Baseline, šifruotas dump ir patikrinta privati R2 kopija atlikti; liko Auth inventorius ir rakto escrow |
+| 0 | [Source inventorizacija ir backup](0-source-inventorizacija.md) | Backup, R2 retention, VPS secret ir `age` escrow paruošti; liko Auth inventorius ir connectivity testas |
 | 1 | Contabo platformos paruošimas | Nepradėta |
 | 2 | Pirmas restore rehearsal | Nepradėta |
 | 3 | Funkcijų ir atsparumo testas | Nepradėta |

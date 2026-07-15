@@ -1,6 +1,6 @@
 # 0 fazė — source inventorizacija ir atkuriamas backup
 
-**Būsena:** source baseline, šifruotas dump ir patikrinta off-host R2 kopija atlikti; liko Auth konfigūracijos inventorius ir rakto escrow
+**Būsena:** source baseline, šifruotas dump, patikrinta off-host R2 kopija, retention, VPS backup secret ir privataus `age` rakto escrow paruošti; liko Auth konfigūracijos inventorius ir VPS connectivity testas
 **Pradėta:** 2026-07-15  
 **Tikslas:** užfiksuoti valdomo Supabase projekto faktinę būklę ir sukurti atkuriamą backup prieš bet kokius produkcinius pakeitimus.  
 **Source pakeitimai šioje fazėje:** draudžiami, išskyrus atskirai patvirtintą backup ar diagnostikos veiksmą.
@@ -434,16 +434,103 @@ baseline/20260715T192442Z/aboutyou-supabase-20260715T192442Z.tar.gz.age
 
 Pirmas nesėkmingas bandymas prieš R2 aktyvavimą grąžino `10042`; pakartojus po aktyvavimo bucket kūrimas ir upload buvo sėkmingi. Į R2 pateko tik kliento pusėje `age` užšifruotas failas — plaintext SQL dump nebuvo siunčiamas.
 
-Automatiniams būsimiems backup dar reikia sukurti tik šiam bucket apribotą API token ir įdiegti retention/lifecycle automatizavimą. Dabartinis baseline objektas sąmoningai laikomas `baseline/` prefikse ir automatiškai netrinamas.
+Sukurtos ir patikrintos retention taisyklės:
+
+| Taisyklė | Prefiksas | Veiksmas |
+|---|---|---|
+| `daily-7d` | `daily/` | objektai baigiasi po 7 dienų |
+| `weekly-28d` | `weekly/` | objektai baigiasi po 28 dienų |
+| `monthly-90d` | `monthly/` | objektai baigiasi po 90 dienų |
+
+Wrangler taip pat automatiškai pridėjo nebaigtų multipart upload'ų nutraukimą po 7 dienų. Dabartinis baseline objektas sąmoningai laikomas `baseline/` prefikse ir į šias retention taisykles nepatenka.
+
+Automatiniams būsimiems backup sukurtas tik šiam bucket apribotas API token. Jo reikšmės saugomos password manager’yje ir VPS root-only secret faile; į repo ar šį dokumentą jos nepatenka.
+
+### 7.11. 2026-07-15 Auth, SMTP, redirect ir OAuth repo inventorizacija
+
+Repo dalis atlikta read-only. 2026-07-15 Dashboard būseną pateikė operatorius; source nustatymai nebuvo keičiami.
+
+#### Auth srautai, rasti kode
+
+| Srautas | Repo faktas | Reikalinga Dashboard būsena |
+|---|---|---|
+| El. paštas + slaptažodis | `apps/web/pages/login.vue` naudoja `signInWithPassword` | Email provider įjungtas |
+| Magic link | `signInWithOtp`, `shouldCreateUser: false` | Email OTP / passwordless leidžiamas; vieša registracija išjungta |
+| Komandos kvietimas | API naudoja `auth.admin.inviteUserByEmail` su `redirectTo` | Tik administratorius gali kviesti; kvietimo laiškas įjungtas |
+| Sesija | Web naudoja `getSession`, `getUser`, `onAuthStateChange` ir `exchangeCodeForSession` | Session/refresh politika turi būti suderinama su aplikacija |
+| Social OAuth | Repo nerasta `signInWithOAuth` ir social provider integracijos | Visi nenaudojami social/OIDC provider'iai turi būti išjungti |
+| Anonymous sign-in | Repo srauto nėra | Turi būti išjungtas |
+
+Operatoriaus pateikta faktinė Dashboard būsena:
+
+| Nustatymas | Būsena |
+|---|---|
+| Email provider | **Išjungtas** — stop signalas, nes aplikacija naudoja password, magic link ir invite srautus |
+| Allow new users to sign up | Išjungtas |
+| Anonymous sign-ins | Išjungti |
+| Custom SMTP | Išjungtas; tai reiškia, kad naudojamas ne custom SMTP, o Supabase default email siuntimas |
+| Social/OAuth provideriai | Išjungti |
+| OAuth Server / OAuth Apps | OAuth Server išjungtas; OAuth Apps nerasta |
+| Confirm email | Dar nepatikrinta |
+| Site URL | `https://aboutyou-private-catalog-web.pages.dev` — patvirtinta |
+| Redirect URLs | 4 URL — visi repo matricoje ir Dashboard sąraše, patvirtinta |
+
+Email provider išjungimas nėra suderinamas su dabartiniu aplikacijos Auth modeliu. Jo įjungimas būtų atskiras source Dashboard pakeitimas ir šiame etape automatiškai neatliekamas.
+
+README nurodo, kad viešas naudotojų registravimasis turi likti išjungtas; tai turi būti patikrinta **Authentication → Providers → Email**. Supabase bendroje Auth konfigūracijoje atskirai valdomi naujų naudotojų registracija, email confirmation ir anonymous sign-ins. [Auth konfigūracija](https://supabase.com/docs/guides/auth/general-configuration)
+
+#### Redirect / Site URL matrica
+
+Kodas naudoja `location.origin`, todėl magic link callback kelias yra `<leistinas-origin>/auth/callback`. Kvietimo API naudoja `WEB_APP_URL` ir prideda `/auth/invite`. Repo deklaruoja:
+
+```text
+http://localhost:3000/auth/callback
+http://localhost:3000/auth/invite
+https://aboutyou-private-catalog-web.pages.dev/auth/callback
+https://aboutyou-private-catalog-web.pages.dev/auth/invite
+```
+
+Dashboard reikia patikrinti **Authentication → URL Configuration**:
+
+- Site URL patvirtintas kaip `https://aboutyou-private-catalog-web.pages.dev`;
+- Redirect URLs turi visus keturis aukščiau nurodytus tikslius URL;
+- neturi būti plataus `*` wildcard, kuris leistų neplanuotus redirect'us.
+
+Supabase nurodo, kad `redirectTo` turi sutapti su leidžiamų Redirect URLs sąrašu, o Site URL naudojamas kaip numatytasis redirect. [Redirect URLs gairės](https://supabase.com/docs/guides/auth/redirect-urls)
+
+#### SMTP ir email templates
+
+Repo dokumentacija numato production **Resend Custom SMTP**, atskirą siuntimo subdomeną, SPF/DKIM/DMARC ir išjungtą Resend link tracking. Dashboard reikia užfiksuoti tik būseną, be SMTP slaptažodžio:
+
+- ar įjungtas Custom SMTP ir koks siuntėjo adresas;
+- ar siuntėjo domenas turi SPF, DKIM ir DMARC;
+- ar Auth email template'ai (`Invite user`, magic link / confirmation) naudoja teisingą redirect kintamąjį;
+- ar Invite user template tekstas atitinka repo dokumentuotą variantą.
+
+Supabase default SMTP skirtas bandymams ir turi gavėjų bei siuntimo limitus, todėl production srautams reikia Custom SMTP. [Custom SMTP gairės](https://supabase.com/docs/guides/auth/auth-smtp)
+
+#### Dashboard patikros lapas
+
+Šie punktai pažymimi tik po realios Dashboard peržiūros:
+
+- [ ] Email provider įjungtas — šiuo metu išjungtas, stop signalas;
+- [x] vieša registracija išjungta;
+- [x] anonymous sign-ins išjungti;
+- [ ] email confirmation būsena užfiksuota;
+- [x] Site URL ir visi keturi Redirect URLs sutampa su repo matrica;
+- [x] Custom SMTP būklė užfiksuota kaip išjungta; siuntėjo domenas ir DNS autentifikacija dar neaktualūs;
+- [x] nenaudojami social/OIDC provider'iai išjungti;
+- [ ] Invite user ir magic-link template'ai patikrinti.
 
 ## 8. Sprendimai ir įėjimo duomenys, kurių reikia tęsimui
 
 - [x] `SOURCE_DATABASE_URL` pakeistas į iš šios aplinkos pasiekiamą Supabase **Session pooler** connection string.
 - [x] Patvirtinta šifruota lokali backup vieta už repo ribų: `C:\Users\Auris\Documents\AboutYouMigrationBackups`.
-- [ ] Privatus `age` identity nukopijuotas į savininko password manager / nepriklausomą secret escrow.
+- [x] Privatus `age` identity nukopijuotas į savininko password manager / nepriklausomą secret escrow.
 - [x] Patvirtintas off-host backup target ir retention: Cloudflare R2 Standard, EU, 7 daily + 4 weekly + 3 monthly.
 - [x] Sukurtas privatus R2 bucket, patikrinta išjungta `r2.dev` prieiga ir įkelta verifikuota off-host kopija.
-- [ ] Sukurtas tik šiam R2 bucket apribotas API token būsimiems automatiniams backup.
+- [x] Sukurtas tik šiam R2 bucket apribotas API token būsimiems automatiniams backup; raktai išsaugoti password manager’yje ir VPS secret faile.
+- [x] Sukurtos ir patikrintos `daily/`, `weekly/`, `monthly/` retention taisyklės (7 / 28 / 90 dienų).
 - [x] Read-only DB diagnostika atlikta; produkciniai duomenys nekeisti.
 - [ ] Nurodytas saugus langas pilnam roles/schema/data dump.
 - [ ] Patvirtinta, kas gali peržiūrėti Auth / SMTP / redirect / OAuth konfigūraciją Dashboard'e.
@@ -463,4 +550,4 @@ Kol kas statusas yra **STOP**. Į 1 fazę galima eiti tik kai:
 
 ## 10. Kitas veiksmas
 
-Nepriklausomai išsaugoti privatų `age` identity password manager'yje ir be secret'ų inventorizuoti Supabase Auth, SMTP, redirect bei OAuth konfigūraciją. Būsimiems automatiniams backup sukurti tik `aboutyou-supabase-backups` bucket apribotą API token ir atskirai įdiegti 7 daily + 4 weekly + 3 monthly retention. Po šių 0 fazės vartų galima pradėti Contabo staging platformą; tikrasis atkuriamumo įrodymas bus 2 fazės rehearsal restore.
+Privatus `age` identity ir R2 API tokenas jau išsaugoti password manager’yje; R2 tokenas taip pat įdiegtas VPS secret faile. Liko be secret'ų inventorizuoti Supabase Auth, SMTP, redirect bei OAuth konfigūraciją ir atlikti saugų R2 connectivity testą iš VPS. Po šių 0 fazės vartų galima pradėti Contabo staging platformą; tikrasis atkuriamumo įrodymas bus 2 fazės rehearsal restore.
