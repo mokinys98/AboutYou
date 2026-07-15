@@ -11,4 +11,7 @@ test-results/
 .env.*
 !.env.example
 .wrangler/
+.migration-tools/
+.migration-secrets/
+.migration-backups/
 apps/web/127.0.0.1/

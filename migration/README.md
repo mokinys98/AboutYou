@@ -7,7 +7,7 @@
 
 | Fazė | Dokumentas | Būsena |
 |---|---|---|
-| 0 | [Source inventorizacija ir backup](0-source-inventorizacija.md) | Pradėta; pasirinktas R2, laukiama session pooler DB jungties ir R2 paruošimo |
+| 0 | [Source inventorizacija ir backup](0-source-inventorizacija.md) | Baseline, šifruotas dump ir patikrinta privati R2 kopija atlikti; liko Auth inventorius ir rakto escrow |
 | 1 | Contabo platformos paruošimas | Nepradėta |
 | 2 | Pirmas restore rehearsal | Nepradėta |
 | 3 | Funkcijų ir atsparumo testas | Nepradėta |
