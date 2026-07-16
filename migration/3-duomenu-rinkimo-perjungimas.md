@@ -10,7 +10,8 @@
 - [x] UÅ¾baigtas read-model refresh: `requested_version=33`, `completed_version=33`, `last_status=refreshed`, `dirty=false`, trukmÄ— 17,1 sek.
 - [x] Atliktas antras canary sync su `SYNC_MAX_PRODUCTS=50`: 25/25 targetÅ³ sÄ—kmingi; dauguma surinko 50 produktÅ³, Lacoste 13, treniruoÄiÅ³ targetas 42.
 - [x] Po antro canary uÅ¾baigtas ir patikrintas read-model refresh: `requested_version=34`, `completed_version=34`, `last_status=refreshed`, `dirty=false`, trukmÄ— 2,2 sek.
-- [ ] Tik po patvirtinimo svarstomas didesnis staging sync.
+- [x] Sukurtas atskiras rankinis GitHub Actions workflow `.github/workflows/sync-catalog-staging.yml` su `staging` Environment.
+- [ ] Tik po GitHub staging workflow patikros svarstomas didesnis staging sync.
 - [ ] Production sync ir production cron Å¡ioje fazÄ—je nepakeisti.
 
 **BÅ«sena:** antras staging canary pavyko per 1 min. 26 sek.; 25/25 targetÅ³ baigÄ—si sÄ—kmingai. `SYNC_MAX_PRODUCTS=50` taikomas kiekvienam targetui, todÄ—l paleidimas apÄ—mÄ— iki 1250 produktÅ³ (faktiÅ¡kai kai kurie targetai turÄ—jo maÅ¾iau). Read-model refresh sÄ—kmingas (`34/34`, `refreshed`, `dirty=false`, 2,2 sek.). Production nepakeistas.
