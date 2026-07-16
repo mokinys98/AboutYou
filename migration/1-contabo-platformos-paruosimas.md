@@ -13,16 +13,20 @@
 - [x] Contabo firewall deny-by-default profilis priskirtas VPS; `ACCEPT TCP 22` ir `DROP Any/Any` taisyklės aktyvios.
 - [x] Cloudflare nameserverių propagacija baigta; domenas rodo `protected by Cloudflare`.
 - [x] Atliktas kontroliuojamas VPS reboot ir post-reboot patikra.
-- [ ] Įdiegtas Docker Engine + Compose ir patikrintos versijos. (Docker dar neįdiegtas.)
+- [x] Sukurtas Contabo snapshot prieš Docker diegimą (`Before docker`).
+- [x] Sukurtas ir aktyvuotas 4 GiB swapfile; `vm.swappiness=10`.
+- [x] Įdiegtas Docker Engine + Compose ir patikrintos versijos; `hello-world` testas sėkmingas.
 - [ ] Sukurti bei patikrinti persistent volumes.
 - [x] Cloudflare DNS zona paruošta ir nameserver’iai pateikti registratoriui; propagacija dar vyksta.
-- [ ] Sukurtas Cloudflare Tunnel.
+- [x] Sukurtas Cloudflare Tunnel ir prijungtas connectoris.
+- [x] End-to-end Tunnel hostname testas sėkmingas; `https://supabase-staging.rinkissaupigiausia.online/` grąžina `401` iš Kong.
+- [x] Cloudflare Tunnel connector prisijungęs prie paskyros; connector rodo `Connected` (v2026.7.2).
 - [ ] Veikia `supabase-staging.rinkissaupigiausia.online` per HTTPS Tunnel.
 - [ ] Viešai nepasiekiami DB, pooler ir neapsaugotas Studio portai.
 - [ ] VPS → R2 connectivity testas sėkmingas.
 - [ ] Staging Supabase stack paleistas su prisegtomis versijomis; cron/refresh išjungti.
 
-**Būsena:** VPS preflight, OS atnaujinimai, SSH hardening, UFW/Contabo firewall ir post-reboot patikra atlikti. Ubuntu 24.04.4, 11 GiB RAM, 193 GiB ext4 diskas (2 % naudojama), viešai klausosi tik SSH 22. Cloudflare domenas aktyvus; Docker, swap ir Tunnel dar neįdiegti.
+**Būsena:** VPS preflight, OS atnaujinimai, SSH hardening, UFW/Contabo firewall, post-reboot patikra, swap ir Docker diegimas atlikti. Ubuntu 24.04.4, 11 GiB RAM, 193 GiB ext4 diskas (2 % naudojama), viešai klausosi tik SSH 22. Cloudflare domenas aktyvus; persistent volumes ir Tunnel dar neįdiegti.
 **Pradėta:** 2026-07-16  
 **Tikslas:** paruošti izoliuotą staging target, kuriame vėliau būtų galima atlikti pirmą restore rehearsal. Produkcinis Supabase šiame etape nekeičiamas.
 
@@ -32,9 +36,9 @@
 |---|---|---|
 | Contabo VPS Cloud VPS 6, ES | Patvirtinta | Plane numatyta 6 vCPU / 12 GB RAM / 200 GB SSD |
 | Ubuntu LTS | Patvirtinta | Ubuntu 24.04 LTS |
-| SSH key-only prieiga | Patvirtinta | `Accepted publickey for deploy` užfiksuota; password metodas dar išjungiamas |
-| Ne-root administratoriaus paskyra | Reikia sukurti / patikrinti | `sudo` teisės, atskiras vardas, ne dokumento secretas |
-| Cloudflare DNS zona | Reikia pasirinkti | Tunnel keliui domenas turi būti Cloudflare zonoje |
+| SSH key-only prieiga | Patvirtinta | `Accepted publickey for deploy` užfiksuota; password metodas išjungtas |
+| Ne-root administratoriaus paskyra | Patvirtinta | `deploy` paskyra, `sudo` teisės, SSH key-only |
+| Cloudflare DNS zona | Patvirtinta | `rinkissaupigiausia.online` zona aktyvi Cloudflare; DNS įrašai paruošti |
 | Staging hostname | Siūloma | `supabase-staging.rinkissaupigiausia.online` |
 | Studio hostname | Siūloma | `studio-staging.rinkissaupigiausia.online`, vėliau riboti prieigą |
 | R2 secret failas | Paruoštas | VPS root-only failas jau sukurtas; reikšmės į repo nekeliamos |
@@ -92,14 +96,48 @@ Pašto įrašai nustatyti saugiai: MX/SPF/DKIM/DMARC įrašai nėra proxinami. A
 | Kernel | Linux 6.8.0-124-generic, x86-64 | Užfiksuota prieš hardening |
 | Diskas `/` | ext4, 193 GiB, naudota 2,2 GiB (2 %) | Didelė atsarga restore rehearsal’ui |
 | Atmintis | 11 GiB prieinama iš 12 GB plano | Tinka pradinei staging aplinkai |
-| Swap | Nėra | Prieš stack paleidimą rekomenduojamas kontroliuojamas swapfile |
+| Swap | 4 GiB aktyvus | `vm.swappiness=10`; įrašyta į `/etc/fstab` |
 | Klausantys portai | SSH 22 ir local systemd-resolved DNS | Nėra viešų DB / pooler / HTTP portų |
-| Docker Engine | Nerastas | Reikia įdiegti prisegtą versiją |
-| Docker Compose | Nerastas | Įdiegsime Compose plugin kartu su Docker |
+| Docker Engine | 29.6.2 | Įdiegtas iš oficialaus Docker Ubuntu repo; `hello-world` testas sėkmingas |
+| Docker Compose | v5.3.1 | Compose plugin įdiegtas ir patikrintas |
 
 UFW 2026-07-16 patikra: `Status: active`, incoming `deny`, outgoing `allow`, `22/tcp` ir `22/tcp (v6)` yra `LIMIT IN` iš `Anywhere`.
 
 Contabo VPS firewall 2026-07-16 patikra: profilis `VPS firewall` aktyvus ir priskirtas 1 VPS; inbound taisyklės yra `ACCEPT TCP 22 / Any` bei `DROP Any / Any`. Nauja `deploy` PuTTY key-only sesija po firewall priskyrimo sėkminga.
+
+Swap 2026-07-16 patikra: `/swapfile` yra 4 GiB, aktyvus (`Swap: 4.0GiB`), o `vm.swappiness=10` pritaikytas per `/etc/sysctl.d/99-aboutyou-swap.conf`. Pakartotiniai `mkswap` / `swapon` bandymai grąžino „mounted / resource busy“, nes swap tuo metu jau buvo aktyvus.
+
+Docker logų rotacijos checkpoint 2026-07-16: sukurtas `/etc/docker/daemon.json`, Docker perkrautas, `docker info` patvirtino `Logging=json-file`, Docker serverio versija `29.6.2`. Nustatyta `max-size=10m`, `max-file=5` ir `live-restore=true`.
+
+Docker network checkpoint 2026-07-16: `supabase-staging` sukurtas su `bridge` driveriu ir `Internal=true`; tinklas izoliuotas nuo tiesioginio išorinio srauto.
+
+Supabase source checkpoint 2026-07-16: oficialus repository klonuotas į `/srv/supabase/source`, commit `9069e8d2`; compose manifestas ir `.env.example` rasti `source/docker/`. Manifestas prieš paleidimą dar turi būti peržiūrėtas dėl portų, volumes, secretų ir restart politikos.
+
+Compose manifest checkpoint 2026-07-16: Kong publikuoja `${KONG_HTTP_PORT}` / `${KONG_HTTPS_PORT}`, o Supavisor pagal nutylėjimą publikuoja `${POSTGRES_PORT}:5432` ir `${POOLER_PROXY_PORT_TRANSACTION}:6543`. Staging režime 5432 ir 6543 nebus vieši; Kong bus bind’inamas tik localhost arba pasiekiamas per Cloudflare Tunnel. DB bind volume yra `./volumes/db/data`, o named volumes — `db-config` ir `deno-cache`.
+
+Compose darbo kopijos checkpoint 2026-07-16: oficialus `source/docker` turinys nukopijuotas į `/srv/supabase/docker` ir priklauso `root:root`; galutinis `.env` dar nesukurtas.
+
+Staging secretų checkpoint 2026-07-16: oficialūs `utils/generate-keys.sh --update-env` ir `utils/add-new-auth-keys.sh --update-env` sėkmingai atnaujino `/srv/supabase/docker/.env`; pagrindinės secretų reikšmės išvestyje nebuvo atskleistos.
+
+Compose config checkpoint 2026-07-16: `.env` teisės `root:root` / `0600`, `docker compose config --quiet` sėkmingas. Oficialūs URL ir signup nustatymai dar yra lokalūs/default, todėl prieš pirmą paleidimą būtinas staging URL ir portų override.
+
+Staging URL/portų checkpoint 2026-07-16: `.env` nustatytas `supabase-staging.rinkissaupigiausia.online`, signup išjungtas, Kong bind’inamas tik `127.0.0.1`, Supavisor portai nepublikuojami; overlay `docker-compose.staging.yml` validuotas su `docker compose config --quiet`.
+
+Image pull checkpoint 2026-07-16: pagrindiniai Supabase image’ai yra lokaliame Docker cache. `docker compose pull --progress plain` nepalaikomas Compose CLI, todėl ši parinktis nenaudojama; image’ų paruošimas sėkmingas.
+
+Compose create checkpoint 2026-07-16: sukurti `supabase_default`, `supabase_db-config`, `supabase_deno-cache` ir 14 konteinerių objektų su `Created` būsena. Startas dar neatliktas.
+
+Portų patikros checkpoint 2026-07-16: pirmas Compose override buvo nepakankamas — Kong turėjo dubliuotus viešus ir localhost bind’us, o Supavisor vis dar publikavo `5432`/`6543`. Prieš startą override turi naudoti Compose `!reset` seką, o konteineriai turi būti perkurti.
+
+Portų override checkpoint 2026-07-16: `docker-compose.staging.yml` su `!override` pritaikytas ir konteineriai perkurti. `supabase-kong` turi tik `127.0.0.1:8000/8443`, `supabase-pooler` turi tuščią `PortBindings`.
+
+Pirmo staging starto checkpoint 2026-07-16: `docker compose up -d` sėkmingas. Pagrindiniai servisai startavo; realtime tuo metu dar buvo `health: starting`.
+
+Staging health checkpoint 2026-07-16: visi 11 konteinerių (`db`, `studio`, `kong`, `auth`, `meta`, `rest`, `storage`, `edge-functions`, `imgproxy`, `pooler`, `realtime`) yra `healthy`. `curl http://127.0.0.1:8000/` grąžino `401`, o `ss` parodė tik `127.0.0.1:8000` ir `127.0.0.1:8443`.
+
+Cloudflare connector checkpoint 2026-07-16: Dashboard rodo connector `Connected`, versija `2026.7.2`. Hostname route iki `http://127.0.0.1:8000` dar turi būti patikrintas end-to-end.
+
+Cloudflare Tunnel E2E checkpoint 2026-07-16: `curl https://supabase-staging.rinkissaupigiausia.online/` grąžino `401`. Tai patvirtina DNS, Tunnel connector, route į `127.0.0.1:8000` ir Kong pasiekiamumą.
 
 ### 3.1. 2026-07-16 post-reboot patikra
 
@@ -114,6 +152,22 @@ Po `sudo reboot` palaukta apie 2 minutes ir prisijungta nauja `deploy` + `.ppk` 
 | Cloudflare | domenas rodo `Your domain is now protected by Cloudflare` |
 
 Tai patvirtina, kad firewall ir SSH hardening išlieka po host perkrovimo.
+
+### 3.2. 2026-07-16 Contabo snapshot checkpoint
+
+Sukurtas snapshot **`Before docker`** prieš diegiant Docker ir self-hosted Supabase. Contabo rodoma auto-deletion data yra 2026-08-15.
+
+Geroji praktika:
+
+- snapshot kurti prieš OS, Docker, Supabase release, firewall ir kitus rizikingus pakeitimus;
+- snapshot pavadinime nurodyti datą / etapą arba pakeitimą;
+- laikyti bent vieną švarų baseline snapshot ir vieną prieš konkretų rizikingą veiksmą;
+- snapshot laikyti greitu rollback įrankiu, o ne vieninteliu backup;
+- DB dump, Storage manifestai ir šifruoti artefaktai turi likti nepriklausomame off-host R2;
+- snapshot turi būti laikomas jautriu viso disko vaizdu: prieigą riboti Contabo paskyroje ir įjungti paskyros 2FA;
+- prieš auto-deletion datą nuspręsti, ar snapshot pratęsti, ar pašalinti po sėkmingo restore / Docker checkpoint’o.
+
+Contabo Auto Backup šiame VPS dar neįjungtas. Jo nereikia aktyvuoti automatiškai, kol neįvertinta kaina ir dubliavimas su R2; R2 lieka pagrindinis off-host DB backup target.
 
 Papildomas faktas: `deploy` naudotojas sėkmingai prisijungė ir `sudo -v` grąžino sėkmę. `sudo -su` ir `sudo root` nėra reikalingos komandos: root administravimo shell’ui naudojama `sudo -i`, o įprastoms komandoms pakanka `sudo <komanda>`.
 
@@ -203,11 +257,21 @@ Cloudflare Tunnel atveju į VPS nereikia atverti 80/443: `cloudflared` pats inic
 
 ### 4.2. Docker ir persistent storage
 
-- [ ] Įdiegti Docker Engine ir Compose plugin iš oficialaus šaltinio.
-- [ ] Užfiksuoti Docker / Compose versijas.
-- [ ] Sukurti atskirą persistent mount’ą Supabase duomenims.
-- [ ] Sukurti Docker network ir named volumes.
-- [ ] Įjungti Docker log rotation; konteinerių logai negali neribotai auginti 200 GB disko.
+- [x] Įdiegti Docker Engine ir Compose plugin iš oficialaus šaltinio.
+- [x] Užfiksuoti Docker / Compose versijas (`29.6.2`, `v5.3.1`); `hello-world` testas sėkmingas.
+- [x] Sukurti `/srv/supabase/{docker,volumes,backups,logs}` katalogus su `0750` teisėmis.
+- [x] Sukurti atskirą persistent mount’ą Supabase duomenims (`/srv/supabase/docker/volumes/db/data`).
+- [x] Sukurti izoliuotą Docker network `supabase-staging` (`bridge`, `Internal=true`).
+- [x] Sukurti pagal compose manifestą konkrečius named/bind volumes.
+- [x] Atsisiųstas oficialus Supabase self-hosted repository į `/srv/supabase/source`; commit `9069e8d2`.
+- [x] Sukurta darbo kopija `/srv/supabase/docker` iš oficialaus compose šaltinio.
+- [x] Sugeneruoti staging `.env` secretai; failas nustatytas root-only (`0600`).
+- [x] Pritaikyti staging URL, Auth signup politiką ir veiksmingą localhost-only Kong override; Kong tik localhost, Supavisor portai nepublikuojami.
+- [x] Supabase image’ai atsisiųsti į VPS; image cache patikrintas.
+- [x] Compose `create` sėkmingas: sukurta 14 staging konteinerių, Compose tinklas ir named volumes; konteineriai dar nepaleisti.
+- [x] Pirmas staging `docker compose up -d` atliktas; dauguma servisų healthy, galutinė realtime health patikra dar vykdoma.
+- [x] Visi staging servisai healthy; Kong atsako lokaliai, viešai nėra `5432`/`6543`.
+- [x] Įjungti Docker log rotation (`json-file`, `max-size=10m`, `max-file=5`); konteinerių logai negali neribotai auginti 200 GB disko.
 - [ ] Prieš paleidimą patikrinti host disko, RAM ir inode rezervą.
 
 ### 4.3. Prisegtas self-hosted Supabase stack
@@ -216,6 +280,8 @@ Cloudflare Tunnel atveju į VPS nereikia atverti 80/443: `cloudflared` pats inic
 - [ ] Pasirinkti Postgres versiją pagal source faktą: source yra PostgreSQL 17.6.
 - [ ] Generuoti naujus staging secret’us; source JWT/API raktai į staging nekopijuojami.
 - [ ] Įsitikinti, kad DB ir pooler portai bind’inami tik Docker network / localhost.
+
+Kitas vykdymas VPS: sukurti `/srv/supabase/{docker,volumes,backups,logs}` katalogus, patikrinti esamą `/etc/docker/daemon.json`, tada įjungti kontroliuojamą Docker logų rotaciją. Šiame žingsnyje Supabase konteineriai dar nepaleidžiami.
 - [ ] Paleisti tik health-check paruoštą staging stack; cron ir read-model refresh lieka išjungti.
 
 ### 4.4. Cloudflare Tunnel ir hostname’ai
