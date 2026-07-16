@@ -11,12 +11,14 @@
 - [x] Atliktas antras canary sync su `SYNC_MAX_PRODUCTS=50`: 25/25 targetÅ³ sÄ—kmingi; dauguma surinko 50 produktÅ³, Lacoste 13, treniruoÄiÅ³ targetas 42.
 - [x] Po antro canary uÅ¾baigtas ir patikrintas read-model refresh: `requested_version=34`, `completed_version=34`, `last_status=refreshed`, `dirty=false`, trukmÄ— 2,2 sek.
 - [x] Sukurtas atskiras rankinis GitHub Actions workflow `.github/workflows/sync-catalog-staging.yml` su `staging` Environment.
-- [ ] Tik po GitHub staging workflow patikros svarstomas didesnis staging sync.
+- [x] GitHub staging workflow patikrintas: run `29535202751`, 25/25 targetÅ³ sÄ—kmingi, sync trukmÄ— 2 min. 13 sek.
+- [ ] Patikrinti po GitHub run papraÅ¡ytÄ… read-model refresh (`requested_version=35`).
+- [ ] Tik po GitHub staging workflow ir refresh patikros svarstomas didesnis staging sync.
 - [ ] Production sync ir production cron Å¡ioje fazÄ—je nepakeisti.
 
-**BÅ«sena:** antras staging canary pavyko per 1 min. 26 sek.; 25/25 targetÅ³ baigÄ—si sÄ—kmingai. `SYNC_MAX_PRODUCTS=50` taikomas kiekvienam targetui, todÄ—l paleidimas apÄ—mÄ— iki 1250 produktÅ³ (faktiÅ¡kai kai kurie targetai turÄ—jo maÅ¾iau). Read-model refresh sÄ—kmingas (`34/34`, `refreshed`, `dirty=false`, 2,2 sek.). Production nepakeistas.
+**BÅ«sena:** PR #1 sujungtas Ä¯ `main`, o GitHub Actions staging canary run `29535202751` baigÄ—si sÄ—kmingai per 3 min. 12 sek. (pats sync â€” 2 min. 13 sek.). Rasti 25 aktyvÅ«s targetai, visi baigÄ—si sÄ—kmingai; papraÅ¡ytas read-model refresh `requested_version=35`. Production nepakeistas.
 
-**Kitas veiksmas:** antras staging canary su `SYNC_MAX_PRODUCTS=50` (tai reiÅ¡kia iki 50 produktÅ³ kiekvienam aktyviam targetui), tada pakartoti `sync_runs` ir read-model bÅ«senos patikrÄ…. Vykdyti tik kai nevyksta kitas sync.
+**Kitas veiksmas:** VPS patikrinti ir, jei reikia, apdoroti `requested_version=35` read-model refresh. Didesnio staging sync dar nepaleisti.
 
 ```bash
 sudo docker exec supabase-db psql -At -U postgres -d postgres -c "select requested_version,completed_version,last_status,last_error from public.catalog_read_model_refresh_state;"
@@ -39,9 +41,9 @@ gali pasiekti staging VPS ir Ä¯raÅ¡yti katalogo duomenis. PrieÅ¡ GitHub pa
 atskiro GitHub `staging` Environment su staging reikÅ¡mÄ—mis. Production secrets
 (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`) nekeiÄiami.
 
-Kitas saugus veiksmas — sukurti atskirÄ… `sync-catalog-staging.yml` workflow su rankiniu
-`workflow_dispatch` ir `staging` Environment, paleisti jÄ¯ vienÄ… kartÄ…, patikrinti
-`sync_runs` bei read-model, o tik tada planuoti production workflow secrets/cron pakeitimÄ….
+Staging workflow sukurtas, sujungtas Ä¯ `main` ir sÄ—kmingai paleistas rankiniu
+`workflow_dispatch`. Toliau reikia patikrinti `requested_version=35` read-model refresh,
+o tik tada planuoti didesnÄ¯ staging run arba production workflow secrets/cron pakeitimÄ….
 
 ## Staging adresas
 
