@@ -12,10 +12,10 @@
 - [x] Supabase Custom SMTP išsaugotas; reset-password laiškas `Delivered`.
 - [x] Recovery redirect pasiekia Pages aplikaciją.
 - [ ] Aplikacijoje įdiegta recovery UI / `PASSWORD_RECOVERY` logika.
-- [ ] R2 connectivity testas iš VPS.
+- [x] R2 connectivity testas iš VPS; bucket listing sėkmingas per `/etc/aboutyou-backup/r2.env`.
 - [ ] 2 fazės restore rehearsal ir parity ataskaita.
 
-**Būsena:** source baseline, šifruotas dump, patikrinta off-host R2 kopija, retention, VPS backup secret, privataus `age` rakto escrow, Auth URL/provider inventorizacija ir Resend DNS paruošti; Supabase Custom SMTP išsaugotas, reset-password laiškas pristatytas ir redirect pasiekia Pages aplikaciją, tačiau recovery UI logikos nėra; liko VPS connectivity testas ir recovery srauto kodo pataisa
+**Būsena:** source baseline, šifruotas dump, patikrinta off-host R2 kopija, retention, VPS backup secret, privataus `age` rakto escrow, Auth URL/provider inventorizacija, Resend DNS ir VPS R2 connectivity paruošti; Supabase Custom SMTP išsaugotas, reset-password laiškas pristatytas ir redirect pasiekia Pages aplikaciją, tačiau recovery UI logikos nėra.
 **Pradėta:** 2026-07-15  
 **Tikslas:** užfiksuoti valdomo Supabase projekto faktinę būklę ir sukurti atkuriamą backup prieš bet kokius produkcinius pakeitimus.  
 **Source pakeitimai šioje fazėje:** draudžiami, išskyrus atskirai patvirtintą backup ar diagnostikos veiksmą.
@@ -633,4 +633,4 @@ Kol kas statusas yra **STOP**. Į 1 fazę galima eiti tik kai:
 
 ## 10. Kitas veiksmas
 
-Privatus `age` identity ir R2 API tokenas jau išsaugoti password manager’yje; R2 tokenas taip pat įdiegtas VPS secret faile. Supabase Auth, SMTP, redirect bei OAuth būsena jau inventorizuota; Resend DNS įrašai patvirtinti, reset-password laiškas realiai pristatytas, o redirect pasiekia Pages aplikaciją. Liko atlikti saugų R2 connectivity testą ir įdiegti recovery UI logiką aplikacijoje. Po šių 0 fazės vartų galima pradėti Contabo staging platformą; tikrasis atkuriamumo įrodymas bus 2 fazės rehearsal restore.
+Privatus `age` identity ir R2 API tokenas jau išsaugoti password manager’yje; R2 tokenas taip pat įdiegtas VPS secret faile. Supabase Auth, SMTP, redirect bei OAuth būsena jau inventorizuota; Resend DNS įrašai patvirtinti, reset-password laiškas realiai pristatytas, redirect pasiekia Pages aplikaciją, o VPS R2 connectivity testas sėkmingas. Liko recovery UI logika aplikacijoje. Tikrasis atkuriamumo įrodymas bus 2 fazės rehearsal restore.
