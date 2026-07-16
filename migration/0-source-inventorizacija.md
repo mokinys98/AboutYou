@@ -1,5 +1,20 @@
 # 0 fazė — source inventorizacija ir atkuriamas backup
 
+## Progreso varnelės — atnaujinti pirmiausia
+
+- [x] Source inventorizacija ir DB/Storage dydžių baseline.
+- [x] Roles/schema/data dump sukurtas, SHA-256 patikrintas.
+- [x] `age` šifravimas ir privatus identity escrow.
+- [x] Privatus Cloudflare R2 bucket, retention ir off-host restore patikra.
+- [x] R2 API token apribotas bucket’ui ir įdiegtas VPS secret faile.
+- [x] Auth, redirect, OAuth ir SMTP Dashboard inventorius.
+- [x] Resend DKIM/SPF/MX DNS `Verified`.
+- [x] Supabase Custom SMTP išsaugotas; reset-password laiškas `Delivered`.
+- [x] Recovery redirect pasiekia Pages aplikaciją.
+- [ ] Aplikacijoje įdiegta recovery UI / `PASSWORD_RECOVERY` logika.
+- [ ] R2 connectivity testas iš VPS.
+- [ ] 2 fazės restore rehearsal ir parity ataskaita.
+
 **Būsena:** source baseline, šifruotas dump, patikrinta off-host R2 kopija, retention, VPS backup secret, privataus `age` rakto escrow, Auth URL/provider inventorizacija ir Resend DNS paruošti; Supabase Custom SMTP išsaugotas, reset-password laiškas pristatytas ir redirect pasiekia Pages aplikaciją, tačiau recovery UI logikos nėra; liko VPS connectivity testas ir recovery srauto kodo pataisa
 **Pradėta:** 2026-07-15  
 **Tikslas:** užfiksuoti valdomo Supabase projekto faktinę būklę ir sukurti atkuriamą backup prieš bet kokius produkcinius pakeitimus.  

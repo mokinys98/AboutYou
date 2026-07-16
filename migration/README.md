@@ -8,7 +8,7 @@
 | Fazė | Dokumentas | Būsena |
 |---|---|---|
 | 0 | [Source inventorizacija ir backup](0-source-inventorizacija.md) | Backup, R2 retention, Auth inventorius, Resend DNS, SMTP ir redirect testas atlikti; aplikacijoje trūksta recovery UI logikos, taip pat liko VPS connectivity |
-| 1 | Contabo platformos paruošimas | Nepradėta |
+| 1 | [Contabo platformos paruošimas](1-contabo-platformos-paruosimas.md) | Pradėta: paruoštas staging hardening / Tunnel / Docker runbook; laukiama VPS ir Cloudflare įėjimo faktų |
 | 2 | Pirmas restore rehearsal | Nepradėta |
 | 3 | Funkcijų ir atsparumo testas | Nepradėta |
 | 4 | 250k apkrovos ir recovery rehearsal | Nepradėta |
