@@ -25,6 +25,8 @@ GO produkciniams pakeitimams.
 Production Worker dar nepakeistas; cutover preflight reikalaus, kad ir jo backend origin
 sutaptų su VPS Supabase URL.
 
+Trumpas operatoriaus sąrašas: [Production VPS taskeris](5a-production-vps-taskeris.md).
+
 ## Nekeičiamos saugumo ribos
 
 - `SUPABASE_SERVICE_ROLE_KEY` lieka tik Worker ir GitHub server-side secret saugyklose.

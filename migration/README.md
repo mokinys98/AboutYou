@@ -14,6 +14,7 @@
 | 3B | [Funkcijų ir atsparumo testas](3-funkciju-ir-atsparumo-testas.md) | Minimalus paleidimo kriterijus priimtas: katalogo/metadata canary, host resursai, raw Storage read, disposable restore ir vidinis monitoringas atlikti; pilnas metadata/SLO ir neesminės integracijos tęsiamos po cutover |
 | 4 | [Pages, Worker ir produkcinio perjungimo rehearsal](4-produkciniu-integraciju-perjungimo-rehearsal.md) | Preview → staging Worker → VPS kelias veikia; Worker backend origin patikra ir preflight `17/17` PASS, backup/restore bei monitorius patvirtinti; išorinis alert, pilnas Auth, Telegram ir sena diagnostinė Storage istorija priimti kaip post-cutover darbai |
 | 5 | [Produkcinis cutover](5-produkcijos-perjungimas.md) | Nepradėta: paruoštas freeze, secret change, smoke ir rollback runbook; vykdyti tik uždarius 4 fazės STOP vartus |
+| 5A | [Production VPS taskeris](5a-production-vps-taskeris.md) | Trumpas GitHub `production-vps` environment, rinkimo patikros, rollback ir post-cutover darbų sąrašas |
 | 6 | [Stabilizavimas ir 24 h stebėjimas](6-stabilizavimas.md) | Nepradėta: paruoštos T+15 min., T+1 h., T+6 h. ir T+24 h. patikros bei ribos |
 
 ## Branch tvarka
