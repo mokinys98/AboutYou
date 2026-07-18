@@ -69,7 +69,7 @@ set -a
 . "$backup_env"
 set +a
 
-required=(R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_ENDPOINT R2_BUCKET R2_REGION AGE_RECIPIENT)
+required=(R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_ENDPOINT R2_BUCKET AGE_RECIPIENT)
 for name in "${required[@]}"; do
   if [ -z "${!name:-}" ]; then
     echo "Missing required variable: $name" >&2
@@ -147,11 +147,12 @@ age -r "$AGE_RECIPIENT" -o "$encrypted_file" "$work_dir/payload.tar"
 rm -f -- "$work_dir/payload.tar" "$roles_file" "$database_file" "$storage_file" "$postgres_custom_file" "$metadata_file" "$checksums_file"
 
 export RCLONE_CONFIG_R2_TYPE=s3
-export RCLONE_CONFIG_R2_PROVIDER=Other
+export RCLONE_CONFIG_R2_PROVIDER=Cloudflare
 export RCLONE_CONFIG_R2_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
 export RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
 export RCLONE_CONFIG_R2_ENDPOINT="$R2_ENDPOINT"
-export RCLONE_CONFIG_R2_REGION="$R2_REGION"
+export RCLONE_CONFIG_R2_REGION=auto
+export RCLONE_CONFIG_R2_ACL=private
 export RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true
 
 echo "Uploading encrypted backup to R2"
