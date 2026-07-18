@@ -21,6 +21,8 @@
 - [ ] VPS Auth/SMTP ir redirect allow-list patikrinti su galutiniu Pages hostname.
 - [x] Cloudflare Pages preview build naudoja VPS `NUXT_PUBLIC_SUPABASE_URL`, VPS anon raktą ir staging Worker API URL.
 - [x] Pages preview atliktas katalogo, filtrų, produkto ir watchlist smoke testas; Production nepakeistas (2026-07-18).
+- [x] Automatizuotas viešas rehearsal preflight: `npm run migration:preflight` patikrino Pages runtime config, Worker health/CORS/auth gate ir abiejų Supabase JWKS; `16/16` PASS (2026-07-18).
+- [ ] VPS paleisti `scripts/migration/vps-readiness.sh` ir užfiksuoti likusius host/backup/monitoring neatitikimus.
 - [ ] Patikrinta Telegram webhook, profilio susiejimas ir bent vienas testinis alertas per Worker → VPS DB.
 - [x] Telegram staging rehearsal sąmoningai atidėtas: antro boto nekuriame, production botas lieka nepaliestas iki galutinio cutover.
 - [ ] TODO po migracijos: pridėti aiškią profilio Telegram atjungimo UI logiką ir parengti vieno production boto webhook perjungimo į VPS Worker procedūrą su rollback.
@@ -30,9 +32,33 @@
 - [ ] Patvirtintas produkcinio masto/SLO kriterijus: pilnas faktinio katalogo testas arba formaliai priimta mažesnė riba.
 - [ ] Paruoštas production secret change, freeze, smoke test ir rollback runbook.
 
-**Būsena:** nepradėtas produkcinis perjungimas. VPS duomenų ir rinktuvų staging kelias
-veikia, tačiau Pages ir produkcinis Worker dar neturi būti perjungiami, kol neuždaryti
-Auth/JWKS, Pages preview, backup/monitoring ir source–target cutover vartai.
+**Būsena:** nepradėtas produkcinis perjungimas. VPS duomenų, rinktuvų, staging Worker
+ir Pages Preview kelias veikia. Produkcinis Worker ir Pages dar neturi būti perjungiami,
+kol neuždaryti likę Auth, backup/restore, monitoring ir source–target cutover vartai.
+
+## Automatizuotas viešas preflight
+
+Repo šaknyje paleidžiama:
+
+```powershell
+npm.cmd run migration:preflight
+```
+
+Numatytasis `rehearsal` režimas patikrina, kad Preview naudoja VPS Supabase ir staging
+Worker, o Production vis dar naudoja source Supabase ir production Worker. Taip pat
+tikrinami abiejų Worker `/health`, neautorizuoto katalogo `401`, tikslūs CORS origin ir
+abiejų Supabase JWKS. Anon rakto reikšmė neišvedama — tik patvirtinama, kad ji yra.
+
+Galutinio cutover patikrai naudojamas:
+
+```powershell
+$env:MIGRATION_PHASE="cutover"
+npm.cmd run migration:preflight
+Remove-Item Env:MIGRATION_PHASE
+```
+
+`cutover` režimas reikalauja, kad Production Pages jau naudotų VPS Supabase, tačiau
+vis tiek naudotų production Worker hostname.
 
 ## Galutinė architektūra
 

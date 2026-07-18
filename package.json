@@ -16,6 +16,7 @@
     "sync": "npm run sync --workspace @catalog/sync",
     "sync:metadata": "npm run sync:metadata --workspace @catalog/sync",
     "verify:catalog:staging": "npm run verify:catalog:staging --workspace @catalog/sync",
+    "migration:preflight": "node scripts/migration/preflight-production.mjs",
     "test": "vitest run",
     "test:live:metadata": "vitest run --config vitest.live.config.ts",
     "test:watch": "vitest",
