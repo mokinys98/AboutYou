@@ -185,7 +185,12 @@ while IFS= read -r role; do
     "WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'role')" \
     '\gexec' |
     docker exec -i "$container" psql -v ON_ERROR_STOP=1 -v "role=$role" -U "$restore_superuser" -d postgres
-done < <(sed -nE 's/^CREATE ROLE "([^"]+)";$/\1/p' "$payload_dir/roles.sql")
+done < <(
+  {
+    sed -nE 's/^CREATE ROLE "([^"]+)";$/\1/p' "$payload_dir/roles.sql"
+    sed -nE 's/^ALTER ROLE "([^"]+)".*$/\1/p' "$payload_dir/roles.sql"
+  } | sort -u
+)
 
 echo "Applying backed-up role settings to roles initialized by the Supabase image"
 awk '/^(SET |RESET |ALTER ROLE |GRANT )/' "$payload_dir/roles.sql" > "$role_settings_file"

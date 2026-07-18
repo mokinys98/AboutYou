@@ -128,6 +128,11 @@ scenarijus papildytas idempotentiškai sukurti tik trūkstamas roles iš dump `C
 eilučių, tada taikyti `ALTER ROLE` ir `GRANT`; DB dump taip pat atkuriamas superuser
 vardu, nes jame yra extensions ir kiti privilegijuoti Supabase objektai.
 
+Dar vienas bandymas parodė, kad `supabase_functions_admin` dump faile minima tik
+`ALTER ROLE`, bet neturi atskiros `CREATE ROLE` eilutės. Restore scenarijus išplėstas
+surinkti roles iš abiejų komandų tipų, pašalinti pasikartojimus ir prieš settings
+importą idempotentiškai sukurti visas trūkstamas roles disposable konteineryje.
+
 ## Galutinė architektūra
 
 Cloudflare Pages ir Worker lieka Cloudflare platformoje. Į VPS keliasi tik Supabase
