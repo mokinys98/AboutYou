@@ -90,6 +90,7 @@ custom_dir="$work_dir/postgresql-custom"
 data_dir="$work_dir/postgres-data"
 env_file="$work_dir/container.env"
 role_settings_file="$work_dir/role-settings.sql"
+required_roles_file="$work_dir/required-roles.txt"
 
 echo "Downloading encrypted backup from R2: $remote_object"
 rclone copyto --no-check-dest "R2:${R2_BUCKET}/${remote_object}" "$encrypted_file"
@@ -178,6 +179,21 @@ if [ -z "$restore_superuser" ]; then
 fi
 
 echo "Creating roles present in the backup but absent from the initialized Supabase image"
+awk '
+  function clean_role(value) {
+    sub(/;$/, "", value)
+    sub(/^"/, "", value)
+    sub(/"$/, "", value)
+    return value
+  }
+  $1 == "CREATE" && $2 == "ROLE" { print clean_role($3) }
+  $1 == "ALTER" && $2 == "ROLE" { print clean_role($3) }
+  $1 == "GRANT" && $3 == "TO" {
+    print clean_role($2)
+    print clean_role($4)
+  }
+' "$payload_dir/roles.sql" | sort -u > "$required_roles_file"
+
 while IFS= read -r role; do
   [ -n "$role" ] || continue
   printf '%s\n' \
@@ -185,14 +201,24 @@ while IFS= read -r role; do
     "WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'role')" \
     '\gexec' |
     docker exec -i "$container" psql -v ON_ERROR_STOP=1 -v "role=$role" -U "$restore_superuser" -d postgres
-done < <(
-  {
-    sed -nE 's/^CREATE ROLE "([^"]+)";$/\1/p' "$payload_dir/roles.sql"
-    sed -nE 's/^ALTER ROLE "([^"]+)".*$/\1/p' "$payload_dir/roles.sql"
-    sed -nE 's/^GRANT "([^"]+)".*$/\1/p' "$payload_dir/roles.sql"
-    sed -nE 's/^GRANT .* TO "([^"]+)".*$/\1/p' "$payload_dir/roles.sql"
-  } | sort -u
-)
+done < "$required_roles_file"
+
+echo "Verifying every role referenced by CREATE, ALTER, or membership GRANT"
+missing_roles=0
+while IFS= read -r role; do
+  [ -n "$role" ] || continue
+  exists="$(
+    printf '%s\n' "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'role');" |
+      docker exec -i "$container" psql -At -v ON_ERROR_STOP=1 -v "role=$role" -U "$restore_superuser" -d postgres
+  )"
+  if [ "$exists" != "t" ]; then
+    echo "Required role was not created: $role" >&2
+    missing_roles=1
+  fi
+done < "$required_roles_file"
+if [ "$missing_roles" -ne 0 ]; then
+  exit 1
+fi
 
 echo "Applying backed-up role settings to roles initialized by the Supabase image"
 awk '/^(SET |RESET |ALTER ROLE |GRANT )/' "$payload_dir/roles.sql" > "$role_settings_file"

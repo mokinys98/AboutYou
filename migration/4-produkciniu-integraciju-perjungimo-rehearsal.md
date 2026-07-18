@@ -136,6 +136,13 @@ surinkti suteikiamą bei gaunančią roles ir iš `GRANT`, pašalinti pasikartoj
 prieš settings importą idempotentiškai sukurti visas trūkstamas roles disposable
 konteineryje.
 
+SHA-256 patvirtintas pakartojimas įrodė, kad VPS vykdė naują scenarijų, tačiau
+`supabase_privileged_role` vis tiek nebuvo aptikta: dump naudoja ir necituotą SQL
+identifikatoriaus formą. Regex parseris pakeistas tokenų parseriu, palaikančiu tiek
+`"role"`, tiek `role` formas `CREATE ROLE`, `ALTER ROLE` ir paprastoje narystės
+`GRANT role TO role` komandoje. Prieš settings importą dabar papildomai tikrinama,
+kad kiekviena surinkta rolė iš tikrųjų egzistuoja disposable Postgres konteineryje.
+
 ## Galutinė architektūra
 
 Cloudflare Pages ir Worker lieka Cloudflare platformoje. Į VPS keliasi tik Supabase
