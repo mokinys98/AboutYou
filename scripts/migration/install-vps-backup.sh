@@ -13,12 +13,20 @@ backup_program="/usr/local/sbin/aboutyou-supabase-backup"
 service_file="/etc/systemd/system/aboutyou-supabase-backup.service"
 timer_file="/etc/systemd/system/aboutyou-supabase-backup.timer"
 
-for tool in docker age rclone tar sha256sum flock systemctl; do
+for tool in docker age rclone tar sha256sum flock systemctl sort; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "Missing required tool: $tool" >&2
     exit 1
   fi
 done
+
+rclone_version="$(rclone version | awk 'NR == 1 {sub(/^rclone v/, ""); print; exit}')"
+rclone_minimum="1.70.0"
+if [ "$(printf '%s\n' "$rclone_minimum" "$rclone_version" | sort -V | head -n 1)" != "$rclone_minimum" ]; then
+  echo "rclone $rclone_version is too old for the Cloudflare R2 backup path." >&2
+  echo "Install rclone $rclone_minimum or newer, then run this installer again." >&2
+  exit 1
+fi
 
 if [ ! -f "$r2_env" ]; then
   echo "Missing $r2_env" >&2
@@ -233,7 +241,12 @@ IFS= read -r run_now
 case "${run_now:-Y}" in
   n|N|no|NO) echo "Timer installed; first backup was not started." ;;
   *)
-    systemctl start aboutyou-supabase-backup.service
-    systemctl --no-pager --full status aboutyou-supabase-backup.service || true
+    if systemctl start aboutyou-supabase-backup.service; then
+      systemctl --no-pager --full status aboutyou-supabase-backup.service || true
+    else
+      systemctl --no-pager --full status aboutyou-supabase-backup.service || true
+      journalctl -u aboutyou-supabase-backup.service -n 50 --no-pager || true
+      exit 1
+    fi
     ;;
 esac

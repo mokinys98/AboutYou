@@ -95,10 +95,13 @@ dydis sutampa su lokaliu šifruotu failu ir užfiksuojamas SHA-256.
 
 2026-07-18 pirmas paleidimas sėkmingai sukūrė roles ir custom-format DB dump,
 suarchyvavo fizinius Storage baitus bei Postgres custom/pgsodium medžiagą ir užšifravo
-archyvą su `age`. Įkėlimas į R2 nepavyko su `HTTP 501 NotImplemented`, nes diegiklyje
-buvo paliktas bendrinis `rclone` S3 provideris `Other`. Diegiklis pataisytas pagal
-Cloudflare R2 profilį: `provider=Cloudflare`, `region=auto`, `acl=private` ir
-`no_check_bucket=true`. Iki sėkmingo pakartotinio upload šis vartas lieka atviras.
+archyvą su `age`. Įkėlimas į R2 nepavyko su `HTTP 501 NotImplemented`. Bendrinis
+`rclone` S3 provideris `Other` buvo pakeistas į oficialų Cloudflare R2 profilį
+(`provider=Cloudflare`, `region=auto`, `acl=private`, `no_check_bucket=true`), tačiau
+2022 m. Ubuntu `rclone 1.60.1-DEV` paketas grąžino tą patį `501`. Prieš kitą bandymą
+VPS atnaujinamas į oficialų `rclone 1.74.4`; diegiklis nuo šiol atmeta senesnes nei
+`1.70.0` versijas, kad nepradėtų brangaus dump su žinomu nesuderinamu klientu. Iki
+sėkmingo pakartotinio upload šis vartas lieka atviras.
 
 ## Galutinė architektūra
 
