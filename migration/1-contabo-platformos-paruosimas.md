@@ -27,9 +27,9 @@
 - [x] Staging Supabase stack paleistas su prisegtomis versijomis; read-model cron aktyvuotas tik 3 fazėje po canary patikrų.
 - [x] Po 500 produktų/target staging testo patikrinti host resursai: 11 GiB RAM, 2,6 GiB naudojama, 9,1 GiB available; swap praktiškai nenaudojamas; diske 174 GiB laisva (11 % naudojama).
 - [x] Užfiksuota `sudo docker stats --no-stream` išvestis po apkrovos; visi 11 Supabase konteinerių veikia, bendras momentinis jų RAM naudojimas apie 2,0 GiB.
-- [ ] Užfiksuoti Postgres DB dydį ir `pg_stat_wal` metrikas po apkrovos.
+- [x] Užfiksuotas Postgres DB dydis ir `pg_stat_wal` checkpoint po apkrovos: DB 797 MB, aktyvus `pg_wal` katalogas 816 MiB.
 
-**Būsena:** pagrindiniai 1 fazės platformos vartai įvykdyti: VPS hardening, UFW/Contabo firewall, swap, Docker, log rotation, persistent volumes, prisegtas staging Supabase stack, Cloudflare Tunnel, viešų DB/pooler/Studio portų izoliacija ir VPS → R2 patikra atlikti. Po 2026-07-18 staging apkrovos testo liko 174 GiB disko ir 9,1 GiB available RAM, o konteinerių momentinis RAM naudojimas siekė apie 2,0 GiB. Dar neužfiksuotos Postgres DB/WAL metrikos ir neįrodyti automatiniai monitoring/backup failure alertai.
+**Būsena:** pagrindiniai 1 fazės platformos vartai įvykdyti: VPS hardening, UFW/Contabo firewall, swap, Docker, log rotation, persistent volumes, prisegtas staging Supabase stack, Cloudflare Tunnel, viešų DB/pooler/Studio portų izoliacija ir VPS → R2 patikra atlikti. Po 2026-07-18 staging apkrovos testo liko 174 GiB disko ir 9,1 GiB available RAM, konteinerių momentinis RAM naudojimas siekė apie 2,0 GiB, DB dydis — 797 MB, o aktyvus `pg_wal` katalogas — 816 MiB. Dar neįrodyti automatiniai monitoring/backup failure alertai.
 **Pradėta:** 2026-07-16  
 **Tikslas:** paruošti izoliuotą staging target, kuriame vėliau būtų galima atlikti pirmą restore rehearsal. Produkcinis Supabase šiame etape nekeičiamas.
 
@@ -319,7 +319,7 @@ Istorinis paruošimo žingsnis užbaigtas: `/srv/supabase/{docker,volumes,backup
 
 ## 6. Kitas veiksmas
 
-1 fazės platforma paruošta, o konteinerių momentinės metrikos užfiksuotos. Kitas platformos darbas 3 fazėje — užfiksuoti Postgres DB/WAL metrikas bei įdiegti disk usage, Docker health ir backup failure alertus. Docker komandoms naudoti `sudo`, nes `deploy` vartotojas sąmoningai nepridėtas prie privilegijuotos `docker` grupės:
+1 fazės platforma paruošta, o konteinerių ir Postgres/WAL momentinės metrikos užfiksuotos. Kitas platformos darbas 3 fazėje — įdiegti disk usage, Docker health ir backup failure alertus. Docker komandoms naudoti `sudo`, nes `deploy` vartotojas sąmoningai nepridėtas prie privilegijuotos `docker` grupės:
 
 ```bash
 sudo docker stats --no-stream

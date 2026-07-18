@@ -21,11 +21,12 @@
 - [ ] Staging produkto metadata workflow dar nepaleistas; pirmas canary turi naudoti `max_products=50`.
 - [x] Production Supabase secrets ir production cron konfigūracija šioje fazėje nepakeisti.
 - [x] Po 500/target testo VPS turi 9,1 GiB available RAM ir 174 GiB laisvo disko; swap praktiškai nenaudojamas.
-- [ ] Užfiksuoti `sudo docker stats --no-stream`, Postgres DB dydį ir `pg_stat_wal` po apkrovos.
+- [x] Užfiksuotas Docker/Postgres/WAL checkpoint: konteineriai naudoja apie 2,0 GiB RAM, DB dydis 797 MB, aktyvus `pg_wal` katalogas 816 MiB.
+- [x] Metadata preflight patvirtino `product_sync_diagnostics`, `product_sync_artifacts`, `product_raw_sample_members` ir privačius `sync-debug` / `sync-raw` bucket’us.
 
-**Būsena:** staging katalogo rinktuvas ir automatinis validavimo gate veikia. Naujausias 500 produktų/target testas apdorojo 10 521 produktą, visi 25 targetai baigėsi sėkmingai, o read-model refresh pasiekė `37/37`. VPS resursų rezervas pagal host metrikas pakankamas, tačiau dar trūksta Docker/Postgres/WAL checkpoint. Staging metadata workflow sukurtas, bet dar nepaleistas. Production konfigūracija nepakeista.
+**Būsena:** staging katalogo rinktuvas ir automatinis validavimo gate veikia. Naujausias 500 produktų/target testas apdorojo 10 521 produktą, visi 25 targetai baigėsi sėkmingai, o read-model refresh pasiekė `37/37`. VPS host, Docker ir Postgres/WAL checkpoint atliktas; metadata lentelės ir privatūs Storage bucket’ai paruošti. Staging metadata workflow sukurtas, bet dar nepaleistas. Production konfigūracija nepakeista.
 
-**Kitas veiksmas:** užfiksuoti Docker/Postgres/WAL metrikas ir paleisti tik staging metadata canary su `max_products=50`. Production canary dar nevykdomas.
+**Kitas veiksmas:** paleisti tik staging metadata canary su `max_products=50`, tada patikrinti DB/Storage rezultatą ir pakartoti DB/WAL dydžio matavimą. Production canary dar nevykdomas.
 
 Istorinis checkpoint: pradžioje VPS `cron.job` neturėjo nei `catalog-read-model-refresh`, nei
 istorijos cleanup darbo. Abu darbai vėliau sukurti idempotentiškai ir patikrinti; GitHub

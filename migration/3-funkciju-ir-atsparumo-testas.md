@@ -6,7 +6,8 @@
 - [x] Automatinis `sync_runs` ir read-model refresh validavimo gate sėkmingas.
 - [x] Po testo patikrinti host RAM, swap ir disko rezervai.
 - [x] Užfiksuoti `sudo docker stats --no-stream` po apkrovos.
-- [ ] Užfiksuoti Postgres DB dydį ir `pg_stat_wal` po apkrovos.
+- [x] Užfiksuoti Postgres DB dydį ir `pg_stat_wal` po apkrovos.
+- [x] Patikrinti metadata lenteles ir privačius `sync-debug` / `sync-raw` bucket’us prieš canary.
 - [ ] Paleisti `Sync product metadata (staging)` canary su `max_products=50` ir patikrinti DB/Storage rezultatą.
 - [ ] Patikrinti invite-only Auth: password login, magic link, invite, logout ir priverstinį re-login; savitarnos password recovery pagal patvirtintą politiką netestuojamas.
 - [ ] Patikrinti, kad Worker validuoja staging Auth JWT per staging JWKS ir issuer.
@@ -59,8 +60,28 @@ Didžiausi momentiniai RAM vartotojai buvo `supabase-kong` (~690 MiB),
 `supabase-pooler` (~206 MiB). Momentiniame CPU pjūvyje Kong naudojo 26,16 %, REST
 5,19 %, o kiti konteineriai — mažiau nei 1,5 %. Tai yra vienkartinis matavimas, todėl
 jis patvirtina pakankamą resursų rezervą, bet neatstoja ilgalaikio monitoringo ir p95
-metrikų. DB konteinerio Block I/O rodė 1,18 GB skaitymo ir 11,9 GB rašymo; atskirai
-dar reikia patikrinti faktinį DB dydį ir WAL statistiką.
+metrikų. DB konteinerio Block I/O rodė 1,18 GB skaitymo ir 11,9 GB rašymo.
+
+### Postgres ir WAL checkpoint
+
+2026-07-18 po apkrovos užfiksuota:
+
+| Metrika | Rezultatas |
+|---|---:|
+| Postgres DB dydis | 797 MB |
+| `pg_wal` katalogas | 816 MiB |
+| WAL records nuo `stats_reset` | 16 238 683 |
+| WAL full-page images | 292 070 |
+| Sugeneruota WAL nuo `stats_reset` | 4014 MB |
+| `wal_buffers_full` | 179 383 |
+| `wal_write` / `wal_sync` | 259 278 / 79 063 |
+| `stats_reset` | 2026-07-16 18:52:41 UTC |
+
+`pg_stat_wal` reikšmės yra kaupiamos nuo `stats_reset`, todėl jos nėra vien tik 500
+produktų/target testo kaina. 816 MiB aktyvus WAL šiuo metu telpa į turimą disko
+rezervą, tačiau po metadata canary jį reikia pamatuoti dar kartą ir palyginti augimą.
+Didelis `wal_buffers_full` skaičius žymi buvusius rašymo pikus per restore ir sync;
+vien iš šio kaupiamo skaičiaus negalima spręsti apie nuolatinį našumo trūkumą.
 
 `deploy` vartotojas sąmoningai neturi tiesioginės prieigos prie Docker socket, todėl
 `docker stats --no-stream` be `sudo` grąžino `permission denied`. Tai nėra Docker
@@ -99,21 +120,18 @@ sync-debug | public=false | file_size_limit=5242880
 sync-raw   | public=false | file_size_limit=5242880
 ```
 
-### Planuojama seka
+### Vykdymo seka
 
-1. Staging VPS Supabase DB pritaikyti `202607070001_product_sync_diagnostics.sql`.
-2. Pritaikyti `20260711131529_archive_product_sync_raw_payloads.sql`, kuris sukuria
-   `sync-raw` bucket’ą, artifact manifestą ir sample membership struktūrą.
-3. Patikrinti, kad `sync-debug` ir `sync-raw` bucket’ai yra private, o Storage
-   duomenys laikomi persistent volume’e.
-4. Patikrinti DB ir Storage būseną prieš canary: bucket’ai, objektų count/bytes,
-   `product_sync_diagnostics` ir `product_sync_artifacts` lentelės.
-5. Į `main` įkelti aktualų kodą ir paleisti `Sync product metadata (staging)` su
+1. [x] Staging DB patvirtinti `product_sync_diagnostics`, `product_sync_artifacts`
+   ir `product_raw_sample_members` objektai.
+2. [x] Patvirtinti privatūs `sync-debug` ir `sync-raw` bucket’ai su
+   `application/gzip` ir 5 MiB limitu.
+3. [ ] Į `main` įkelti aktualų kodą ir paleisti `Sync product metadata (staging)` su
    `max_products=50`.
-6. Po canary patikrinti, kad diagnostikos HTML ir raw gzip payload’ai pasiekė
+4. [ ] Po canary patikrinti, kad diagnostikos HTML ir raw gzip payload’ai pasiekė
    Storage, manifest įrašai turi `upload_status=ready`, o API debug vaizdas gali
    nuskaityti bent vieną raw payload’ą.
-7. Patikrinti retention/cleanup rezultatus ir tik tada žymėti Storage vartus
+5. [ ] Patikrinti retention/cleanup rezultatus ir tik tada žymėti Storage vartus
    uždarytais.
 
 ### Stop/go vartai
@@ -127,10 +145,9 @@ sync-raw   | public=false | file_size_limit=5242880
 
 ## Kitas saugus veiksmas
 
-1. VPS užfiksuoti Postgres DB dydį ir `pg_stat_wal` metrikas.
-2. GitHub Actions paleisti `Sync product metadata (staging)` su `max_products=50`.
-3. Patikrinti metadata lenteles, `sync-raw` / `sync-debug` objektus ir read-model refresh.
-4. Toliau vykdyti funkcinių testų matricą iš progreso bloko.
+1. GitHub Actions paleisti `Sync product metadata (staging)` su `max_products=50`.
+2. Patikrinti metadata lenteles, `sync-raw` / `sync-debug` objektus, read-model refresh ir pakartoti DB/WAL dydžio matavimą.
+3. Toliau vykdyti funkcinių testų matricą iš progreso bloko.
 
 Mažas production canary nėra kitas žingsnis. Į production galima judėti tik uždarius
 likusius 3 fazės funkcijų, Storage, restore, monitoring ir SLO vartus.
