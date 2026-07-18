@@ -28,6 +28,7 @@ gh secret list --env production-vps
 
 ## Atidėta po paleidimo
 
+- [ ] Prijungti `rinkissaupigiausia.online` prie Cloudflare Pages kaip pagrindinį svetainės domeną; po DNS aktyvavimo atnaujinti Supabase Auth Site URL / redirect allowlist ir Worker `ALLOWED_ORIGIN`, tada pakartoti login bei CORS smoke.
 - [ ] Išorinis alert webhook.
 - [ ] Sena `sync-raw` / `sync-debug` istorija.
 - [ ] Telegram perjungimas.

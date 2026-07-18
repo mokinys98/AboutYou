@@ -11,15 +11,15 @@
 - [x] Production Worker server-only secrets perjungti į VPS Supabase ir Worker deploy’intas.
 - [x] Production Pages public Supabase URL/anon key perjungti į VPS ir atliktas rebuild.
 - [x] `MIGRATION_PHASE=cutover npm run migration:preflight` grąžina `18/18 PASS`.
-- [ ] Atlikti login, logout, katalogo, filtrų, product detail, watchlist ir admin write smoke testai.
+- [x] Atlikti login, logout, katalogo, filtrų, product detail, watchlist ir admin write smoke testai (`UI smoke PASS`, patvirtino operatorius).
 - [x] Worker cron triggeriai vėl įjungti po automatinių cutover vartų PASS.
 - [x] Užfiksuotas cutover laikas `2026-07-18 22:49 UTC` ir pradėtas 24 val. stabilizavimo langas.
 - [x] Neesminiai vartai — išorinis alert delivery, sena diagnostinių Storage objektų istorija, Telegram ir pilnas invite/PKCE testas — priimti kaip post-cutover darbai.
 - [x] Aktyvuotas atskiras GitHub `production-vps` environment kelias, paliekant esamus repo secrets source rollback’ui.
 
 **Būsena:** vykdomas cutover. Pages ir Worker naudoja VPS, cron’ai atkurti, metadata
-`50/50` canary sėkmingas, o pilnas katalogo sync paleistas. Iki 5 fazės uždarymo liko
-rankinis production UI smoke ir finalaus source/target sprendimo užfiksavimas.
+`50/50` canary ir rankinis production UI smoke sėkmingi, o pilnas katalogo sync paleistas.
+Iki 5 fazės uždarymo liko catalog run rezultatas ir finalaus source/target sprendimo užfiksavimas.
 
 **Cutover būsena 2026-07-19:** production Pages runtime config ir production Worker
 `/health.backendOrigin` rodo VPS Supabase; cutover preflight baigėsi `18/18 PASS`.
