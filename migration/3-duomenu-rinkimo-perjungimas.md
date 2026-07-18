@@ -26,7 +26,7 @@
 
 **Būsena:** staging katalogo rinktuvas ir automatinis validavimo gate veikia. Naujausias 500 produktų/target testas apdorojo 10 521 produktą, visi 25 targetai baigėsi sėkmingai. Metadata canary sėkmingai užbaigė 50/50 produktų, sukūrė vieną `success_sample/ready` artifact ir realų 11 528 B `sync-raw` objektą, naujų diagnostics klaidų nėra. Cron read-model refresh baigėsi `38/38`, `refreshed`, per 19 229 ms. Production konfigūracija nepakeista.
 
-**Kitas veiksmas:** nuskaityti naują raw payload, pakartoti DB/WAL dydžio matavimą ir užbaigti Pages/Worker/Auth aplinkos perjungimo smoke testus. Production canary dar nevykdomas.
+**Kitas veiksmas:** raw payload ir DB/WAL patikros užbaigtos; tęsti galutinį Pages/Worker/Auth cutover rehearsal, monitoringą ir rollback runbook. Production canary dar nevykdomas.
 
 Istorinis checkpoint: pradžioje VPS `cron.job` neturėjo nei `catalog-read-model-refresh`, nei
 istorijos cleanup darbo. Abu darbai vėliau sukurti idempotentiškai ir patikrinti; GitHub

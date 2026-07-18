@@ -42,9 +42,9 @@
 - [x] Atlikti katalogo row-count ir pagrindiniai web/API smoke testai.
 - [x] Užfiksuotos pagrindinės restore klaidos, dump ir išskleistų failų dydžiai bei katalogo-only sprendimas.
 - [ ] Perkelti ir palyginti fizinius `sync-raw` bei `sync-debug` Storage objektus pagal count, bytes ir atrinktus hash/ETag.
-- [ ] Atlikti dar vieną disposable restore rehearsal iš naujausio backup ir užfiksuoti bendrą RTO.
+- [x] Atliktas disposable restore iš naujausio automatinio R2 backup: DB, roles, Storage ir Postgres custom/pgsodium payload patikrinti, `RESTORE_VERIFY_SUCCESS`, RTO `53 s` (2026-07-19).
 
-**Būsena:** katalogo-only restore rehearsal staging aplinkoje atliktas: dump patikrintas ir iššifruotas, roles/schema importai sėkmingi, katalogo duomenys atkurti, row-count ir web/API smoke testai sėkmingi. Source Auth vartotojai pagal patvirtintą invite-only sprendimą nemigruojami — target vartotojai bus kviečiami naujai. Fazės likutis yra fizinių Storage objektų parity ir pakartotinis disposable restore su išmatuotu RTO. Produkcinis Supabase šiame etape nekeistas.
+**Būsena:** katalogo-only restore rehearsal staging aplinkoje atliktas, o naujausias automatinis R2 backup papildomai pilnai atkurtas disposable aplinkoje per `53 s`: DB, roles, vienas fizinis Storage objektas ir Postgres custom/pgsodium medžiaga patikrinti. Source Auth vartotojai pagal patvirtintą invite-only sprendimą nemigruojami — target vartotojai kviečiami naujai. Fazės likutis yra tik formaliai priimti istorinių `sync-raw` / `sync-debug` objektų parity arba atsisakymo sprendimą. Produkcinis Supabase šiame etape nekeistas.
 
 ## Tikslas
 

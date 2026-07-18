@@ -16,13 +16,13 @@
 - [ ] Patikrinti product details, price history, raw/debug artefaktus, admin dashboard, users, brand tiers, sync target CRUD ir sync runs.
 - [ ] Patikrinti Telegram `/start`, `/status`, profilio susiejimą ir testinį alert.
 - [ ] Atlikti fizinių `sync-raw` ir `sync-debug` Storage objektų count, bytes ir atrinktų hash/ETag parity.
-- [ ] Atlikti backup restore į disposable aplinką ir užfiksuoti RTO.
+- [x] Atliktas naujausio automatinio R2 backup restore į izoliuotą disposable aplinką; DB ir fizinio Storage smoke testai praėjo, RTO `53 s` (2026-07-19).
 - [ ] Atlikti 250k reprezentatyvų testą arba formaliai patvirtinti mažesnę produkcinę ribą ir SLO.
 - [ ] Patvirtinti dashboard p95, disko rezervą, refresh circuit-breaker ir monitoring/alertus.
 
 2026-07-18 post-canary WAL patikra atlikta: DB `797 MB`, `pg_wal` `608 MiB`.
 
-**Būsena:** 3 fazė vykdoma. Katalogo rinktuvas, staging GitHub Actions ir read-model refresh gate atlaikė 500 produktų kiekvienam targetui testą. Metadata canary užbaigė 50/50 produktų be naujų retry/schema/source klaidų ir įrašė vieną `sync-raw` objektą. Dar reikia užbaigti canary artifact/refresh/WAL patikrą, Auth/JWKS, aplikacijos funkcijas, pilną Storage parity, disposable restore ir 250k/SLO testus. Production canary ir cutover dar negalimi.
+**Būsena:** 3 fazė vykdoma. Katalogo rinktuvas, staging GitHub Actions ir read-model refresh gate atlaikė 500 produktų kiekvienam targetui testą. Metadata canary užbaigė 50/50 produktų be naujų retry/schema/source klaidų, fizinis `sync-raw` read patikrintas, post-canary WAL checkpoint atliktas, o automatinio R2 backup restore baigtas per `53 s`. Dar reikia užbaigti Auth flow, likusias aplikacijos funkcijas, pilną Storage istorijos parity arba formalų atsisakymą, monitoringą ir 250k/SLO sprendimą. Production canary ir cutover dar negalimi.
 
 ## 2026-07-18 staging katalogo sync apkrovos testas
 

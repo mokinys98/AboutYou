@@ -31,14 +31,15 @@
 - [x] Telegram staging rehearsal sąmoningai atidėtas: antro boto nekuriame, production botas lieka nepaliestas iki galutinio cutover.
 - [ ] TODO po migracijos: pridėti aiškią profilio Telegram atjungimo UI logiką ir parengti vieno production boto webhook perjungimo į VPS Worker procedūrą su rollback.
 - [ ] Priimtas sprendimas dėl istorinių `sync-raw` / `sync-debug` objektų: perkelti su parity arba formaliai atsisakyti istorijos.
-- [ ] Įrodytas automatinis šifruotas VPS backup į R2 ir restore į disposable aplinką su RTO.
+- [x] Įrodytas automatinis šifruotas VPS backup į R2 ir restore į disposable aplinką: pilnas restore bei smoke testas sėkmingas, RTO `53 s` (2026-07-19).
 - [ ] Veikia disk, Docker health, backup age, API 5xx ir refresh failure alertai.
 - [ ] Patvirtintas produkcinio masto/SLO kriterijus: pilnas faktinio katalogo testas arba formaliai priimta mažesnė riba.
 - [ ] Paruoštas production secret change, freeze, smoke test ir rollback runbook.
 
 **Būsena:** nepradėtas produkcinis perjungimas. VPS duomenų, rinktuvų, staging Worker
-ir Pages Preview kelias veikia. Produkcinis Worker ir Pages dar neturi būti perjungiami,
-kol neuždaryti likę Auth, backup/restore, monitoring ir source–target cutover vartai.
+ir Pages Preview kelias veikia, o automatinis off-host backup bei izoliuotas restore
+patvirtinti. Produkcinis Worker ir Pages dar neturi būti perjungiami, kol neuždaryti
+likę Auth, monitoring, Storage istorijos ir source–target cutover/rollback vartai.
 
 ## Automatizuotas viešas preflight
 
@@ -157,6 +158,16 @@ kad image migracija `20260211120934_supabase_privileged_role.sql` pati sukuria
 per ankstyvos jungties prie laikino serverio pasekmė. Scenarijus dabar laukia šio
 patvirtinto inicializacijos žymeklio ir tik tada vykdo galutinį `pg_isready`.
 
+2026-07-19 galutinis pakartojimas baigtas `RESTORE_VERIFY_SUCCESS`. Naujausias
+automatinis `age` backup buvo paimtas tiesiai iš R2, iššifruotas ir patikrintas pagal
+visų payload dalių SHA-256. Izoliuotame, tinklo ir host portų neturinčiame disposable
+Postgres atkurti roles, custom-format DB dump, fiziniai Storage baitai ir Postgres
+custom/pgsodium medžiaga. Smoke rezultatai: `products=53704`, `categories=190`,
+`auth_users=1`, `storage_objects=1`, DB dydis `689032339` B, Storage `11528` B.
+Išmatuotas bendras RTO `53 s`; naudotas R2 objektas
+`automatic/20260718T211516Z/aboutyou-supabase-20260718T211516Z.tar.age`. Staging DB
+nebuvo liečiama, o disposable konteinerį ir laikinas iššifruotas kopijas pašalino trap.
+
 ## Galutinė architektūra
 
 Cloudflare Pages ir Worker lieka Cloudflare platformoje. Į VPS keliasi tik Supabase
@@ -210,8 +221,8 @@ lieka `https://aboutyou-private-catalog-web.pages.dev`.
 5. Sukurti Pages preview build su VPS public URL/anon key ir staging Worker API URL.
 6. Atlikti invite-only Auth, katalogo, filtrų, product detail, watchlist, admin ir
    Telegram smoke testus.
-7. Įrodyti backup/restore, monitoringą ir priimti Storage istorijos bei masto/SLO
-   sprendimus.
+7. Backup/restore įrodytas; užbaigti monitoringą ir priimti Storage istorijos bei
+   masto/SLO sprendimus.
 8. Parengti production perjungimo lentelę: senos reikšmės rollback’ui, naujos
    reikšmės, savininkas, keitimo trukmė ir patikros komanda.
 
@@ -257,9 +268,9 @@ Production perjungimas draudžiamas, jei bent viena sąlyga teisinga:
 
 ## Kitas saugus veiksmas
 
-Užbaigus raw read ir post-canary WAL patikrą, paruošti izoliuotą Cloudflare Worker
-staging aplinką ir joje išbandyti VPS JWT/JWKS. Produkcinio Worker ir Pages secret’ų
-dar nekeisti.
+Užbaigti galutinio Pages hostname Auth/SMTP testus, įdiegti kritinių VPS gedimų
+monitoringą ir parengti production secret/freeze/smoke/rollback runbook. Produkcinio
+Worker ir Pages secret’ų dar nekeisti.
 
 ### Post-canary DB/WAL checkpoint — 2026-07-18
 
