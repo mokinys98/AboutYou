@@ -23,8 +23,8 @@
     "staging": {
       "name": "aboutyou-private-catalog-api-staging",
       "vars": {
-        "ALLOWED_ORIGIN": "https://aboutyou-private-catalog-web.pages.dev",
-        "WEB_APP_URL": "https://aboutyou-private-catalog-web.pages.dev",
+        "ALLOWED_ORIGIN": "https://staging-preview.aboutyou-private-catalog-web.pages.dev,http://localhost:3000,http://localhost:3001,http://localhost:3002",
+        "WEB_APP_URL": "https://staging-preview.aboutyou-private-catalog-web.pages.dev",
         "TELEGRAM_BOT_USERNAME": "AboutYouTrackerBot",
         "GITHUB_OWNER": "mokinys98",
         "GITHUB_REPO": "AboutYou",
