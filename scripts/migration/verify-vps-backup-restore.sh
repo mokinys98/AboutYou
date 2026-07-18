@@ -152,11 +152,10 @@ docker run -d \
   "$image" \
   "${command_args[@]}" >/dev/null
 
-final_server_started=0
+initialization_complete=0
 for _ in $(seq 1 180); do
-  pid_one_command="$(docker exec "$container" sh -c 'cat /proc/1/comm' 2>/dev/null || true)"
-  if [ "$pid_one_command" = "postgres" ]; then
-    final_server_started=1
+  if grep -Fq "PostgreSQL init process complete; ready for start up." <<<"$(docker logs "$container" 2>&1 || true)"; then
+    initialization_complete=1
     break
   fi
   if [ "$(docker inspect --format '{{.State.Running}}' "$container")" != "true" ]; then
@@ -164,8 +163,8 @@ for _ in $(seq 1 180); do
   fi
   sleep 1
 done
-if [ "$final_server_started" -ne 1 ]; then
-  echo "Disposable Postgres entrypoint did not hand over to the final server" >&2
+if [ "$initialization_complete" -ne 1 ]; then
+  echo "Disposable Postgres initialization did not complete" >&2
   docker logs --tail 100 "$container" >&2 || true
   exit 1
 fi

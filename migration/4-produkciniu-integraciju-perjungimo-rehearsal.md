@@ -147,9 +147,15 @@ Pakartojus su tokenų parseriu scenarijus sustojo dar prieš roles apdorojimą s
 `the database system is shutting down`. Priežastis – `pg_isready` aptiko laikiną
 Postgres procesą, kurį image entrypoint naudoja inicializacijos skriptams, o šis
 vėliau pagal numatytą seką išjungiamas prieš galutinį serverio startą. Starto laukimas
-pataisytas pirmiausia sulaukti, kol konteinerio PID 1 iš entrypoint scenarijaus taps
-galutiniu `postgres` procesu, ir tik po to tikrinti serverio pasirengimą. Ši patikra
-nepriklauso nuo konkrečios image logų formuluotės.
+pataisytas atskirti laikiną inicializacijos serverį nuo galutinio serverio starto.
+
+Pirmas bandymas šį perėjimą aptikti pagal konteinerio PID 1 nepavyko: Supabase image
+PID 1 išlaiko entrypoint procesą. Tačiau pilnas konteinerio logas patvirtino stabilų
+`PostgreSQL init process complete; ready for start up.` žymeklį. Jis taip pat parodė,
+kad image migracija `20260211120934_supabase_privileged_role.sql` pati sukuria
+`supabase_privileged_role`, todėl ankstesni role importo gedimai buvo tos pačios
+per ankstyvos jungties prie laikino serverio pasekmė. Scenarijus dabar laukia šio
+patvirtinto inicializacijos žymeklio ir tik tada vykdo galutinį `pg_isready`.
 
 ## Galutinė architektūra
 
