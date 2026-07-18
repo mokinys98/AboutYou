@@ -13,9 +13,9 @@
 | 3A | [Duomenų rinkimo perjungimas į staging](3-duomenu-rinkimo-perjungimas.md) | Katalogo 500 produktų/target ir metadata 50 produktų canary sėkmingi; artifact, fizinis Storage read, refresh `38/38` ir post-canary WAL checkpoint patvirtinti |
 | 3B | [Funkcijų ir atsparumo testas](3-funkciju-ir-atsparumo-testas.md) | Minimalus paleidimo kriterijus priimtas: katalogo/metadata canary, host resursai, raw Storage read, disposable restore ir vidinis monitoringas atlikti; pilnas metadata/SLO ir neesminės integracijos tęsiamos po cutover |
 | 4 | [Pages, Worker ir produkcinio perjungimo rehearsal](4-produkciniu-integraciju-perjungimo-rehearsal.md) | Preview → staging Worker → VPS kelias veikia; Worker backend origin patikra ir preflight `17/17` PASS, backup/restore bei monitorius patvirtinti; išorinis alert, pilnas Auth, Telegram ir sena diagnostinė Storage istorija priimti kaip post-cutover darbai |
-| 5 | [Produkcinis cutover](5-produkcijos-perjungimas.md) | Vykdomas: Pages, Worker ir Auth perjungti į pagrindinį domeną bei VPS; preflight, katalogo `10000` produktų run, refresh `44/44`, metadata canary ir UI smoke sėkmingi; liko finalus source/target sprendimas |
-| 5A | [Production VPS taskeris](5a-production-vps-taskeris.md) | DNS, Pages, Worker, self-hosted Auth ir katalogo checkpointas užbaigti; liko login/logout smoke pagrindiniame domene |
-| 6 | [Stabilizavimas ir 24 h stebėjimas](6-stabilizavimas.md) | Pradėtas 2026-07-18 22:49 UTC; pilnas 24 h. uždarymas galimas tik po catalog run, UI smoke ir numatytų checkpointų |
+| 5 | [Produkcinis cutover](5-produkcijos-perjungimas.md) | Pages, Worker ir Auth perjungti į pagrindinį domeną bei VPS; preflight, katalogo `10000` produktų run, refresh `44/44`, metadata canary ir UI/login/logout smoke sėkmingi; liko finalus source/target sprendimas |
+| 5A | [Production VPS taskeris](5a-production-vps-taskeris.md) | DNS, Pages, Worker, self-hosted Auth, katalogo checkpointas ir login/logout smoke užbaigti; post-cutover darbai palikti atskirame sąraše |
+| 6 | [Stabilizavimas ir 24 h stebėjimas](6-stabilizavimas.md) | Vykdomas nuo `2026-07-18 22:49 UTC`; pagrindinio domeno smoke `PASS`, likę laiko checkpointai uždaromi pagal grafiką |
 
 ## Branch tvarka
 

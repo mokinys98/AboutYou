@@ -19,8 +19,8 @@
 
 **Būsena:** vykdomas cutover. Pages ir Worker naudoja VPS, cron’ai atkurti, metadata
 `50/50` canary, pilnas katalogo sync ir rankinis production UI smoke sėkmingi.
-Iki 5 fazės uždarymo liko operatoriaus login/logout smoke pagrindiniame domene ir
-finalaus source/target sprendimo užfiksavimas.
+Iki 5 fazės uždarymo liko finalaus source/target skirtumo ir authoritative target
+sprendimo užfiksavimas.
 
 **Cutover būsena 2026-07-19:** production Pages runtime config ir production Worker
 `/health.backendOrigin` rodo VPS Supabase; cutover preflight baigėsi `18/18 PASS`.
@@ -34,7 +34,7 @@ kaip `WEB_APP_URL`, o naujo ir rollback domenų CORS patikros grąžina `204`.
 VPS katalogo checkpointas patvirtintas: naujausias `sync_runs` yra `success` su `313`
 puslapių ir `10000` produktų, o read-model būsena yra `44/44 clean`. Self-hosted Auth
 naudoja pagrindinį domeną kaip `SITE_URL`, Auth yra `healthy`, settings ir JWKS grąžina
-`200`; liko operatoriaus login/logout smoke naujame domene.
+`200`; operatoriaus login/logout smoke pagrindiniame domene taip pat `PASS`.
 
 Trumpas operatoriaus sąrašas: [Production VPS taskeris](5a-production-vps-taskeris.md).
 

@@ -2,7 +2,7 @@
 
 ## Progreso varnelės — atnaujinti pirmiausia
 
-- [ ] Užfiksuotas tikslus production cutover UTC laikas.
+- [x] Užfiksuotas tikslus production cutover laikas: `2026-07-18 22:49 UTC`.
 - [ ] T+15 min. automatinis preflight ir rankinis smoke sėkmingi.
 - [ ] T+1 h. VPS monitorius, Worker logai ir sync/refresh būsena be kritinių klaidų.
 - [ ] T+6 h. RAM, diskas, WAL, DB dydis ir API klaidos neperžengia ribų.
@@ -12,7 +12,8 @@
 - [ ] Source Supabase statusas pakeistas iš active rollback į sutartą retention būseną.
 - [ ] Užbaigti atidėti paleidimo darbai: išorinis alert delivery, invite/PKCE/logout Auth testas, Telegram perjungimas ir diagnostinių Storage objektų istorijos sprendimas.
 
-**Būsena:** nepradėta. Fazė prasideda tik po 5 fazės GO.
+**Būsena:** vykdoma. Stabilizavimo langas pradėtas `2026-07-18 22:49 UTC`; pagrindinio
+domeno login/logout smoke `PASS`, o likę laiko checkpointai uždaromi pagal grafiką.
 
 ## Stebėjimo ribos
 
