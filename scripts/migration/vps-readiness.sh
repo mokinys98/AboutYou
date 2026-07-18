@@ -90,7 +90,7 @@ info "database_size=${db_size:-unknown}"
 
 refresh="$("${psql_cmd[@]}" -c "select requested_version||'|'||completed_version||'|'||last_status||'|'||coalesce(last_error,'') from public.catalog_read_model_refresh_state;" 2>/dev/null || true)"
 info "refresh_state=${refresh:-missing}"
-if printf '%s' "$refresh" | awk -F'|' 'NF >= 3 && $1 == $2 && $3 == "refreshed" { found=1 } END { exit !found }'; then
+if printf '%s' "$refresh" | awk -F'|' 'NF >= 3 && $1 == $2 && ($3 == "refreshed" || $3 == "clean") && $4 == "" { found=1 } END { exit !found }'; then
   pass "Read model refresh current"
 else
   fail "Read model refresh not current"

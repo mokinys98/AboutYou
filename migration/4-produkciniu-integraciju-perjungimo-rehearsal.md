@@ -22,7 +22,9 @@
 - [x] Cloudflare Pages preview build naudoja VPS `NUXT_PUBLIC_SUPABASE_URL`, VPS anon raktą ir staging Worker API URL.
 - [x] Pages preview atliktas katalogo, filtrų, produkto ir watchlist smoke testas; Production nepakeistas (2026-07-18).
 - [x] Automatizuotas viešas rehearsal preflight: `npm run migration:preflight` patikrino Pages runtime config, Worker health/CORS/auth gate ir abiejų Supabase JWKS; `16/16` PASS (2026-07-18).
-- [ ] VPS paleisti `scripts/migration/vps-readiness.sh` ir užfiksuoti likusius host/backup/monitoring neatitikimus.
+- [x] VPS paleistas `scripts/migration/vps-readiness.sh`: host, SSH, UFW, Docker, Tunnel, konteineriai, portai, JWKS, Postgres, cron ir R2 secret teisės tvarkingi; nustatytas vienas realus trūkumas — nėra backup systemd timerio (2026-07-18).
+- [x] Paruoštas vieno paleidimo `scripts/migration/install-vps-backup.sh` diegiklis: custom-format DB dump, roles be slaptažodžių, fiziniai Storage baitai, Postgres custom/pgsodium raktų volume, `age` šifravimas, R2 upload dydžio patikra, vietinė 3 d. retencija ir kasdienis systemd timeris.
+- [ ] VPS įdiegti backup timerį, paleisti pirmą backup ir patvirtinti R2 objektą bei service žurnalą.
 - [ ] Patikrinta Telegram webhook, profilio susiejimas ir bent vienas testinis alertas per Worker → VPS DB.
 - [x] Telegram staging rehearsal sąmoningai atidėtas: antro boto nekuriame, production botas lieka nepaliestas iki galutinio cutover.
 - [ ] TODO po migracijos: pridėti aiškią profilio Telegram atjungimo UI logiką ir parengti vieno production boto webhook perjungimo į VPS Worker procedūrą su rollback.
@@ -59,6 +61,36 @@ Remove-Item Env:MIGRATION_PHASE
 
 `cutover` režimas reikalauja, kad Production Pages jau naudotų VPS Supabase, tačiau
 vis tiek naudotų production Worker hostname.
+
+## VPS readiness ir automatinis backup
+
+Read-only VPS auditas paleidžiamas taip:
+
+```bash
+sudo bash scripts/migration/vps-readiness.sh
+```
+
+2026-07-18 auditas parodė pakankamą RAM, swap ir disko rezervą, aktyvius UFW bei
+cloudflared, sveikus visus 11 Supabase konteinerių, tik loopback publikuojamus Kong ir
+Studio portus, pasiekiamą JWKS, veikiančią DB bei du aktyvius refresh cron darbus.
+Refresh būsena buvo `42|42|clean`; tai yra sveika būsena, nes versijos sutampa ir nėra
+neįvykdytos refresh užklausos. Audito tikrinimas pataisytas priimti tiek `clean`, tiek
+`refreshed`, kai versijos sutampa ir `last_error` tuščias.
+
+Vienintelis realus audito trūkumas — automatinio backup systemd unit nebuvimas.
+Paruoštas diegiklis:
+
+```bash
+sudo bash scripts/migration/install-vps-backup.sh
+```
+
+Diegiklis prašo tik viešo `age1...` gavėjo rakto. Privatus age identity į backup
+serverį nekopijuojamas. Backup apima ne tik loginį Postgres dump, bet ir fizinius
+Supabase Storage objektų baitus bei `/etc/postgresql-custom` turinį, kuriame saugoma
+atkūrimui svarbi Postgres custom/pgsodium raktų medžiaga. Storage konteineris šių
+duomenų kopijavimo metu trumpam pristabdomas ir visada atnaujinamas per cleanup trap.
+Pirmas backup laikomas patvirtintu tik tada, kai service baigiasi sėkmingai, R2 objekto
+dydis sutampa su lokaliu šifruotu failu ir užfiksuojamas SHA-256.
 
 ## Galutinė architektūra
 
