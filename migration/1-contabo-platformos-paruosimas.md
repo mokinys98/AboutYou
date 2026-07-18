@@ -28,6 +28,8 @@
 - [x] Po 500 produktų/target staging testo patikrinti host resursai: 11 GiB RAM, 2,6 GiB naudojama, 9,1 GiB available; swap praktiškai nenaudojamas; diske 174 GiB laisva (11 % naudojama).
 - [x] Užfiksuota `sudo docker stats --no-stream` išvestis po apkrovos; visi 11 Supabase konteinerių veikia, bendras momentinis jų RAM naudojimas apie 2,0 GiB.
 - [x] Užfiksuotas Postgres DB dydis ir `pg_stat_wal` checkpoint po apkrovos: DB 797 MB, aktyvus `pg_wal` katalogas 816 MiB.
+- [x] Įdiegtas kasdienis šifruotas VPS backup timeris, patvirtintas R2 upload ir `53 s` disposable restore.
+- [x] Paruoštas periodinio VPS monitoriaus ir 5 min. systemd timerio diegiklis; diegimo bei išorinio alert delivery testas dar neatliktas.
 
 **Būsena:** pagrindiniai 1 fazės platformos vartai įvykdyti: VPS hardening, UFW/Contabo firewall, swap, Docker, log rotation, persistent volumes, prisegtas staging Supabase stack, Cloudflare Tunnel, viešų DB/pooler/Studio portų izoliacija ir VPS → R2 patikra atlikti. Po 2026-07-18 staging apkrovos testo liko 174 GiB disko ir 9,1 GiB available RAM, konteinerių momentinis RAM naudojimas siekė apie 2,0 GiB, DB dydis — 797 MB, o aktyvus `pg_wal` katalogas — 816 MiB. Dar neįrodyti automatiniai monitoring/backup failure alertai.
 **Pradėta:** 2026-07-16  
@@ -299,10 +301,10 @@ Istorinis paruošimo žingsnis užbaigtas: `/srv/supabase/{docker,volumes,backup
 
 ### 4.5. Backup, monitoring ir connectivity
 
-- [ ] Automatizuoti VPS backup vykdymą; root-only R2 secret failas jau paruoštas, bet periodinio skripto/timer įrodymo nėra.
+- [x] Automatizuotas VPS backup vykdymas: kasdienis systemd timeris, root-only R2 secret, `age` šifravimas, R2 upload ir restore patikrinti.
 - [x] Atlikti neprodukcinį R2 `list/head` connectivity testą.
 - [x] Patikrinti, kad R2 backup objektas yra kliento pusėje `age` užšifruotas ir atkuriamas.
-- [ ] Įjungti disk usage, Docker health ir backup failure alertus.
+- [ ] Įdiegti paruoštą `install-vps-monitoring.sh`, patikrinti disk/Docker/backup/health/refresh signalus ir bent vieną išorinio alert webhook testą.
 - [x] Sukonfigūruoti R2 retention ir Docker log rotation taip, kad backup bei konteinerių logai neaugtų neribotai.
 
 ## 5. Stop vartai prieš 2 fazę
@@ -319,7 +321,7 @@ Istorinis paruošimo žingsnis užbaigtas: `/srv/supabase/{docker,volumes,backup
 
 ## 6. Kitas veiksmas
 
-1 fazės platforma paruošta, o konteinerių ir Postgres/WAL momentinės metrikos užfiksuotos. Kitas platformos darbas 3 fazėje — įdiegti disk usage, Docker health ir backup failure alertus. Docker komandoms naudoti `sudo`, nes `deploy` vartotojas sąmoningai nepridėtas prie privilegijuotos `docker` grupės:
+1 fazės platforma ir automatinis backup/restore paruošti, o konteinerių bei Postgres/WAL momentinės metrikos užfiksuotos. Kitas platformos darbas — įdiegti paruoštą periodinį monitorių ir patikrinti išorinio alert pristatymą. Docker komandoms naudoti `sudo`, nes `deploy` vartotojas sąmoningai nepridėtas prie privilegijuotos `docker` grupės:
 
 ```bash
 sudo docker stats --no-stream

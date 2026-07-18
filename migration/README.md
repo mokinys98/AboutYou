@@ -13,8 +13,8 @@
 | 3A | [Duomenų rinkimo perjungimas į staging](3-duomenu-rinkimo-perjungimas.md) | Katalogo 500 produktų/target ir metadata 50 produktų canary sėkmingi; artifact, fizinis Storage read, refresh `38/38` ir post-canary WAL checkpoint patvirtinti |
 | 3B | [Funkcijų ir atsparumo testas](3-funkciju-ir-atsparumo-testas.md) | Vykdoma: katalogo/metadata testai, host resursai, raw Storage read ir disposable restore atlikti; liko Auth flow, dalis aplikacijos funkcijų, Storage istorija, monitoringas ir 250k/SLO |
 | 4 | [Pages, Worker ir produkcinio perjungimo rehearsal](4-produkciniu-integraciju-perjungimo-rehearsal.md) | Preview → staging Worker → VPS kelias veikia; preflight `16/16` PASS, automatinis backup/restore ir RTO patvirtinti; production cutover dar STOP dėl Auth, monitoring, Storage istorijos ir rollback vartų |
-| 5 | Produkcinis cutover | Nepradėta |
-| 6 | Stabilizavimas ir 24 h stebėjimas | Nepradėta |
+| 5 | [Produkcinis cutover](5-produkcijos-perjungimas.md) | Nepradėta: paruoštas freeze, secret change, smoke ir rollback runbook; vykdyti tik uždarius 4 fazės STOP vartus |
+| 6 | [Stabilizavimas ir 24 h stebėjimas](6-stabilizavimas.md) | Nepradėta: paruoštos T+15 min., T+1 h., T+6 h. ir T+24 h. patikros bei ribos |
 
 ## Branch tvarka
 

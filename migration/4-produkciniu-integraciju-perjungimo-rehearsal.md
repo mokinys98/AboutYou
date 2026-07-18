@@ -27,6 +27,7 @@
 - [x] VPS įdiegtas ir aktyvuotas kasdienis `aboutyou-supabase-backup.timer`.
 - [x] Pirmas automatinio kelio backup sėkmingas: R2 objektas `50 731 288` B, lokali šifruota kopija, SHA-256 ir service `0/SUCCESS` patvirtinti (2026-07-18).
 - [x] Paruoštas `scripts/migration/verify-vps-backup-restore.sh`: naujausias R2 backup atkuriamas izoliuotame konteineryje be tinklo/portų, neliečiant staging DB.
+- [x] Paruošti `scripts/migration/vps-monitor.sh` ir `install-vps-monitoring.sh`: 5 min. systemd patikros diskui, Docker, backup amžiui, JWKS/API ir refresh/cron būsenai; išorinis webhook neprivalomas.
 - [ ] Patikrinta Telegram webhook, profilio susiejimas ir bent vienas testinis alertas per Worker → VPS DB.
 - [x] Telegram staging rehearsal sąmoningai atidėtas: antro boto nekuriame, production botas lieka nepaliestas iki galutinio cutover.
 - [ ] TODO po migracijos: pridėti aiškią profilio Telegram atjungimo UI logiką ir parengti vieno production boto webhook perjungimo į VPS Worker procedūrą su rollback.
@@ -167,6 +168,29 @@ custom/pgsodium medžiaga. Smoke rezultatai: `products=53704`, `categories=190`,
 Išmatuotas bendras RTO `53 s`; naudotas R2 objektas
 `automatic/20260718T211516Z/aboutyou-supabase-20260718T211516Z.tar.age`. Staging DB
 nebuvo liečiama, o disposable konteinerį ir laikinas iššifruotas kopijas pašalino trap.
+
+## VPS periodinis monitoringas
+
+Paruoštas diegiklis įrašo read-only monitorių į `/usr/local/sbin`, sukuria kas 5 min.
+systemd timerį ir pirmą patikrą paleidžia iškart. Monitorius tikrina:
+
+- root disko ribą;
+- `docker` ir `cloudflared` servisus bei 11 Supabase konteinerių;
+- viešą Supabase JWKS ir Worker `/health` atsakymą;
+- backup timerį, paskutinio service rezultatą ir lokalaus šifruoto backup amžių;
+- read-model versijų lygybę, klaidos nebuvimą, cron skaičių ir 30 min. nesėkmes.
+
+Diegimas VPS, parsisiuntus abu failus iš to paties immutable commit į `/tmp`:
+
+```bash
+sudo bash /tmp/install-vps-monitoring.sh
+```
+
+Be išorinio webhook gedimai matomi `systemctl --failed` ir journal. Pasirinktinai
+`/etc/aboutyou-monitor/monitor.env` faile su `0600` teisėmis galima nustatyti
+kabutėmis apsaugotą `ALERT_WEBHOOK_URL`; pranešimas siunčiamas tik pereinant iš healthy
+į failed ir atskiras pranešimas – grįžus į healthy. Production cutover metu tame pačiame
+faile staging health URL pakeičiami production URL.
 
 ## Galutinė architektūra
 
