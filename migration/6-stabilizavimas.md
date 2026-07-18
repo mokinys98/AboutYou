@@ -10,6 +10,7 @@
 - [ ] Praėjo bent vienas automatinis šifruotas R2 backup po cutover.
 - [ ] T+24 h. atliktas galutinis smoke ir priimtas stabilizavimo GO.
 - [ ] Source Supabase statusas pakeistas iš active rollback į sutartą retention būseną.
+- [ ] Užbaigti atidėti paleidimo darbai: išorinis alert delivery, invite/PKCE/logout Auth testas, Telegram perjungimas ir diagnostinių Storage objektų istorijos sprendimas.
 
 **Būsena:** nepradėta. Fazė prasideda tik po 5 fazės GO.
 

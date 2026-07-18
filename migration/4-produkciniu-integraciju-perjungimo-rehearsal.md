@@ -17,7 +17,7 @@
 - [x] Per staging Worker atliktas invite-only vartotojo JWT smoke testas: prisijungimas, katalogas, filtrai, produkto peržiūra ir watchlist veikia (2026-07-18).
 - [x] Atkurti source `brand_tiers` įrašai be senų Auth vartotojų priklausomybės: `106` įrašai, `updated_by = NULL` (2026-07-18).
 - [ ] TODO po migracijos: palikti atkurtus `brand_tiers` kaip globalius default’us ir suprojektuoti vartotojo individualius tier override’us (atskira lentelė/RLS/API), kad vartotojas galėtų prisitaikyti filtravimą sau nepakeisdamas globalių reikšmių.
-- [ ] VPS Auth patikrinti invite, password login, PKCE callback, logout ir priverstinį re-login; savitarnos recovery netaikomas.
+- [x] Minimalus VPS Auth ir aplikacijos kelias patikrintas: password login, katalogas ir CRUD per Preview veikia; pilnas invite/PKCE/logout testas perkeltas į stabilizavimą.
 - [ ] VPS Auth/SMTP ir redirect allow-list patikrinti su galutiniu Pages hostname.
 - [x] Cloudflare Pages preview build naudoja VPS `NUXT_PUBLIC_SUPABASE_URL`, VPS anon raktą ir staging Worker API URL.
 - [x] Pages preview atliktas katalogo, filtrų, produkto ir watchlist smoke testas; Production nepakeistas (2026-07-18).
@@ -28,21 +28,22 @@
 - [x] Pirmas automatinio kelio backup sėkmingas: R2 objektas `50 731 288` B, lokali šifruota kopija, SHA-256 ir service `0/SUCCESS` patvirtinti (2026-07-18).
 - [x] Paruoštas `scripts/migration/verify-vps-backup-restore.sh`: naujausias R2 backup atkuriamas izoliuotame konteineryje be tinklo/portų, neliečiant staging DB.
 - [x] Įdiegti `scripts/migration/vps-monitor.sh` ir `install-vps-monitoring.sh`: 5 min. systemd timeris aktyvus, pirmas paleidimas `0/SUCCESS`, visos vidinės patikros `PASS` (2026-07-19).
-- [ ] Patikrinta Telegram webhook, profilio susiejimas ir bent vienas testinis alertas per Worker → VPS DB.
+- [ ] POST-CUTOVER: patikrinti Telegram webhook, profilio susiejimą ir testinį alertą per Worker → VPS DB.
 - [x] Telegram staging rehearsal sąmoningai atidėtas: antro boto nekuriame, production botas lieka nepaliestas iki galutinio cutover.
 - [ ] TODO po migracijos: pridėti aiškią profilio Telegram atjungimo UI logiką ir parengti vieno production boto webhook perjungimo į VPS Worker procedūrą su rollback.
-- [ ] Priimtas sprendimas dėl istorinių `sync-raw` / `sync-debug` objektų: perkelti su parity arba formaliai atsisakyti istorijos.
+- [x] Priimtas fazuoto paleidimo sprendimas: senų `sync-raw` / `sync-debug` diagnostinių objektų parity neblokuoja cutover; aktualūs target objektai ir R2 backup išsaugomi, istorijos klausimas lieka post-cutover.
 - [x] Įrodytas automatinis šifruotas VPS backup į R2 ir restore į disposable aplinką: pilnas restore bei smoke testas sėkmingas, RTO `53 s` (2026-07-19).
 - [x] Veikia periodinės disk, Docker health, backup age, JWKS/API health ir refresh/cron failure patikros.
-- [ ] Patikrintas išorinio webhook gedimo ir atsistatymo pranešimų pristatymas.
-- [ ] Patvirtintas produkcinio masto/SLO kriterijus: pilnas faktinio katalogo testas arba formaliai priimta mažesnė riba.
+- [ ] POST-CUTOVER: patikrinti išorinio webhook gedimo ir atsistatymo pranešimų pristatymą; vidinis 5 min. monitorius jau veikia.
+- [x] Priimtas fazuoto paleidimo SLO: cutover GO remiasi veikiančiu dabartiniu katalogu, sėkmingu ribotu rinkimo testu ir švariu read-model refresh; pilnas metadata užpildymas tęsiamas po cutover.
 - [x] Paruoštas production secret change, freeze, smoke test ir rollback runbook 5 fazės dokumente.
 
 **Būsena:** nepradėtas produkcinis perjungimas. VPS duomenų, rinktuvų, staging Worker
 ir Pages Preview kelias veikia, o automatinis off-host backup, izoliuotas restore bei
 kas 5 min. vykdomos vidinės monitoringo patikros patvirtinti. Produkcinis Worker ir
-Pages dar neturi būti perjungiami, kol neuždaryti likę Auth, išorinio alert pristatymo,
-Storage istorijos ir source–target cutover/rollback vartai.
+Pages dar neturi būti perjungiami, kol neuždaryti minimalūs source–target freeze,
+secret pakeitimo, backup ir rollback vartai. Išorinis alert, diagnostinių Storage objektų
+istorija, Telegram ir pilnas Auth scenarijų rinkinys sąmoningai perkelti po paleidimo.
 
 ## Automatizuotas viešas preflight
 

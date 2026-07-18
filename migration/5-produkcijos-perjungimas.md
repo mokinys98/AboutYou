@@ -14,6 +14,8 @@
 - [ ] Atlikti login, logout, katalogo, filtrų, product detail, watchlist ir admin write smoke testai.
 - [ ] Worker cron triggeriai vėl įjungti tik po GO sprendimo.
 - [ ] Užfiksuotas cutover laikas ir pradėtas 24 val. stabilizavimo langas.
+- [x] Neesminiai vartai — išorinis alert delivery, sena diagnostinių Storage objektų istorija, Telegram ir pilnas invite/PKCE testas — priimti kaip post-cutover darbai.
+- [x] Paruoštas atskiras GitHub `production-vps` environment kelias, paliekant esamus repo secrets source rollback’ui; jo secret’ai dar turi būti įrašyti prieš aktyvavimą.
 
 **Būsena:** nepradėta. Šis dokumentas yra vykdymo runbook; vien jo buvimas nesuteikia
 GO produkciniams pakeitimams.
@@ -37,8 +39,8 @@ Prieš keitimą password manager’yje užpildyti realias reikšmes. Į Git jų 
 
 | Vieta | Parametras | Rollback reikšmė | Nauja reikšmė | Patikra |
 |---|---|---|---|---|
-| GitHub Actions | `SUPABASE_URL` | source URL | VPS canonical URL | workflow preflight |
-| GitHub Actions | `SUPABASE_SERVICE_ROLE_KEY` | source raktas | VPS raktas | ribotas canary |
+| GitHub Actions `production-vps` environment | `SUPABASE_URL` | workflow eilutę grąžinti į repo source secrets | VPS canonical URL | workflow preflight |
+| GitHub Actions `production-vps` environment | `SUPABASE_SERVICE_ROLE_KEY` | workflow eilutę grąžinti į repo source secrets | VPS raktas | ribotas canary |
 | Worker secret | `SUPABASE_URL` | source URL | VPS canonical URL | `/health`, JWKS |
 | Worker secret | `SUPABASE_SERVICE_ROLE_KEY` | source raktas | VPS raktas | autorizuotas katalogas |
 | Pages env | `NUXT_PUBLIC_SUPABASE_URL` | source URL | VPS canonical URL | runtime config |
@@ -90,12 +92,13 @@ writer’ių.
 
 ## T-10 min. — secrets ir deploy
 
-GitHub production repository secrets pakeisti per GitHub UI arba lokaliai, neįrašant
-reikšmių į shell history:
+Esamų GitHub repository secrets nekeisti — jie paliekami source rollback’ui. VPS
+reikšmes įrašyti į atskirą `production-vps` environment; abu rinkimo workflow jau
+paruošti naudoti šį environment:
 
 ```powershell
-gh secret set SUPABASE_URL
-gh secret set SUPABASE_SERVICE_ROLE_KEY
+gh secret set SUPABASE_URL --env production-vps
+gh secret set SUPABASE_SERVICE_ROLE_KEY --env production-vps
 ```
 
 Worker kataloge pakeisti abu production secrets interaktyviai ir deploy’inti tą patį
@@ -152,7 +155,7 @@ atsiranda duomenų korupcijos požymių arba per 15 min. nepavyksta nustatyti pr
 1. vėl sustabdyti Worker cron triggerius;
 2. Pages grąžinti source URL/anon ir redeploy’inti;
 3. Worker grąžinti source URL/service-role ir redeploy’inti;
-4. GitHub secrets grąžinti į source, bet workflow dar nejungti;
+4. GitHub workflow pašalinti `environment: production-vps`, kad jie vėl naudotų nepakeistus repo source secrets, bet workflow dar nejungti;
 5. paleisti rehearsal preflight ir rankinį source smoke;
 6. tik po source GO atkurti scheduler’ius;
 7. VPS palikti incidento analizei, netrinti DB ar logų.

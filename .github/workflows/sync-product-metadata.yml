@@ -17,6 +17,7 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     timeout-minutes: 75
+    environment: production-vps
     permissions:
       contents: read
     env:
