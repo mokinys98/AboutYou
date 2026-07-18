@@ -11,11 +11,11 @@
 - [x] Resend DKIM/SPF/MX DNS `Verified`.
 - [x] Supabase Custom SMTP išsaugotas; reset-password laiškas `Delivered`.
 - [x] Recovery redirect pasiekia Pages aplikaciją.
-- [ ] Aplikacijoje įdiegta recovery UI / `PASSWORD_RECOVERY` logika.
+- [x] Patvirtinta: savitarnos recovery UI / `PASSWORD_RECOVERY` funkcija neįdiegiama, nes projektas yra invite-only; password reset atlieka savininkas pagal naudotojo kreipimąsi.
 - [x] R2 connectivity testas iš VPS; bucket listing sėkmingas per `/etc/aboutyou-backup/r2.env`.
 - [ ] 2 fazės restore rehearsal ir parity ataskaita.
 
-**Būsena:** source baseline, šifruotas dump, patikrinta off-host R2 kopija, retention, VPS backup secret, privataus `age` rakto escrow, Auth URL/provider inventorizacija, Resend DNS ir VPS R2 connectivity paruošti; Supabase Custom SMTP išsaugotas, reset-password laiškas pristatytas ir redirect pasiekia Pages aplikaciją, tačiau recovery UI logikos nėra.
+**Būsena:** source baseline, šifruotas dump, patikrinta off-host R2 kopija, retention, VPS backup secret, privataus `age` rakto escrow, Auth URL/provider inventorizacija, Resend DNS ir VPS R2 connectivity paruošti. Projektas veikia invite-only režimu: viešos registracijos ir savitarnos password-reset UI nėra; naudotojo slaptažodžio atkūrimą pagal kreipimąsi atlieka savininkas per Supabase administravimo veiksmus.
 **Pradėta:** 2026-07-15  
 **Tikslas:** užfiksuoti valdomo Supabase projekto faktinę būklę ir sukurti atkuriamą backup prieš bet kokius produkcinius pakeitimus.  
 **Source pakeitimai šioje fazėje:** draudžiami, išskyrus atskirai patvirtintą backup ar diagnostikos veiksmą.
@@ -601,9 +601,9 @@ DMARC yra neprivalomas, bet production'ui rekomenduojamas pagal Resend pateiktą
 
 Supabase Auth išsiuntė `Reset your password` laišką į testinę Gmail dėžutę. Resend **Emails → Sending** įraše laiško būsena yra `Delivered`, o laiškas realiai gautas Gmail Inbox. Tai patvirtina SMTP kredencialų, DNS autentifikacijos ir siuntimo domeno veikimą.
 
-`Reset password` nuoroda grąžino į `https://aboutyou-private-catalog-web.pages.dev/` su Supabase recovery fragmentu. Redirect veikia, tačiau aplikacija neturi logikos, kuri apdorotų recovery būseną ir parodytų naujo slaptažodžio formą. Tokeno URL į Git, dokumentus ar pokalbį nekeliame; paskelbta nuoroda turi būti laikoma kompromituota ir jos sesiją reikia atšaukti / iš naujo išsiųsti testinį laišką.
+`Reset password` nuoroda grąžino į `https://aboutyou-private-catalog-web.pages.dev/` su Supabase recovery fragmentu. Redirect transportas veikia, tačiau savitarnos recovery UI sąmoningai neįdiegiama, nes projektas yra invite-only. Tokeno URL į Git, dokumentus ar pokalbį nekeliame; savininkas password reset atlieka tik gavęs naudotojo kreipimąsi.
 
-0 fazės stop signalas: SMTP transportas patvirtintas, bet Auth recovery vartotojo sąsajos ir fragmento apdorojimo dar nėra. Prieš staging reikia įdiegti ir su testine paskyra patikrinti `PASSWORD_RECOVERY` srautą bei naujo slaptažodžio nustatymą.
+0 fazės sprendimas: SMTP transportas ir reset laiško pristatymas patikrinti, tačiau `PASSWORD_RECOVERY` savitarnos srautas nebus diegiamas. Invite-only modelyje naudotojas dėl slaptažodžio atkūrimo kreipiasi į savininką, o savininkas reset atlieka per Supabase administravimo veiksmus ir atskirai patvirtina naują prisijungimą.
 
 ## 8. Sprendimai ir įėjimo duomenys, kurių reikia tęsimui
 
@@ -633,4 +633,4 @@ Kol kas statusas yra **STOP**. Į 1 fazę galima eiti tik kai:
 
 ## 10. Kitas veiksmas
 
-Privatus `age` identity ir R2 API tokenas jau išsaugoti password manager’yje; R2 tokenas taip pat įdiegtas VPS secret faile. Supabase Auth, SMTP, redirect bei OAuth būsena jau inventorizuota; Resend DNS įrašai patvirtinti, reset-password laiškas realiai pristatytas, redirect pasiekia Pages aplikaciją, o VPS R2 connectivity testas sėkmingas. Liko recovery UI logika aplikacijoje. Tikrasis atkuriamumo įrodymas bus 2 fazės rehearsal restore.
+Privatus `age` identity ir R2 API tokenas jau išsaugoti password manager’yje; R2 tokenas taip pat įdiegtas VPS secret faile. Supabase Auth, SMTP, redirect bei OAuth būsena jau inventorizuota; Resend DNS įrašai patvirtinti, reset-password laiškas realiai pristatytas, redirect pasiekia Pages aplikaciją, o VPS R2 connectivity testas sėkmingas. Savitarnos recovery UI neplanuojama dėl invite-only politikos; reset procedūra yra savininko valdoma. 2 fazės katalogo-only rehearsal restore atliktas, tačiau pilnas Auth/Storage parity dar nėra atkuriamumo įrodymo dalis.
