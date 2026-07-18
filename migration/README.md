@@ -7,12 +7,20 @@
 
 | Fazė | Dokumentas | Būsena |
 |---|---|---|
-| 0 | [Source inventorizacija ir backup](0-source-inventorizacija.md) | Backup, R2 retention, Auth inventorius, Resend DNS, SMTP, redirect ir VPS → R2 patikra atlikti; recovery UI sąmoningai nediegiama dėl invite-only modelio, reset atlieka savininkas |
-| 1 | [Contabo platformos paruošimas](1-contabo-platformos-paruosimas.md) | VPS hardening, UFW/Contabo firewall, Cloudflare DNS, snapshot, swap, Docker, volumes, staging stack, Tunnel E2E ir VPS → R2 patikra atlikti; vykdomas restore rehearsal |
-| 2 | [Pirmas restore rehearsal](2-pirmas-restore-rehearsal.md) | Katalogo-only restore atliktas, row-count ir web/API smoke testai sėkmingi; Auth/Storage parity ir galutinis vartų uždarymas dar nebaigti |
-| 3 | Funkcijų ir atsparumo testas | Nepradėta |
-| 4 | 250k apkrovos ir recovery rehearsal | Nepradėta |
-| 5 | Produkcinis cutover ir 24 h stebėjimas | Nepradėta |
+| 0 | [Source inventorizacija ir backup](0-source-inventorizacija.md) | Baigta: backup, R2 retention, Auth/SMTP inventorius ir VPS → R2 patikra atlikti; invite-only modelyje savitarnos recovery UI sąmoningai nediegiama |
+| 1 | [Contabo platformos paruošimas](1-contabo-platformos-paruosimas.md) | Pagrindiniai vartai baigti: hardening, firewall, Docker, volumes, staging stack, Tunnel ir R2 veikia; Docker resursų checkpoint atliktas, liko Postgres/WAL metrikos ir monitoring/alertai |
+| 2 | [Pirmas restore rehearsal](2-pirmas-restore-rehearsal.md) | Katalogo-only restore, row-count ir web/API smoke testai sėkmingi; source Auth vartotojai pagal invite-only sprendimą nemigruojami; liko fizinė Storage parity ir disposable restore su RTO |
+| 3A | [Duomenų rinkimo perjungimas į staging](3-duomenu-rinkimo-perjungimas.md) | Katalogo workflow, validavimo gate ir 500 produktų/target testas sėkmingi; staging metadata workflow sukurtas, bet dar nepaleistas |
+| 3B | [Funkcijų ir atsparumo testas](3-funkciju-ir-atsparumo-testas.md) | Vykdoma: katalogo apkrovos ir host resursų testas atliktas; liko metadata, Auth/JWKS, aplikacijos funkcijos, Storage, restore, monitoring ir 250k/SLO |
+| 4 | Produkcinio cutover rehearsal | Nepradėta |
+| 5 | Produkcinis cutover | Nepradėta |
+| 6 | Stabilizavimas ir 24 h stebėjimas | Nepradėta |
+
+## Branch tvarka
+
+- Migracijos dokumentacijos source of truth yra `main` branch.
+- Ankstesnis `agent/document-auth-recovery-test` branch yra istorinis darbo branch; jame buvusios aktualios pataisos perkeltos į `main` rankiniu būdu kartu su naujesniais 500/target rezultatais.
+- Nauji migracijos sprendimai ir progreso varnelės atnaujinami `main` esančiuose `migration/*.md` dokumentuose; atskiras ilgalaikis migracijos branch nekuriamas.
 
 ## Dokumentavimo taisyklės
 

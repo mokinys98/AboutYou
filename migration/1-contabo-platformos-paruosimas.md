@@ -16,17 +16,20 @@
 - [x] Sukurtas Contabo snapshot prieš Docker diegimą (`Before docker`).
 - [x] Sukurtas ir aktyvuotas 4 GiB swapfile; `vm.swappiness=10`.
 - [x] Įdiegtas Docker Engine + Compose ir patikrintos versijos; `hello-world` testas sėkmingas.
-- [ ] Sukurti bei patikrinti persistent volumes.
-- [x] Cloudflare DNS zona paruošta ir nameserver’iai pateikti registratoriui; propagacija dar vyksta.
+- [x] Sukurti bei patikrinti persistent volumes; DB duomenys laikomi `/srv/supabase/docker/volumes/db/data`.
+- [x] Cloudflare DNS zona paruošta, nameserverių propagacija baigta.
 - [x] Sukurtas Cloudflare Tunnel ir prijungtas connectoris.
 - [x] End-to-end Tunnel hostname testas sėkmingas; `https://supabase-staging.rinkissaupigiausia.online/` grąžina `401` iš Kong.
 - [x] Cloudflare Tunnel connector prisijungęs prie paskyros; connector rodo `Connected` (v2026.7.2).
-- [ ] Veikia `supabase-staging.rinkissaupigiausia.online` per HTTPS Tunnel.
-- [ ] Viešai nepasiekiami DB, pooler ir neapsaugotas Studio portai.
-- [ ] VPS → R2 connectivity testas sėkmingas.
-- [ ] Staging Supabase stack paleistas su prisegtomis versijomis; cron/refresh išjungti.
+- [x] Veikia `supabase-staging.rinkissaupigiausia.online` per HTTPS Tunnel.
+- [x] Viešai nepasiekiami DB, pooler ir neapsaugotas Studio; Studio pasiekiamas tik per SSH local port-forward.
+- [x] VPS → R2 connectivity testas sėkmingas.
+- [x] Staging Supabase stack paleistas su prisegtomis versijomis; read-model cron aktyvuotas tik 3 fazėje po canary patikrų.
+- [x] Po 500 produktų/target staging testo patikrinti host resursai: 11 GiB RAM, 2,6 GiB naudojama, 9,1 GiB available; swap praktiškai nenaudojamas; diske 174 GiB laisva (11 % naudojama).
+- [x] Užfiksuota `sudo docker stats --no-stream` išvestis po apkrovos; visi 11 Supabase konteinerių veikia, bendras momentinis jų RAM naudojimas apie 2,0 GiB.
+- [ ] Užfiksuoti Postgres DB dydį ir `pg_stat_wal` metrikas po apkrovos.
 
-**Būsena:** VPS preflight, OS atnaujinimai, SSH hardening, UFW/Contabo firewall, post-reboot patikra, swap ir Docker diegimas atlikti. Ubuntu 24.04.4, 11 GiB RAM, 193 GiB ext4 diskas (2 % naudojama), viešai klausosi tik SSH 22. Cloudflare domenas aktyvus; persistent volumes ir Tunnel dar neįdiegti.
+**Būsena:** pagrindiniai 1 fazės platformos vartai įvykdyti: VPS hardening, UFW/Contabo firewall, swap, Docker, log rotation, persistent volumes, prisegtas staging Supabase stack, Cloudflare Tunnel, viešų DB/pooler/Studio portų izoliacija ir VPS → R2 patikra atlikti. Po 2026-07-18 staging apkrovos testo liko 174 GiB disko ir 9,1 GiB available RAM, o konteinerių momentinis RAM naudojimas siekė apie 2,0 GiB. Dar neužfiksuotos Postgres DB/WAL metrikos ir neįrodyti automatiniai monitoring/backup failure alertai.
 **Pradėta:** 2026-07-16  
 **Tikslas:** paruošti izoliuotą staging target, kuriame vėliau būtų galima atlikti pirmą restore rehearsal. Produkcinis Supabase šiame etape nekeičiamas.
 
@@ -247,13 +250,13 @@ Cloudflare Tunnel atveju į VPS nereikia atverti 80/443: `cloudflared` pats inic
 
 ### 4.1. VPS ir OS hardening
 
-- [ ] Užfiksuoti VPS IPv4, regioną, OS leidimą, disko dydį ir laiką UTC.
-- [ ] Sukurti ne-root administratorių su `sudo`.
-- [ ] Įkelti operatoriaus SSH public key.
-- [ ] Išjungti root SSH login ir password authentication tik po patikrinimo nauja SSH sesija.
+- [x] Užfiksuoti VPS regioną, OS leidimą, disko dydį ir patikros laiką; viešo IP dokumente nekartoti.
+- [x] Sukurti ne-root administratorių su `sudo`.
+- [x] Įkelti operatoriaus SSH public key.
+- [x] Išjungti root SSH login ir password authentication tik po patikrinimo nauja SSH sesija.
 - [ ] Įjungti automatinius security updates pagal pasirinktą Ubuntu LTS politiką.
-- [ ] Nustatyti UFW / Contabo firewall: deny by default; administracinis SSH tik iš patikimo šaltinio, jei įmanoma.
-- [ ] Neatidaryti viešų `5432`, `6543`, DB, pooler ar vidinių Supabase portų.
+- [x] Nustatyti UFW / Contabo firewall deny-by-default; dėl kintančių administratoriaus IP SSH paliktas `LIMIT 22/tcp` iš `Anywhere`, naudojant tik key authentication.
+- [x] Neatidaryti viešų `5432`, `6543`, DB, pooler ar vidinių Supabase portų.
 
 ### 4.2. Docker ir persistent storage
 
@@ -272,49 +275,58 @@ Cloudflare Tunnel atveju į VPS nereikia atverti 80/443: `cloudflared` pats inic
 - [x] Pirmas staging `docker compose up -d` atliktas; dauguma servisų healthy, galutinė realtime health patikra dar vykdoma.
 - [x] Visi staging servisai healthy; Kong atsako lokaliai, viešai nėra `5432`/`6543`.
 - [x] Įjungti Docker log rotation (`json-file`, `max-size=10m`, `max-file=5`); konteinerių logai negali neribotai auginti 200 GB disko.
-- [ ] Prieš paleidimą patikrinti host disko, RAM ir inode rezervą.
+- [x] Patikrinti host disko ir RAM rezervą; 2026-07-18 po 500 produktų/target testo liko 174 GiB disko ir 9,1 GiB available RAM.
+- [x] Užfiksuoti `sudo docker stats --no-stream` išvestį; visi 11 konteinerių aktyvūs, didžiausi RAM vartotojai: Kong ~690 MiB, DB ~287 MiB, Studio ~268 MiB.
+- [ ] Užfiksuoti inode rezervą.
 
 ### 4.3. Prisegtas self-hosted Supabase stack
 
-- [ ] Pasirinkti ir užfiksuoti konkretų self-hosted Supabase release, nenaudoti `latest`.
-- [ ] Pasirinkti Postgres versiją pagal source faktą: source yra PostgreSQL 17.6.
-- [ ] Generuoti naujus staging secret’us; source JWT/API raktai į staging nekopijuojami.
-- [ ] Įsitikinti, kad DB ir pooler portai bind’inami tik Docker network / localhost.
+- [x] Pasirinkti ir užfiksuoti konkretų self-hosted Supabase šaltinio commit `9069e8d2` ir prisegtas image versijas; `latest` nenaudojamas.
+- [x] Pasirinkti Postgres 17.6 pagal source faktą.
+- [x] Generuoti naujus staging secret’us; source JWT/API raktai į staging nekopijuojami.
+- [x] Įsitikinti, kad DB ir pooler portai nepublikuojami hoste, o Kong bind’inamas tik localhost.
 
-Kitas vykdymas VPS: sukurti `/srv/supabase/{docker,volumes,backups,logs}` katalogus, patikrinti esamą `/etc/docker/daemon.json`, tada įjungti kontroliuojamą Docker logų rotaciją. Šiame žingsnyje Supabase konteineriai dar nepaleidžiami.
-- [ ] Paleisti tik health-check paruoštą staging stack; cron ir read-model refresh lieka išjungti.
+Istorinis paruošimo žingsnis užbaigtas: `/srv/supabase/{docker,volumes,backups,logs}` katalogai sukurti, Docker logų rotacija įjungta, o staging konteineriai paleisti ir patikrinti.
+- [x] Paleisti health-check paruoštą staging stack; cron ir read-model refresh buvo aktyvuoti tik 3 fazėje po sėkmingų canary patikrų.
 
 ### 4.4. Cloudflare Tunnel ir hostname’ai
 
-- [ ] Cloudflare zonoje sukurti atskirą Tunnel.
-- [ ] VPS įdiegti `cloudflared` kaip system service, tokeną laikyti secret saugykloje.
-- [ ] Tunnel route susieti su `supabase-staging.rinkissaupigiausia.online`.
-- [ ] Studio route laikyti už papildomos Cloudflare Access / IP politikos; jo viešai anonimiškai neatverti.
-- [ ] Patikrinti TLS ir išorės HTTP statusą tik per hostname.
+- [x] Cloudflare zonoje sukurti atskirą Tunnel.
+- [x] VPS įdiegti `cloudflared` kaip system service, tokeną laikyti secret saugykloje.
+- [x] Tunnel route susieti su `supabase-staging.rinkissaupigiausia.online`.
+- [x] Studio viešai nepublikuoti; prieiga naudojama per SSH local port-forward į `127.0.0.1:3000`.
+- [x] Patikrinti TLS ir išorės HTTP statusą per hostname; Kong grąžina laukiamą `401` be API rakto.
 
 ### 4.5. Backup, monitoring ir connectivity
 
-- [ ] VPS backup skriptas naudoja root-only R2 secret failą ir neįrašo tokeno į logus.
-- [ ] Atlikti neprodukcinį R2 `list/head` connectivity testą.
-- [ ] Patikrinti, kad R2 upload objektas yra kliento pusėje `age` užšifruotas.
+- [ ] Automatizuoti VPS backup vykdymą; root-only R2 secret failas jau paruoštas, bet periodinio skripto/timer įrodymo nėra.
+- [x] Atlikti neprodukcinį R2 `list/head` connectivity testą.
+- [x] Patikrinti, kad R2 backup objektas yra kliento pusėje `age` užšifruotas ir atkuriamas.
 - [ ] Įjungti disk usage, Docker health ir backup failure alertus.
-- [ ] Sukonfigūruoti retention / log cleanup taip, kad diskas nestiprėtų nuo logų.
+- [x] Sukonfigūruoti R2 retention ir Docker log rotation taip, kad backup bei konteinerių logai neaugtų neribotai.
 
 ## 5. Stop vartai prieš 2 fazę
 
 Į pirmą restore rehearsal galima eiti tik kai:
 
-- [ ] VPS pasiekiamas tik SSH key-only administracine prieiga;
-- [ ] viešai nepasiekiami `5432`, `6543`, DB, pooler ir neapsaugotas Studio;
-- [ ] Docker volumes išlieka po konteinerių perkūrimo;
-- [ ] konkretus Supabase release ir Postgres 17 suderinamumas užfiksuoti;
-- [ ] staging hostname veikia per HTTPS Tunnel;
-- [ ] R2 iš VPS pasiekimas patikrintas, o backup testinis objektas atkuriamas;
-- [ ] cron / refresh writer’iai staging’e išjungti.
+- [x] VPS pasiekiamas tik SSH key-only administracine prieiga;
+- [x] viešai nepasiekiami `5432`, `6543`, DB, pooler ir neapsaugotas Studio;
+- [x] Docker DB bind volume išlaikė duomenis po konteinerių perkūrimo/paleidimo;
+- [x] konkretus Supabase šaltinio commit, image versijos ir Postgres 17.6 užfiksuoti;
+- [x] staging hostname veikia per HTTPS Tunnel;
+- [x] R2 iš VPS pasiekimas patikrintas, o šifruotas backup objektas parsisiųstas ir atkurtas 2 fazėje;
+- [x] cron / refresh writer’iai 1–2 fazėse buvo kontroliuojami; 3 fazėje aktyvuoti du numatyti `pg_cron` darbai.
 
 ## 6. Kitas veiksmas
 
-Kol Cloudflare laukia nameserverių propagacijos, VPS galima patikrinti read-only komandomis. Vykdyk VPS terminale kaip administratoriaus naudotojas ir įkelk tik išvestį be secretų:
+1 fazės platforma paruošta, o konteinerių momentinės metrikos užfiksuotos. Kitas platformos darbas 3 fazėje — užfiksuoti Postgres DB/WAL metrikas bei įdiegti disk usage, Docker health ir backup failure alertus. Docker komandoms naudoti `sudo`, nes `deploy` vartotojas sąmoningai nepridėtas prie privilegijuotos `docker` grupės:
+
+```bash
+sudo docker stats --no-stream
+sudo docker compose -f /srv/supabase/docker/docker-compose.yml -f /srv/supabase/docker/docker-compose.staging.yml ps
+```
+
+Istorinės read-only preflight komandos paliekamos žemiau auditui:
 
 ```bash
 hostnamectl
@@ -328,9 +340,9 @@ docker compose version 2>/dev/null || true
 
 Šios komandos nekeičia sistemos. Pagal jų rezultatą parinksiu tikslų hardening ir Docker diegimo etapą.
 
-### 6.1. Kitas saugus vykdymas: SSH key-only paruošimas
+### 6.1. Istorinis vykdymas: SSH key-only paruošimas
 
-VPS šiuo metu dar nehardening’intas. Pirmiausia pačiame VPS sukurk administratorių ir įrašyk savo **public** SSH key (private key niekur nekopijuojamas):
+Šis žingsnis jau atliktas ir paliekamas auditui. VPS buvo sukurtas `deploy` administratorius, įrašytas **public** SSH key, o private key į VPS nekopijuotas:
 
 ```bash
 adduser deploy
@@ -378,9 +390,9 @@ Jei administratoriaus IP nėra statinis, SSH taisyklę reikia spręsti per Conta
 
 Contabo senajame valdymo skydelyje tai gali nebūti pavadinta „Web Console“. Avarinio priėjimo reikia ieškoti per **VPS control** pasirinkus konkretų VPS ir ieškant **VNC / KVM / Console** funkcijos. Jei konkrečiam planui tokios funkcijos nėra, atsarginis kelias yra Contabo Rescue / OS reinstall meniu arba Support ticket. Prieš įjungiant UFW turi būti bent vienas veikiantis avarinis kelias.
 
-### 6.2. OS atnaujinimas po `deploy` patikros
+### 6.2. Istorinis vykdymas: OS atnaujinimas po `deploy` patikros
 
-Kadangi Ubuntu praneša `System restart required`, pirmiausia iš `deploy` sesijos paleisk:
+Šis žingsnis atliktas prieš kontroliuojamą reboot ir paliekamas auditui. Buvo vykdyta:
 
 ```bash
 sudo apt update
@@ -390,7 +402,7 @@ sudo apt install -y ufw unattended-upgrades ca-certificates curl gnupg
 
 Po atnaujinimo dar nedaryk `reboot`, kol nepatikrintas `deploy` prisijungimas su SSH raktu iš naujos terminalo sesijos. Tik tada taikomas SSH hardening ir planuojamas kontroliuojamas restartas.
 
-Kad galėčiau pradėti realų 1 fazės vykdymą, reikia tik šių ne-slaptų faktų:
+Istoriniai 1 fazės įėjimo klausimai, kurie dabar jau atsakyti:
 
 1. ar Contabo VPS jau sukurtas ir kokia jo OS (IP bei SSH raktas pokalbyje nesiunčiami);
 2. ar `rinkissaupigiausia.online` DNS galima perkelti į Cloudflare;

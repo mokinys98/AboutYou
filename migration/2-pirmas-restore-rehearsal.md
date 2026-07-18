@@ -1,48 +1,50 @@
 # 2 fazė — pirmas restore rehearsal
 
-## Naujausias checkpoint (2026-07-16)
+## Progreso varnelės — atnaujinti pirmiausia
 
-- [x] `data.public.sql` sugeneruotas iÅ¡ `data.sql`, dydis 290,185,795 B.
-- [x] Validuoti 29 `COPY "public".*` blokai; Auth neatitikimo blokai neÄ¯traukti.
-- [ ] Vykdyti `public` duomenÅ³ importÄ… ir row-count smoke testÄ….
-- [ ] IÅ¡sprÄ™sti Auth/Storage schemÅ³ parity, tada kartoti Auth importÄ….
-- [ ] Public importas sustojo ties `team_members_user_id_fkey`, nes `auth.users` dar neatkurtas; prieÅ¡ tÄ™siant reikia atskirti nuo Auth priklausanÄias lenteles ir nedubliuoti jau Ä¯keltÅ³ `sources`/`products`.
-- [ ] Sprendimas: staging restore gali bÅ«ti katalogo-only; source Auth vartotojai nemigruojami, staging naudotojas kuriamas naujai per Supabase Auth.
-- [x] Katalogo-only likutis importuotas sÄ—kmingai (`data.catalog.final.sql`); Auth ir vartotojÅ³ priklausomos lentelÄ—s sÄ…moningai praleistos.
+- [x] `data.public.sql` sugeneruotas iš `data.sql`, dydis 290,185,795 B.
+- [x] Validuoti 29 `COPY "public".*` blokai; Auth neatitikimo blokai neįtraukti.
+- [x] `public` katalogo duomenų importas ir row-count smoke testas atlikti.
+- [x] Patvirtintas invite-only Auth sprendimas: source Auth vartotojai nemigruojami, staging/target vartotojai kuriami ir kviečiami naujai.
+- [x] Pirmas importas sustojo ties `team_members_user_id_fkey`; priežastis identifikuota kaip sąmoningai neatkurtas `auth.users`, todėl nuo Auth priklausomi duomenys atskirti.
+- [x] Katalogo-only restore pasirinktas kaip šio rehearsal apimtis; Auth schemos versijų neatitikimas neapeinamas pavojingu SQL taisymu.
+- [x] Katalogo-only likutis importuotas sėkmingai (`data.catalog.final.sql`); Auth ir vartotojų priklausomos lentelės sąmoningai praleistos.
 - [x] Katalogo row-count smoke testas sutampa su source: products 51,535; offers 51,535; categories 190; daily_prices 220,101; product_size_options 294,806; sync_runs 604; sources 1.
-- [x] Visi staging servisai paleisti ir `healthy`; Tunnel E2E grÄ…Å¾ina HTTP 401 (Kong/Auth pasiekiamas ir reikalauja autentifikacijos).
-- [ ] Po importo perskaiÄiuotas materializuotas katalogo read model (`public.catalog_items_read`); iki tol API gali grÄ…Å¾inti `has not been populated`.
-- [x] `public.catalog_items_read` perskaiÄiuotas po restore; aplikacijoje produktai rodomi.
-- [x] `public.catalog_item_facet_values_read` ir `catalog_facets_cache` perskaiÄiuoti; `catalog_items_read` turi 48,446 paruoÅ¡tus katalogo Ä¯raÅ¡us.
-- [x] Lokalus web login ir katalogo pagrindinio puslapio smoke testas sÄ—kmingas; staging API naudoja naujÄ… Auth vartotojÄ….
-- [x] Studio dashboard expose'intas tik per `127.0.0.1:3000`; vieÅ¡ai nepublikuotas, prieiga numatyta per SSH local port-forward.
+- [x] Visi staging servisai paleisti ir `healthy`; Tunnel E2E grąžina HTTP 401 (Kong/Auth pasiekiamas ir reikalauja autentifikacijos).
+- [x] Po importo perskaičiuotas materializuotas katalogo read model (`public.catalog_items_read`); API rodo atkurtus produktus.
+- [x] `public.catalog_items_read` perskaičiuotas po restore; aplikacijoje produktai rodomi.
+- [x] `public.catalog_item_facet_values_read` ir `catalog_facets_cache` perskaičiuoti; `catalog_items_read` turi 48 446 paruoštus katalogo įrašus.
+- [x] Lokalus web login ir katalogo pagrindinio puslapio smoke testas sėkmingas; staging API naudoja naują Auth vartotoją.
+- [x] Studio dashboard publikuotas tik per `127.0.0.1:3000`; viešai nepasiekiamas, prieiga numatyta per SSH local port-forward.
 
 ## Progreso blokas
 
 - [x] Staging Supabase stack paleistas ir visi servisai healthy.
 - [x] Staging API pasiekiamas per Cloudflare Tunnel.
-- [ ] Į VPS saugiai pristatytas pasirinktas source dump artefaktas iš R2.
+- [x] Į VPS saugiai pristatytas pasirinktas source dump artefaktas iš R2.
 - [x] Sukurtas restore rehearsal darbo katalogas su `0700` teisėmis.
 - [x] VPS įdiegti `age 1.1.1` ir `rclone 1.60.1`; R2 secret failas rastas `/etc/aboutyou-backup/r2.env` su `0600` teisėmis.
 - [x] R2 read-only connectivity testas sėkmingas; matomas baseline prefiksas.
 - [x] Baseline prefikso artefaktas pasirinktas: `aboutyou-supabase-20260715T192442Z.tar.gz.age`, `48,710,800 B`.
 - [x] Artefaktas atsisiųstas į VPS ir SHA-256 sutampa su 0 fazės manifestu.
-- [ ] Dump parašas / checksum patikrintas prieš dešifravimą.
-- [ ] Source dump iššifruotas naudojant VPS age identity; private key į logus nepatenka.
+- [x] Dump checksum patikrintas prieš dešifravimą.
+- [x] Source dump iššifruotas naudojant VPS age identity; private key į logus nepateko.
 - [x] Age identity saugiai pristatyta į `/etc/aboutyou-backup/age-identity`; formatas validus, teisės `0600`.
 - [x] Iššifruoto `tar.gz` SHA-256 sutampa su 0 fazės manifestu.
 - [x] `tar.gz` įrašų skaičius ir tar/gzip integralumas papildomai patikrinti; archyve yra `roles.sql`, `schema.sql`, `data.sql`.
 - [x] Išskleisti failai atskirame restore kataloge; dydžiai sutampa su source manifestu.
 - [x] Dump antraštės patikrintos: roles koreguoja esamas roles, schema naudoja `IF NOT EXISTS`, data paruošta importui.
-- [ ] Atkurtos roles, schema ir data į staging DB.
+- [x] Atkurtos roles, schema ir katalogo duomenys; source Auth vartotojai ir nuo jų priklausomi įrašai sąmoningai neimportuoti.
 - [x] Roles ir schema importai sėkmingi.
-- [ ] Data importas baigtas; pirmas bandymas sustojo dėl source/target Auth schemos neatitikimo (`auth.custom_oauth_providers.custom_claims_allowlist`).
-- [ ] Dėl Auth schemos versijų skirtumo paruoštas atskiras `public` aplikacijos duomenų importas; Auth/Storage parity lieka atskiru vartų darbu.
-- [ ] `public` importas validuotas pagal COPY targetus ir paruoštas vykdymui.
-- [ ] Atlikti row-count, lentelių, Auth/Storage ir pagrindinių API smoke testai.
-- [ ] Užfiksuotas restore laikas, klaidos, duomenų dydis ir rollback pastabos.
+- [x] Katalogo-only data importas baigtas; pirmo bandymo Auth schemos neatitikimas (`auth.custom_oauth_providers.custom_claims_allowlist`) užfiksuotas kaip priežastis nemigruoti source Auth duomenų.
+- [x] Paruoštas ir įvykdytas atskiras `public` katalogo duomenų importas.
+- [x] `public` importas validuotas pagal COPY targetus.
+- [x] Atlikti katalogo row-count ir pagrindiniai web/API smoke testai.
+- [x] Užfiksuotos pagrindinės restore klaidos, dump ir išskleistų failų dydžiai bei katalogo-only sprendimas.
+- [ ] Perkelti ir palyginti fizinius `sync-raw` bei `sync-debug` Storage objektus pagal count, bytes ir atrinktus hash/ETag.
+- [ ] Atlikti dar vieną disposable restore rehearsal iš naujausio backup ir užfiksuoti bendrą RTO.
 
-**Būsena:** pasiruošta pradėti restore rehearsal. Produkcinis Supabase ir production refresh šiame etape neliečiami.
+**Būsena:** katalogo-only restore rehearsal staging aplinkoje atliktas: dump patikrintas ir iššifruotas, roles/schema importai sėkmingi, katalogo duomenys atkurti, row-count ir web/API smoke testai sėkmingi. Source Auth vartotojai pagal patvirtintą invite-only sprendimą nemigruojami — target vartotojai bus kviečiami naujai. Fazės likutis yra fizinių Storage objektų parity ir pakartotinis disposable restore su išmatuotu RTO. Produkcinis Supabase šiame etape nekeistas.
 
 ## Tikslas
 
@@ -73,7 +75,7 @@ Patikrinti, ar iš 0 fazėje paruoštų šifruotų artefaktų galima atkuriamai 
 - Jei restore reikalauja production connection string — sustoti ir neperjungti source.
 - Jei po restore DB health negrįžta — nestartuoti funkcinių testų, pirmiausia rinkti logus.
 
-Restore incident checkpoint: po roles/schema sėkmės data importas sustojo ties `auth.custom_oauth_providers.custom_claims_allowlist`. Aplikaciniai servisai palikti sustabdyti; prieš tęsiant reikia suderinti Auth schemų versijas arba atskirti Auth duomenų sekciją nuo public aplikacijos duomenų.
+Istorinis restore incident checkpoint: po roles/schema sėkmės pirmas data importas sustojo ties `auth.custom_oauth_providers.custom_claims_allowlist`. Incidentas uždarytas pasirinkus katalogo-only restore: Auth duomenų sekcija atskirta, source vartotojai nemigruojami, o staging servisai vėliau paleisti ir patikrinti.
 
 ## Rollback
 

@@ -13,9 +13,9 @@
 - [x] Recovery redirect pasiekia Pages aplikaciją.
 - [x] Patvirtinta: savitarnos recovery UI / `PASSWORD_RECOVERY` funkcija neįdiegiama, nes projektas yra invite-only; password reset atlieka savininkas pagal naudotojo kreipimąsi.
 - [x] R2 connectivity testas iš VPS; bucket listing sėkmingas per `/etc/aboutyou-backup/r2.env`.
-- [ ] 2 fazės restore rehearsal ir parity ataskaita.
+- [x] 2 fazės katalogo-only restore rehearsal atliktas; pilna fizinių Storage objektų parity palikta atskiram vartų darbui.
 
-**Būsena:** source baseline, šifruotas dump, patikrinta off-host R2 kopija, retention, VPS backup secret, privataus `age` rakto escrow, Auth URL/provider inventorizacija, Resend DNS ir VPS R2 connectivity paruošti. Projektas veikia invite-only režimu: viešos registracijos ir savitarnos password-reset UI nėra; naudotojo slaptažodžio atkūrimą pagal kreipimąsi atlieka savininkas per Supabase administravimo veiksmus.
+**Būsena:** 0 fazės inventorizacija ir atkuriamo backup paruošimas baigti. Source baseline, šifruotas dump, patikrinta off-host R2 kopija, retention, VPS backup secret, privataus `age` rakto escrow, Auth URL/provider inventorizacija, Resend DNS ir VPS R2 connectivity paruošti. Projektas veikia invite-only režimu: source Auth vartotojai į staging nemigruojami, viešos registracijos ir savitarnos password-reset UI nėra; naudotojo slaptažodžio atkūrimą pagal kreipimąsi atlieka savininkas per Supabase administravimo veiksmus.
 **Pradėta:** 2026-07-15  
 **Tikslas:** užfiksuoti valdomo Supabase projekto faktinę būklę ir sukurti atkuriamą backup prieš bet kokius produkcinius pakeitimus.  
 **Source pakeitimai šioje fazėje:** draudžiami, išskyrus atskirai patvirtintą backup ar diagnostikos veiksmą.
@@ -212,7 +212,7 @@ Vykdyti tik užrakintame, šifruotame kataloge už repo ribų. Po dump:
 
 Storage objektams sudaromas atskiras manifestas su `bucket`, object key, dydžiu, MIME tipu, cache-control, atnaujinimo laiku ir, kai įmanoma, checksum / ETag. Vien `storage.objects` eilučių neužtenka.
 
-## 7. Dar neužpildyta faktinė source ataskaita
+## 7. Faktinė source ataskaita
 
 | Patikra | Rezultatas | Būsena |
 |---|---|---|
@@ -615,22 +615,22 @@ Supabase Auth išsiuntė `Reset your password` laišką į testinę Gmail dėžu
 - [x] Sukurtas tik šiam R2 bucket apribotas API token būsimiems automatiniams backup; raktai išsaugoti password manager’yje ir VPS secret faile.
 - [x] Sukurtos ir patikrintos `daily/`, `weekly/`, `monthly/` retention taisyklės (7 / 28 / 90 dienų).
 - [x] Read-only DB diagnostika atlikta; produkciniai duomenys nekeisti.
-- [ ] Nurodytas saugus langas pilnam roles/schema/data dump.
+- [x] Baseline roles/schema/data dump atliktas nekeičiant source duomenų; final cutover dump langas bus tvirtinamas 4 fazės rehearsal metu.
 - [x] Patvirtinta, kas gali peržiūrėti Auth / SMTP / redirect / OAuth konfigūraciją Dashboard'e.
 
 Slaptų reikšmių į šį failą ar pokalbį pateikti nereikia.
 
 ## 9. 0 fazės stop / go vartai
 
-Kol kas statusas yra **STOP**. Į 1 fazę galima eiti tik kai:
+Statusas yra **GO į staging fazes**. Visi 0 fazės įėjimo vartai įvykdyti:
 
 - [x] užfiksuotos source versijos, extensions, roles, grants, cron ir migracijų ledger; rastos saugos rizikos perkeltos į privalomą auditą;
 - [x] užfiksuoti pagrindinių lentelių bei Storage objektų skaičiai ir dydžiai;
 - [x] sukurti roles, schema ir data dump;
 - [x] dump turi SHA-256 įrodymą ir šifruotą off-host R2 kopiją, patikrintą parsisiuntimu;
 - [x] Auth / SMTP / redirect / OAuth konfigūracija inventorizuota be secret'ų;
-- [ ] sutarta, kad tikrasis atkuriamumo įrodymas bus 2 fazės rehearsal restore.
+- [x] 2 fazėje atliktas katalogo-only rehearsal restore; source Auth vartotojų nemigravimas yra patvirtintas invite-only sprendimas, o fizinė Storage parity lieka priešprodukcinis vartų darbas.
 
 ## 10. Kitas veiksmas
 
-Privatus `age` identity ir R2 API tokenas jau išsaugoti password manager’yje; R2 tokenas taip pat įdiegtas VPS secret faile. Supabase Auth, SMTP, redirect bei OAuth būsena jau inventorizuota; Resend DNS įrašai patvirtinti, reset-password laiškas realiai pristatytas, redirect pasiekia Pages aplikaciją, o VPS R2 connectivity testas sėkmingas. Savitarnos recovery UI neplanuojama dėl invite-only politikos; reset procedūra yra savininko valdoma. 2 fazės katalogo-only rehearsal restore atliktas, tačiau pilnas Auth/Storage parity dar nėra atkuriamumo įrodymo dalis.
+Privatus `age` identity ir R2 API tokenas išsaugoti password manager’yje; R2 tokenas taip pat įdiegtas VPS secret faile. Auth, SMTP, redirect bei OAuth būsena inventorizuota, Resend DNS patvirtintas, reset-password laiškas pristatytas, o VPS R2 connectivity testas sėkmingas. Savitarnos recovery UI neplanuojama dėl invite-only politikos; reset procedūra yra savininko valdoma. Toliau vykdomi 3 fazės funkcijų, metadata, Storage parity ir atsparumo testai.
