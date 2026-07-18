@@ -7,7 +7,7 @@
 
 | Fazė | Dokumentas | Būsena |
 |---|---|---|
-| 0 | [Source inventorizacija ir backup](0-source-inventorizacija.md) | Backup, R2 retention, Auth inventorius, Resend DNS, SMTP, redirect ir VPS → R2 patikra atlikti; aplikacijoje vis dar trūksta recovery UI logikos |
+| 0 | [Source inventorizacija ir backup](0-source-inventorizacija.md) | Backup, R2 retention, Auth inventorius, Resend DNS, SMTP, redirect ir VPS → R2 patikra atlikti; recovery UI sąmoningai nediegiama dėl invite-only modelio, reset atlieka savininkas |
 | 1 | [Contabo platformos paruošimas](1-contabo-platformos-paruosimas.md) | VPS hardening, UFW/Contabo firewall, Cloudflare DNS, snapshot, swap, Docker, volumes, staging stack, Tunnel E2E ir VPS → R2 patikra atlikti; vykdomas restore rehearsal |
 | 2 | [Pirmas restore rehearsal](2-pirmas-restore-rehearsal.md) | Katalogo-only restore atliktas, row-count ir web/API smoke testai sėkmingi; Auth/Storage parity ir galutinis vartų uždarymas dar nebaigti |
 | 3 | Funkcijų ir atsparumo testas | Nepradėta |

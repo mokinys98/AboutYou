@@ -64,6 +64,8 @@ Sinchronizavimo metu kas 5 s spausdinamas surinktų produktų ir srauto puslapi�
 
 Pagrindinis prisijungimo būdas yra el. paštas ir slaptažodis. Magic link paliktas kaip alternatyva: Supabase Auth URL Configuration pridėkite vietinį `http://localhost:3000/auth/callback` ir produkcinį Cloudflare Pages callback URL. Viešą naudotojų registraciją išjunkite. Produkciniam magic-link laiškų siuntimui sukonfigūruokite nuosavą SMTP tiekėją, nes numatytasis Supabase siuntimas yra skirtas tik bandymams ir turi griežtus limitus.
 
+Projektas yra invite-only: naudotojus sukuria ir pakviečia administratorius, o savitarnos „Pamiršau slaptažodį“ funkcijos aplikacijoje nėra. Jei naudotojas praranda prieigą, jis susisiekia su projekto savininku; savininkas slaptažodį atstato per Supabase administravimo veiksmus ir tik tada patvirtina, kad naudotojas gali prisijungti.
+
 ### Komandos narių kvietimai
 
 Administratoriaus „Vartotojai“ skiltis kvietimus siunčia per Supabase Auth Admin API. Lokaliai API aplinkoje nustatykite `WEB_APP_URL=http://localhost:3000`; produkcijoje Worker `WEB_APP_URL` turi sutapti su Cloudflare Pages adresu. Supabase Authentication → URL Configuration leidžiamų redirect adresų sąraše pridėkite:
