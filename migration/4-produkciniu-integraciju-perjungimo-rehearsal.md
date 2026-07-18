@@ -25,7 +25,7 @@
 - [x] VPS paleistas `scripts/migration/vps-readiness.sh`: host, SSH, UFW, Docker, Tunnel, konteineriai, portai, JWKS, Postgres, cron ir R2 secret teisės tvarkingi; nustatytas vienas realus trūkumas — nėra backup systemd timerio (2026-07-18).
 - [x] Paruoštas vieno paleidimo `scripts/migration/install-vps-backup.sh` diegiklis: custom-format DB dump, roles be slaptažodžių, fiziniai Storage baitai, Postgres custom/pgsodium raktų volume, `age` šifravimas, R2 upload dydžio patikra, vietinė 3 d. retencija ir kasdienis systemd timeris.
 - [x] VPS įdiegtas ir aktyvuotas kasdienis `aboutyou-supabase-backup.timer`.
-- [ ] Pakartoti pirmą backup su pataisyta Cloudflare R2 konfigūracija ir patvirtinti R2 objektą bei sėkmingą service žurnalą.
+- [x] Pirmas automatinio kelio backup sėkmingas: R2 objektas `50 731 288` B, lokali šifruota kopija, SHA-256 ir service `0/SUCCESS` patvirtinti (2026-07-18).
 - [ ] Patikrinta Telegram webhook, profilio susiejimas ir bent vienas testinis alertas per Worker → VPS DB.
 - [x] Telegram staging rehearsal sąmoningai atidėtas: antro boto nekuriame, production botas lieka nepaliestas iki galutinio cutover.
 - [ ] TODO po migracijos: pridėti aiškią profilio Telegram atjungimo UI logiką ir parengti vieno production boto webhook perjungimo į VPS Worker procedūrą su rollback.
@@ -99,9 +99,15 @@ archyvą su `age`. Įkėlimas į R2 nepavyko su `HTTP 501 NotImplemented`. Bendr
 `rclone` S3 provideris `Other` buvo pakeistas į oficialų Cloudflare R2 profilį
 (`provider=Cloudflare`, `region=auto`, `acl=private`, `no_check_bucket=true`), tačiau
 2022 m. Ubuntu `rclone 1.60.1-DEV` paketas grąžino tą patį `501`. Prieš kitą bandymą
-VPS atnaujinamas į oficialų `rclone 1.74.4`; diegiklis nuo šiol atmeta senesnes nei
-`1.70.0` versijas, kad nepradėtų brangaus dump su žinomu nesuderinamu klientu. Iki
-sėkmingo pakartotinio upload šis vartas lieka atviras.
+VPS atnaujintas į oficialų `rclone 1.74.4`; diegiklis nuo šiol atmeta senesnes nei
+`1.70.0` versijas, kad nepradėtų brangaus dump su žinomu nesuderinamu klientu.
+
+Po atnaujinimo pakartotinis bandymas baigtas sėkmingai: service grąžino `0/SUCCESS`,
+R2 objektas ir vietinė `age` kopija yra `50 731 288` B, užfiksuotas SHA-256
+`67b2c4abca82954dc70851836b208c972ec9610172a49abf6b08a8191cc1243a`, o nuotolinis
+kelias yra `automatic/20260718T211516Z/aboutyou-supabase-20260718T211516Z.tar.age`.
+Automatinio backup sukūrimo ir off-host upload vartas uždarytas; likęs atskiras vartas —
+šio formato restore į disposable aplinką ir faktinio RTO užfiksavimas.
 
 ## Galutinė architektūra
 
