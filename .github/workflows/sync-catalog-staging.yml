@@ -33,4 +33,11 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
+      - name: Mark sync start
+        run: echo "SYNC_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
       - run: npm run sync
+      - name: Verify staging sync and read-model refresh
+        env:
+          VERIFY_REFRESH_TIMEOUT_MINUTES: "15"
+          VERIFY_REFRESH_POLL_SECONDS: "15"
+        run: npm run verify:catalog:staging
