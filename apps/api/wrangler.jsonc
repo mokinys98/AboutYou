@@ -6,7 +6,7 @@
   "compatibility_flags": ["nodejs_compat"],
   "vars": {
     "ALLOWED_ORIGIN": "https://aboutyou-private-catalog-web.pages.dev,https://rinkissaupigiausia.online",
-    "WEB_APP_URL": "https://aboutyou-private-catalog-web.pages.dev",
+    "WEB_APP_URL": "https://rinkissaupigiausia.online",
     "TELEGRAM_BOT_USERNAME": "AboutYouTrackerBot",
     "GITHUB_OWNER": "mokinys98",
     "GITHUB_REPO": "AboutYou",

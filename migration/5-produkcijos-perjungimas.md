@@ -18,13 +18,19 @@
 - [x] Aktyvuotas atskiras GitHub `production-vps` environment kelias, paliekant esamus repo secrets source rollback’ui.
 
 **Būsena:** vykdomas cutover. Pages ir Worker naudoja VPS, cron’ai atkurti, metadata
-`50/50` canary ir rankinis production UI smoke sėkmingi, o pilnas katalogo sync paleistas.
-Iki 5 fazės uždarymo liko catalog run rezultatas ir finalaus source/target sprendimo užfiksavimas.
+`50/50` canary, pilnas katalogo sync ir rankinis production UI smoke sėkmingi.
+Iki 5 fazės uždarymo liko VPS katalogo `sync_runs` / refresh checkpointas ir finalaus
+source/target sprendimo užfiksavimas.
 
 **Cutover būsena 2026-07-19:** production Pages runtime config ir production Worker
 `/health.backendOrigin` rodo VPS Supabase; cutover preflight baigėsi `18/18 PASS`.
 Production Worker versija `362b8026-9728-43b2-8c47-0cdcc6cfb4ff` turi visus tris cron’us.
 GitHub metadata canary run `29664134768` atnaujino 50/50 produktų be retry ar schema klaidų.
+GitHub pilnas katalogo run `29664197881` baigėsi `success` per `14 min 58 s` ir
+paprašė read-model refresh versijos `44`.
+Pagrindinis domenas `https://rinkissaupigiausia.online` Cloudflare Pages sistemoje yra
+`active`; Worker versija `46c50c94-0bc9-4b46-95e0-4c2f0f8df067` naudoja šį domeną
+kaip `WEB_APP_URL`, o naujo ir rollback domenų CORS patikros grąžina `204`.
 
 Trumpas operatoriaus sąrašas: [Production VPS taskeris](5a-production-vps-taskeris.md).
 

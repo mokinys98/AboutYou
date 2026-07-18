@@ -18,8 +18,9 @@ gh secret list --env production-vps
 - [x] Paleistas `Sync product metadata` su `max_products=50` — run `29664134768`.
 - [x] Workflow sėkmingas: 50/50 complete, 0 retryable, 0 blocked schema, paprašytas refresh `43`.
 - [x] Paleistas production `Sync catalog` — run `29664197881`.
+- [x] Production `Sync catalog` run `29664197881` baigėsi `success` per `14 min 58 s` ir paprašė read-model refresh versijos `44`.
 - [x] Production UI smoke užskaitytas kaip `PASS` ir užfiksuotas cutover dokumentacijoje.
-- [ ] Palaukti, kol baigsis pilnas production katalogo sync; tada patikrinti jo suvestinę, VPS `sync_runs` įrašą ir read-model refresh (`43/43` ar naujesnį), ir tik po to uždaryti likusį katalogo checkpointą.
+- [ ] VPS patikrinti naujausią `sync_runs` įrašą ir read-model refresh (`44/44` ar naujesnį), tada uždaryti likusį katalogo checkpointą.
 
 ## Greitas rollback
 
@@ -30,8 +31,10 @@ gh secret list --env production-vps
 ## Atidėta po paleidimo
 
 - [x] `rinkissaupigiausia.online` užregistruotas Cloudflare Pages projekte; Worker `ALLOWED_ORIGIN` leidžia ir naują domeną, ir rollback `pages.dev` adresą (CORS `204` PASS).
-- [ ] Cloudflare DNS pakeisti konfliktuojantį apex `A → 2.57.91.91` į proxied `CNAME @ → aboutyou-private-catalog-web.pages.dev` ir sulaukti Pages būsenos `active`.
-- [ ] Po DNS aktyvavimo atnaujinti self-hosted Supabase Auth `SITE_URL` / redirect allowlist ir Worker `WEB_APP_URL`, tada pakartoti login bei CORS smoke.
+- [x] Cloudflare DNS konfliktuojantis apex `A → 2.57.91.91` pakeistas į proxied `CNAME @ → aboutyou-private-catalog-web.pages.dev`; domenas viešai grąžina `HTTP 200` ir build naudoja VPS Supabase bei production Worker.
+- [x] Cloudflare Pages custom-domain būsena pasikeitė į `active`, validation taip pat `active`.
+- [x] Worker `WEB_APP_URL` pakeistas į `https://rinkissaupigiausia.online`; deploy versija `46c50c94-0bc9-4b46-95e0-4c2f0f8df067`, `/health`, naujo domeno ir rollback domeno CORS patikros sėkmingos.
+- [ ] Atnaujinti self-hosted Supabase Auth `SITE_URL` / redirect allowlist, tada pakartoti login ir logout smoke pagrindiniame domene.
 - [ ] Išorinis alert webhook.
 - [ ] Sena `sync-raw` / `sync-debug` istorija.
 - [ ] Telegram perjungimas.
