@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { describe, expect, it, vi } from "vitest";
-import { EXCLUDED_BASICS_CATEGORIES, allowedCorsOrigin, app, catalogCacheUrl, catalogCursorFilter, counted, dispatchGitHubWorkflow, downloadRawArtifact, inspectProductDebugPayload, inviteErrorResponse, loadAdminDashboard, mapProductDebug, mapProductDetail, newestCatalogCutoff, normalizeBrandKey, parseFilters, postgresArrayLiteral, priceComparisonColumn, sortDefinition, teamMemberStatus, workflowForCron } from "./index";
+import { EXCLUDED_BASICS_CATEGORIES, allowedCorsOrigin, app, catalogCacheUrl, catalogCursorFilter, counted, dispatchGitHubWorkflow, downloadRawArtifact, inspectProductDebugPayload, inviteErrorResponse, loadAdminDashboard, mapProductDebug, mapProductDetail, newestCatalogCutoff, normalizeBrandKey, parseFilters, postgresArrayLiteral, priceComparisonColumn, sortDefinition, supabaseOrigin, teamMemberStatus, workflowForCron } from "./index";
 
 describe("catalog API", () => {
   it("exposes an unauthenticated health check", async () => {
@@ -10,7 +10,21 @@ describe("catalog API", () => {
       ALLOWED_ORIGIN: "http://localhost:3000"
     });
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ ok: true });
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      backendOrigin: "https://example.supabase.co"
+    });
+  });
+
+  it("reports an invalid Supabase origin as unhealthy without exposing secrets", async () => {
+    const response = await app.request("/health", {}, {
+      SUPABASE_URL: "not-a-url",
+      SUPABASE_SERVICE_ROLE_KEY: "test-service-role-key",
+      ALLOWED_ORIGIN: "http://localhost:3000"
+    });
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({ ok: false, backendOrigin: null });
+    expect(supabaseOrigin(undefined)).toBeNull();
   });
 
   it("rejects Telegram webhooks without the configured secret", async () => {

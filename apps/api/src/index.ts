@@ -69,7 +69,18 @@ app.use("*", async (c, next) => cors({
   allowHeaders: ["Authorization", "Content-Type"],
   exposeHeaders: ["ETag"]
 })(c, next));
-app.get("/health", (c) => c.json({ ok: true }));
+export function supabaseOrigin(value: string | undefined) {
+  try {
+    return new URL(value ?? "").origin;
+  } catch {
+    return null;
+  }
+}
+
+app.get("/health", (c) => {
+  const backendOrigin = supabaseOrigin(c.env.SUPABASE_URL);
+  return c.json({ ok: backendOrigin !== null, backendOrigin }, backendOrigin === null ? 503 : 200);
+});
 
 const TelegramUpdateSchema = z.object({
   update_id: z.number().int(),

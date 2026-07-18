@@ -54,8 +54,10 @@ async function health(name, baseUrl) {
     const response = await request(`${baseUrl}/health`);
     const body = await response.json().catch(() => null);
     record(`${name} health`, response.status === 200 && body?.ok === true, `HTTP ${response.status}`);
+    return body?.backendOrigin;
   } catch (error) {
     record(`${name} health`, false, error instanceof Error ? error.message : String(error));
+    return undefined;
   }
 }
 
@@ -123,9 +125,23 @@ if (config.phase === "rehearsal") {
     `actual=${production.supabaseUrl ?? "missing"}`);
 }
 
-await Promise.all([
+const [stagingBackendOrigin, productionBackendOrigin] = await Promise.all([
   health("Staging API", config.stagingApiUrl),
   health("Production API", config.productionApiUrl),
+]);
+
+record("Staging API uses VPS Supabase", stagingBackendOrigin === config.stagingSupabaseUrl,
+  `actual=${stagingBackendOrigin ?? "missing"}`);
+
+if (config.phase === "cutover") {
+  record("Production API uses VPS Supabase", productionBackendOrigin === config.stagingSupabaseUrl,
+    `actual=${productionBackendOrigin ?? "missing"}`);
+} else if (productionBackendOrigin !== undefined) {
+  record("Production API remains on source Supabase", productionBackendOrigin === production.supabaseUrl,
+    `actual=${productionBackendOrigin ?? "missing"}`);
+}
+
+await Promise.all([
   unauthenticatedCatalog("Staging API", config.stagingApiUrl),
   unauthenticatedCatalog("Production API", config.productionApiUrl),
   cors("Preview to staging API", config.stagingApiUrl, config.previewUrl),
@@ -140,4 +156,3 @@ if (failed.length > 0) {
   console.error(`Failed checks: ${failed.map((result) => result.name).join(", ")}`);
   process.exit(1);
 }
-

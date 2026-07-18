@@ -21,7 +21,7 @@
 - [ ] VPS Auth/SMTP ir redirect allow-list patikrinti su galutiniu Pages hostname.
 - [x] Cloudflare Pages preview build naudoja VPS `NUXT_PUBLIC_SUPABASE_URL`, VPS anon raktą ir staging Worker API URL.
 - [x] Pages preview atliktas katalogo, filtrų, produkto ir watchlist smoke testas; Production nepakeistas (2026-07-18).
-- [x] Automatizuotas viešas rehearsal preflight: `npm run migration:preflight` patikrino Pages runtime config, Worker health/CORS/auth gate ir abiejų Supabase JWKS; pakartotinai `16/16` PASS po monitoringo diegimo (2026-07-19).
+- [x] Automatizuotas viešas rehearsal preflight sustiprintas Worker backend origin patikra; po staging Worker deploy pakartotinai `17/17` PASS (2026-07-19).
 - [x] VPS paleistas `scripts/migration/vps-readiness.sh`: host, SSH, UFW, Docker, Tunnel, konteineriai, portai, JWKS, Postgres, cron ir R2 secret teisės tvarkingi; nustatytas vienas realus trūkumas — nėra backup systemd timerio (2026-07-18).
 - [x] Paruoštas vieno paleidimo `scripts/migration/install-vps-backup.sh` diegiklis: custom-format DB dump, roles be slaptažodžių, fiziniai Storage baitai, Postgres custom/pgsodium raktų volume, `age` šifravimas, R2 upload dydžio patikra, vietinė 3 d. retencija ir kasdienis systemd timeris.
 - [x] VPS įdiegtas ir aktyvuotas kasdienis `aboutyou-supabase-backup.timer`.
@@ -36,7 +36,7 @@
 - [x] Veikia periodinės disk, Docker health, backup age, JWKS/API health ir refresh/cron failure patikros.
 - [ ] Patikrintas išorinio webhook gedimo ir atsistatymo pranešimų pristatymas.
 - [ ] Patvirtintas produkcinio masto/SLO kriterijus: pilnas faktinio katalogo testas arba formaliai priimta mažesnė riba.
-- [ ] Paruoštas production secret change, freeze, smoke test ir rollback runbook.
+- [x] Paruoštas production secret change, freeze, smoke test ir rollback runbook 5 fazės dokumente.
 
 **Būsena:** nepradėtas produkcinis perjungimas. VPS duomenų, rinktuvų, staging Worker
 ir Pages Preview kelias veikia, o automatinis off-host backup, izoliuotas restore bei
@@ -51,6 +51,13 @@ Repo šaknyje paleidžiama:
 ```powershell
 npm.cmd run migration:preflight
 ```
+
+Staging Worker `/health` grąžina tik neslaptą `backendOrigin`, todėl preflight ne tikrina
+vien bendro Worker gyvybingumo, bet ir įrodo, kad jo server-side `SUPABASE_URL` rodo į
+VPS. Service-role raktas atsakyme negrąžinamas. 2026-07-19 staging Worker versija
+`0fe9f030-d52d-4930-b7d1-e7ba978eae07` grąžino VPS origin, o visas rehearsal baigėsi
+`17/17 PASS`. Rehearsal metu senesnis production Worker dar gali neturėti šio lauko;
+cutover režimu production backend origin patikra yra privaloma.
 
 Numatytasis `rehearsal` režimas patikrina, kad Preview naudoja VPS Supabase ir staging
 Worker, o Production vis dar naudoja source Supabase ir production Worker. Taip pat

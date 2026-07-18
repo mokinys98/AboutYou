@@ -18,6 +18,11 @@
 **Būsena:** nepradėta. Šis dokumentas yra vykdymo runbook; vien jo buvimas nesuteikia
 GO produkciniams pakeitimams.
 
+**Paruošimo būsena 2026-07-19:** staging Worker `/health` jau grąžina neslaptą
+`backendOrigin`, o rehearsal preflight patvirtino VPS backendą ir baigėsi `17/17 PASS`.
+Production Worker dar nepakeistas; cutover preflight reikalaus, kad ir jo backend origin
+sutaptų su VPS Supabase URL.
+
 ## Nekeičiamos saugumo ribos
 
 - `SUPABASE_SERVICE_ROLE_KEY` lieka tik Worker ir GitHub server-side secret saugyklose.
@@ -115,6 +120,10 @@ $env:MIGRATION_PHASE="cutover"
 npm.cmd run migration:preflight
 Remove-Item Env:MIGRATION_PHASE
 ```
+
+Cutover režimas papildomai privalomai tikrina, kad ne tik Production Pages, bet ir
+Production Worker `/health.backendOrigin` rodo į VPS Supabase. Tai apsaugo nuo dalinio
+perjungimo, kai naršyklė jau naudoja VPS, tačiau server-side Worker dar rašo į source.
 
 Rankiniu būdu vienoje naujoje private/incognito sesijoje patikrinti:
 
