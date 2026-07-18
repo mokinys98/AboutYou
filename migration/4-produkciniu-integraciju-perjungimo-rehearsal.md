@@ -12,14 +12,15 @@
 - [x] Paruošta atskira Cloudflare Worker staging konfigūracija (`aboutyou-private-catalog-api-staging`) be cron’ų; `wrangler deploy --dry-run --env staging` praėjo.
 - [x] Staging Worker deploy’intas su VPS Supabase secrets; `/health` grąžina `{"ok":true}` (2026-07-18).
 - [x] Staging Worker pasiekia VPS JWKS (`200`), o neautorizuotas `/v1/catalog` grąžina `401` (2026-07-18).
+- [x] Staging Worker CORS leidžia Preview origin; OPTIONS patikra iš Preview grąžina `204` (2026-07-18).
 - [x] Worker staging aplinkoje patikrinti JWKS/issuer, `/health`, katalogą, filtrus ir watchlist; admin endpoint’ai dar nepatikrinti.
 - [x] Per staging Worker atliktas invite-only vartotojo JWT smoke testas: prisijungimas, katalogas, filtrai, produkto peržiūra ir watchlist veikia (2026-07-18).
 - [x] Atkurti source `brand_tiers` įrašai be senų Auth vartotojų priklausomybės: `106` įrašai, `updated_by = NULL` (2026-07-18).
 - [ ] TODO po migracijos: palikti atkurtus `brand_tiers` kaip globalius default’us ir suprojektuoti vartotojo individualius tier override’us (atskira lentelė/RLS/API), kad vartotojas galėtų prisitaikyti filtravimą sau nepakeisdamas globalių reikšmių.
 - [ ] VPS Auth patikrinti invite, password login, PKCE callback, logout ir priverstinį re-login; savitarnos recovery netaikomas.
 - [ ] VPS Auth/SMTP ir redirect allow-list patikrinti su galutiniu Pages hostname.
-- [ ] Cloudflare Pages preview build naudoja VPS `NUXT_PUBLIC_SUPABASE_URL`, VPS anon raktą ir staging Worker API URL.
-- [ ] Pages preview atliktas anon/admin end-to-end smoke testas.
+- [x] Cloudflare Pages preview build naudoja VPS `NUXT_PUBLIC_SUPABASE_URL`, VPS anon raktą ir staging Worker API URL.
+- [x] Pages preview atliktas katalogo, filtrų, produkto ir watchlist smoke testas; Production nepakeistas (2026-07-18).
 - [ ] Patikrinta Telegram webhook, profilio susiejimas ir bent vienas testinis alertas per Worker → VPS DB.
 - [x] Telegram staging rehearsal sąmoningai atidėtas: antro boto nekuriame, production botas lieka nepaliestas iki galutinio cutover.
 - [ ] TODO po migracijos: pridėti aiškią profilio Telegram atjungimo UI logiką ir parengti vieno production boto webhook perjungimo į VPS Worker procedūrą su rollback.
