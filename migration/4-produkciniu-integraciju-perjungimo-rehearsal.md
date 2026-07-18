@@ -143,6 +143,14 @@ identifikatoriaus formą. Regex parseris pakeistas tokenų parseriu, palaikanči
 `GRANT role TO role` komandoje. Prieš settings importą dabar papildomai tikrinama,
 kad kiekviena surinkta rolė iš tikrųjų egzistuoja disposable Postgres konteineryje.
 
+Pakartojus su tokenų parseriu scenarijus sustojo dar prieš roles apdorojimą su
+`the database system is shutting down`. Priežastis – `pg_isready` aptiko laikiną
+Postgres procesą, kurį image entrypoint naudoja inicializacijos skriptams, o šis
+vėliau pagal numatytą seką išjungiamas prieš galutinį serverio startą. Starto laukimas
+pataisytas pirmiausia sulaukti, kol konteinerio PID 1 iš entrypoint scenarijaus taps
+galutiniu `postgres` procesu, ir tik po to tikrinti serverio pasirengimą. Ši patikra
+nepriklauso nuo konkrečios image logų formuluotės.
+
 ## Galutinė architektūra
 
 Cloudflare Pages ir Worker lieka Cloudflare platformoje. Į VPS keliasi tik Supabase
