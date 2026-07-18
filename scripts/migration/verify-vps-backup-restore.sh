@@ -189,6 +189,8 @@ done < <(
   {
     sed -nE 's/^CREATE ROLE "([^"]+)";$/\1/p' "$payload_dir/roles.sql"
     sed -nE 's/^ALTER ROLE "([^"]+)".*$/\1/p' "$payload_dir/roles.sql"
+    sed -nE 's/^GRANT "([^"]+)".*$/\1/p' "$payload_dir/roles.sql"
+    sed -nE 's/^GRANT .* TO "([^"]+)".*$/\1/p' "$payload_dir/roles.sql"
   } | sort -u
 )
 
