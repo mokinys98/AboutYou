@@ -16,17 +16,17 @@
 - [x] Sukurtas Contabo snapshot prieš Docker diegimą (`Before docker`).
 - [x] Sukurtas ir aktyvuotas 4 GiB swapfile; `vm.swappiness=10`.
 - [x] Įdiegtas Docker Engine + Compose ir patikrintos versijos; `hello-world` testas sėkmingas.
-- [ ] Sukurti bei patikrinti persistent volumes.
+- [x] Sukurti bei patikrinti persistent volumes.
 - [x] Cloudflare DNS zona paruošta ir nameserver’iai pateikti registratoriui; propagacija dar vyksta.
 - [x] Sukurtas Cloudflare Tunnel ir prijungtas connectoris.
 - [x] End-to-end Tunnel hostname testas sėkmingas; `https://supabase-staging.rinkissaupigiausia.online/` grąžina `401` iš Kong.
 - [x] Cloudflare Tunnel connector prisijungęs prie paskyros; connector rodo `Connected` (v2026.7.2).
-- [ ] Veikia `supabase-staging.rinkissaupigiausia.online` per HTTPS Tunnel.
-- [ ] Viešai nepasiekiami DB, pooler ir neapsaugotas Studio portai.
-- [ ] VPS → R2 connectivity testas sėkmingas.
-- [ ] Staging Supabase stack paleistas su prisegtomis versijomis; cron/refresh išjungti.
+- [x] Veikia `supabase-staging.rinkissaupigiausia.online` per HTTPS Tunnel.
+- [x] Viešai nepasiekiami DB, pooler ir neapsaugotas Studio portai.
+- [x] VPS → R2 connectivity testas sėkmingas.
+- [x] Staging Supabase stack paleistas su prisegtomis versijomis; cron/refresh išjungti.
 
-**Būsena:** VPS preflight, OS atnaujinimai, SSH hardening, UFW/Contabo firewall, post-reboot patikra, swap ir Docker diegimas atlikti. Ubuntu 24.04.4, 11 GiB RAM, 193 GiB ext4 diskas (2 % naudojama), viešai klausosi tik SSH 22. Cloudflare domenas aktyvus; persistent volumes ir Tunnel dar neįdiegti.
+**Būsena:** VPS preflight, OS atnaujinimai, SSH hardening, UFW/Contabo firewall, post-reboot patikra, swap, Docker, persistent volumes, staging stack ir Cloudflare Tunnel E2E patikra atlikti. Ubuntu 24.04.4, 11 GiB RAM, 193 GiB ext4 diskas (2 % naudojama), viešai klausosi tik SSH 22; DB ir pooler portai nevieši. VPS → R2 read-only connectivity patikrintas. Toliau – 2 fazės restore rehearsal.
 **Pradėta:** 2026-07-16  
 **Tikslas:** paruošti izoliuotą staging target, kuriame vėliau būtų galima atlikti pirmą restore rehearsal. Produkcinis Supabase šiame etape nekeičiamas.
 

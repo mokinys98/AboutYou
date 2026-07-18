@@ -62,6 +62,21 @@ didesnÄ¯ staging run. Production workflow secrets ir cron dar nepakeisti.
 https://supabase-staging.rinkissaupigiausia.online
 ```
 
+## Staging produkto metadata workflow
+
+Metadata rinkimui naudojamas atskiras rankinis workflow:
+`.github/workflows/sync-product-metadata-staging.yml`.
+Jis dalijasi `catalog-sync-staging` concurrency grupe su staging katalogo workflow,
+todėl abu rinkimai negali vienu metu apkrauti ABOUT YOU.
+
+GitHub `staging` Environment turi turėti `SUPABASE_URL` ir
+`SUPABASE_SERVICE_ROLE_KEY` secrets, nukreiptus į staging VPS.
+Pirmajam paleidimui pasirinkite **Sync product metadata (staging)** → **Run workflow**
+ir naudokite `max_products=50`. Patikrinkite logus bei staging metadata diagnostikos
+įrašus; tik po sėkmingo canary didinkite batch dydį.
+
+Production workflow ir production secrets šiame etape nekeičiami.
+
 Sync procesui reikalingi tik serveriniai kintamieji:
 
 ```env

@@ -629,8 +629,8 @@ Kol kas statusas yra **STOP**. Į 1 fazę galima eiti tik kai:
 - [x] sukurti roles, schema ir data dump;
 - [x] dump turi SHA-256 įrodymą ir šifruotą off-host R2 kopiją, patikrintą parsisiuntimu;
 - [x] Auth / SMTP / redirect / OAuth konfigūracija inventorizuota be secret'ų;
-- [ ] sutarta, kad tikrasis atkuriamumo įrodymas bus 2 fazės rehearsal restore.
+- [x] 2 fazėje atliktas katalogo-only rehearsal restore; pilnas Auth/Storage parity dar liko neužbaigtas.
 
 ## 10. Kitas veiksmas
 
-Privatus `age` identity ir R2 API tokenas jau išsaugoti password manager’yje; R2 tokenas taip pat įdiegtas VPS secret faile. Supabase Auth, SMTP, redirect bei OAuth būsena jau inventorizuota; Resend DNS įrašai patvirtinti, reset-password laiškas realiai pristatytas, redirect pasiekia Pages aplikaciją, o VPS R2 connectivity testas sėkmingas. Liko recovery UI logika aplikacijoje. Tikrasis atkuriamumo įrodymas bus 2 fazės rehearsal restore.
+Privatus `age` identity ir R2 API tokenas jau išsaugoti password manager’yje; R2 tokenas taip pat įdiegtas VPS secret faile. Supabase Auth, SMTP, redirect bei OAuth būsena jau inventorizuota; Resend DNS įrašai patvirtinti, reset-password laiškas realiai pristatytas, redirect pasiekia Pages aplikaciją, o VPS R2 connectivity testas sėkmingas. Liko recovery UI logika aplikacijoje. 2 fazės katalogo-only rehearsal restore atliktas, tačiau pilnas Auth/Storage parity dar nėra atkuriamumo įrodymo dalis.
