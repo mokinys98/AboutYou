@@ -9,6 +9,7 @@
 - [x] Užfiksuoti Postgres DB dydį ir `pg_stat_wal` po apkrovos.
 - [x] Patikrinti metadata lenteles ir privačius `sync-debug` / `sync-raw` bucket’us prieš canary.
 - [x] Paleisti `Sync product metadata (staging)` canary su `max_products=50`: 50/50 `complete`, vienas naujas `sync-raw` objektas, canary klaidų nėra.
+- [x] Patikrintas naujo `sync-raw` objekto fizinis authenticated Storage nuskaitymas: `11 528` B, `gzip -t` praėjo (2026-07-18).
 - [ ] Patikrinti invite-only Auth: password login, magic link, invite, logout ir priverstinį re-login; savitarnos password recovery pagal patvirtintą politiką netestuojamas.
 - [ ] Patikrinti, kad Worker validuoja staging Auth JWT per staging JWKS ir issuer.
 - [ ] Patikrinti katalogą, filtrus, facets, cursor pagination, cache izoliaciją ir watchlist.
@@ -18,6 +19,8 @@
 - [ ] Atlikti backup restore į disposable aplinką ir užfiksuoti RTO.
 - [ ] Atlikti 250k reprezentatyvų testą arba formaliai patvirtinti mažesnę produkcinę ribą ir SLO.
 - [ ] Patvirtinti dashboard p95, disko rezervą, refresh circuit-breaker ir monitoring/alertus.
+
+2026-07-18 post-canary WAL patikra atlikta: DB `797 MB`, `pg_wal` `608 MiB`.
 
 **Būsena:** 3 fazė vykdoma. Katalogo rinktuvas, staging GitHub Actions ir read-model refresh gate atlaikė 500 produktų kiekvienam targetui testą. Metadata canary užbaigė 50/50 produktų be naujų retry/schema/source klaidų ir įrašė vieną `sync-raw` objektą. Dar reikia užbaigti canary artifact/refresh/WAL patikrą, Auth/JWKS, aplikacijos funkcijas, pilną Storage parity, disposable restore ir 250k/SLO testus. Production canary ir cutover dar negalimi.
 
@@ -95,6 +98,9 @@ priklausomi duomenys buvo sąmoningai iškirpti iš katalogo-only restore. Targe
 naudoja invite-only modelį: vartotojai kuriami ir kviečiami naujai, o savitarnos
 password recovery funkcija neįdiegiama. Šis sprendimas turi būti patikrintas per
 invite, login, logout ir priverstinio re-login testus.
+
+Auth nepriklausomi `brand_tiers` vėliau atkurti atskirai: `106` source įrašai
+importuoti su `updated_by = NULL`, todėl jų nereikia suvedinėti rankiniu būdu.
 
 ## Storage rollout prieš metadata canary
 

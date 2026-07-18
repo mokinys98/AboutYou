@@ -4,6 +4,7 @@ node_modules/
 .nuxt/
 .output/
 dist/
+apps/api/dist-staging/
 coverage/
 playwright-report/
 test-results/

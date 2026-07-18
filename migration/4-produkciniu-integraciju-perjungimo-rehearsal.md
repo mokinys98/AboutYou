@@ -6,15 +6,23 @@
 - [x] Katalogo ir metadata GitHub Actions staging workflow naudoja VPS Supabase.
 - [x] VPS `pg_cron` read-model refresh ir istorijos cleanup darbai aktyvūs be dublikatų.
 - [x] Metadata canary: 50/50 `complete`, vienas `success_sample/ready`, fizinis `sync-raw` objektas, refresh `38/38`.
-- [ ] Patikrintas naujo raw payload nuskaitymas, ne tik Storage metaduomenys.
-- [ ] Pakartotas DB/WAL checkpoint po metadata canary.
-- [ ] Paruoštas atskiras Cloudflare Worker staging/preview deploy su VPS Supabase secrets.
-- [ ] Worker staging aplinkoje patikrinti naujas JWKS ir issuer, `/health`, katalogas, filtrai, watchlist ir admin endpoint’ai.
+- [x] Patikrintas naujo raw payload nuskaitymas, ne tik Storage metaduomenys (2026-07-18: `11 528` B, `gzip -t` praėjo).
+- [x] Pakartotas DB/WAL checkpoint po metadata canary (DB `797 MB`, `pg_wal` `608 MiB`, 2026-07-18).
+- [x] VPS `/srv/supabase/docker/.env` sourcing patikrintas be `command not found` perspėjimų (2026-07-18).
+- [x] Paruošta atskira Cloudflare Worker staging konfigūracija (`aboutyou-private-catalog-api-staging`) be cron’ų; `wrangler deploy --dry-run --env staging` praėjo.
+- [x] Staging Worker deploy’intas su VPS Supabase secrets; `/health` grąžina `{"ok":true}` (2026-07-18).
+- [x] Staging Worker pasiekia VPS JWKS (`200`), o neautorizuotas `/v1/catalog` grąžina `401` (2026-07-18).
+- [x] Worker staging aplinkoje patikrinti JWKS/issuer, `/health`, katalogą, filtrus ir watchlist; admin endpoint’ai dar nepatikrinti.
+- [x] Per staging Worker atliktas invite-only vartotojo JWT smoke testas: prisijungimas, katalogas, filtrai, produkto peržiūra ir watchlist veikia (2026-07-18).
+- [x] Atkurti source `brand_tiers` įrašai be senų Auth vartotojų priklausomybės: `106` įrašai, `updated_by = NULL` (2026-07-18).
+- [ ] TODO po migracijos: palikti atkurtus `brand_tiers` kaip globalius default’us ir suprojektuoti vartotojo individualius tier override’us (atskira lentelė/RLS/API), kad vartotojas galėtų prisitaikyti filtravimą sau nepakeisdamas globalių reikšmių.
 - [ ] VPS Auth patikrinti invite, password login, PKCE callback, logout ir priverstinį re-login; savitarnos recovery netaikomas.
 - [ ] VPS Auth/SMTP ir redirect allow-list patikrinti su galutiniu Pages hostname.
 - [ ] Cloudflare Pages preview build naudoja VPS `NUXT_PUBLIC_SUPABASE_URL`, VPS anon raktą ir staging Worker API URL.
 - [ ] Pages preview atliktas anon/admin end-to-end smoke testas.
 - [ ] Patikrinta Telegram webhook, profilio susiejimas ir bent vienas testinis alertas per Worker → VPS DB.
+- [x] Telegram staging rehearsal sąmoningai atidėtas: antro boto nekuriame, production botas lieka nepaliestas iki galutinio cutover.
+- [ ] TODO po migracijos: pridėti aiškią profilio Telegram atjungimo UI logiką ir parengti vieno production boto webhook perjungimo į VPS Worker procedūrą su rollback.
 - [ ] Priimtas sprendimas dėl istorinių `sync-raw` / `sync-debug` objektų: perkelti su parity arba formaliai atsisakyti istorijos.
 - [ ] Įrodytas automatinis šifruotas VPS backup į R2 ir restore į disposable aplinką su RTO.
 - [ ] Veikia disk, Docker health, backup age, API 5xx ir refresh failure alertai.
@@ -83,6 +91,20 @@ lieka `https://aboutyou-private-catalog-web.pages.dev`.
 8. Parengti production perjungimo lentelę: senos reikšmės rollback’ui, naujos
    reikšmės, savininkas, keitimo trukmė ir patikros komanda.
 
+### Raw payload checkpoint — 2026-07-18
+
+Per staging Supabase authenticated Storage endpoint nuskaitytas naujas objektas
+`sync-raw/samples/v5/0026d521-3471-488e-9747-3e82132e3ca8/5c44cb7fce6564c005ec431a297cb6d4496e24427c4a3f5a96868ffd1c034ed5.json.gz`.
+Failas gautas su `SERVICE_ROLE_KEY`, jo dydis buvo `11 528` baitai ir `gzip -t`
+patikra praėjo. Tai patvirtina fizinį objekto turinio nuskaitymą, ne tik
+`storage.objects` metaduomenų įrašą. Raktas ar jo reikšmė dokumentacijoje
+nenurodomi.
+
+Bandymas taip pat parodė, kad `/srv/supabase/docker/.env` nėra saugiai
+interpretuojamas kaip shell failas: sourcing išvedė `Organization: command not found`
+ir `Project: command not found`. Tai nepaveikė šio objekto nuskaitymo, bet prieš
+backup/restore ar kitą automatizaciją reikia normalizuoti tas eilutes.
+
 ## Production cutover taisyklė
 
 Per cutover laikinai sustabdomas Cloudflare Worker cron dispatch ir palaukiama, kol
@@ -114,3 +136,11 @@ Production perjungimas draudžiamas, jei bent viena sąlyga teisinga:
 Užbaigus raw read ir post-canary WAL patikrą, paruošti izoliuotą Cloudflare Worker
 staging aplinką ir joje išbandyti VPS JWT/JWKS. Produkcinio Worker ir Pages secret’ų
 dar nekeisti.
+
+### Post-canary DB/WAL checkpoint — 2026-07-18
+
+Po metadata canary pakartotas matavimas: DB dydis `797 MB`, `pg_wal` katalogas
+`608 MiB`. `pg_stat_wal` rodė `17 428 762` WAL records, `4 219 MB` WAL bytes,
+`195 881` `wal_buffers_full`, `276 281` `wal_write` ir `79 572` `wal_sync`.
+DB dydis nekito, o WAL katalogas sumažėjo nuo ankstesnių `816 MiB`; tai suderinama
+su checkpoint ir WAL retencijos veikimu.

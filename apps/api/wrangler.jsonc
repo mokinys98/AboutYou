@@ -19,6 +19,22 @@
       "*/5 * * * *"
     ]
   },
+  "env": {
+    "staging": {
+      "name": "aboutyou-private-catalog-api-staging",
+      "vars": {
+        "ALLOWED_ORIGIN": "https://aboutyou-private-catalog-web.pages.dev",
+        "WEB_APP_URL": "https://aboutyou-private-catalog-web.pages.dev",
+        "TELEGRAM_BOT_USERNAME": "AboutYouTrackerBot",
+        "GITHUB_OWNER": "mokinys98",
+        "GITHUB_REPO": "AboutYou",
+        "GITHUB_REF": "main"
+      },
+      "triggers": {
+        "crons": []
+      }
+    }
+  },
   "observability": {
     "enabled": true,
     "logs": {
