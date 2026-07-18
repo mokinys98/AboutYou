@@ -130,8 +130,15 @@ done < <(docker inspect --format '{{range .Mounts}}{{printf "%s|%s|%s\n" .Source
 
 declare -a command_args=()
 while IFS= read -r arg; do
-  command_args+=("$arg")
+  if [ -n "$arg" ]; then
+    command_args+=("$arg")
+  fi
 done < <(docker inspect --format '{{range .Config.Cmd}}{{println .}}{{end}}' supabase-db)
+
+if [ "${#command_args[@]}" -eq 0 ]; then
+  echo "Unable to copy the running Supabase Postgres command" >&2
+  exit 1
+fi
 
 echo "Starting isolated disposable Postgres container from $image"
 docker run -d \

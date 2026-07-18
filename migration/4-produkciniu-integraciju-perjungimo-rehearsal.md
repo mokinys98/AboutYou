@@ -110,6 +110,13 @@ kelias yra `automatic/20260718T211516Z/aboutyou-supabase-20260718T211516Z.tar.ag
 Automatinio backup sukūrimo ir off-host upload vartas uždarytas; likęs atskiras vartas —
 šio formato restore į disposable aplinką ir faktinio RTO užfiksavimas.
 
+Pirmas disposable restore bandymas sėkmingai parsisiuntė naujausią objektą iš R2,
+iššifravo jį ir patvirtino `roles.sql`, `database.dump`, `storage-files.tar`,
+`postgresql-custom.tar` bei `metadata.txt` checksum. Izoliuoto Postgres inicializacija
+sustojo prieš importą, nes iš veikiančio konteinerio `Cmd` buvo perimtas tuščias `""`
+argumentas. Staging DB nepaliesta, cleanup pašalino disposable konteinerį; scenarijus
+pataisytas atmesti tuščius argumentus. Restore vartas lieka atviras iki pakartojimo.
+
 ## Galutinė architektūra
 
 Cloudflare Pages ir Worker lieka Cloudflare platformoje. Į VPS keliasi tik Supabase
