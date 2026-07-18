@@ -122,6 +122,12 @@ settings importas sustojo, nes Supabase image `postgres` rolė nėra superuser i
 keisti reserved `anon`. Scenarijus pataisytas aptikti tikrą disposable konteinerio
 superuser (prioritetas `supabase_admin`) ir roles nustatymus taikyti jo vardu.
 
+Kitas bandymas superuser vardu pritaikė esamų roles nustatymus, bet aptiko, kad švari
+image inicializacija neturi backup esančios `supabase_privileged_role`. Restore
+scenarijus papildytas idempotentiškai sukurti tik trūkstamas roles iš dump `CREATE ROLE`
+eilučių, tada taikyti `ALTER ROLE` ir `GRANT`; DB dump taip pat atkuriamas superuser
+vardu, nes jame yra extensions ir kiti privilegijuoti Supabase objektai.
+
 ## Galutinė architektūra
 
 Cloudflare Pages ir Worker lieka Cloudflare platformoje. Į VPS keliasi tik Supabase

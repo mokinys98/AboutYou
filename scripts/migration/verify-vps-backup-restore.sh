@@ -168,8 +168,6 @@ if [ "$ready" -ne 1 ]; then
   exit 1
 fi
 
-echo "Applying backed-up role settings to roles initialized by the Supabase image"
-awk '/^(SET |RESET |ALTER ROLE )/' "$payload_dir/roles.sql" > "$role_settings_file"
 restore_superuser="$(
   docker exec "$container" psql -At -U postgres -d postgres -c \
     "SELECT rolname FROM pg_roles WHERE rolsuper ORDER BY (rolname = 'supabase_admin') DESC, rolname LIMIT 1;"
@@ -178,6 +176,19 @@ if [ -z "$restore_superuser" ]; then
   echo "Disposable Supabase Postgres has no superuser for reserved role settings" >&2
   exit 1
 fi
+
+echo "Creating roles present in the backup but absent from the initialized Supabase image"
+while IFS= read -r role; do
+  [ -n "$role" ] || continue
+  printf '%s\n' \
+    "SELECT format('CREATE ROLE %I', :'role')" \
+    "WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'role')" \
+    '\gexec' |
+    docker exec -i "$container" psql -v ON_ERROR_STOP=1 -v "role=$role" -U "$restore_superuser" -d postgres
+done < <(sed -nE 's/^CREATE ROLE "([^"]+)";$/\1/p' "$payload_dir/roles.sql")
+
+echo "Applying backed-up role settings to roles initialized by the Supabase image"
+awk '/^(SET |RESET |ALTER ROLE |GRANT )/' "$payload_dir/roles.sql" > "$role_settings_file"
 docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U "$restore_superuser" -d postgres < "$role_settings_file"
 
 echo "Restoring database dump into disposable container"
@@ -187,11 +198,11 @@ docker exec -i "$container" pg_restore \
   --if-exists \
   --no-owner \
   --no-acl \
-  -U postgres \
+  -U "$restore_superuser" \
   -d postgres < "$payload_dir/database.dump"
 
 echo "Running restore smoke queries"
-docker exec "$container" psql -v ON_ERROR_STOP=1 -At -U postgres -d postgres -c \
+docker exec "$container" psql -v ON_ERROR_STOP=1 -At -U "$restore_superuser" -d postgres -c \
   "SELECT 'products=' || count(*) FROM public.products
    UNION ALL SELECT 'categories=' || count(*) FROM public.categories
    UNION ALL SELECT 'auth_users=' || count(*) FROM auth.users
@@ -199,7 +210,7 @@ docker exec "$container" psql -v ON_ERROR_STOP=1 -At -U postgres -d postgres -c 
 
 storage_files="$(find "$storage_dir" -type f | wc -l | tr -d ' ')"
 storage_bytes="$(du -sb "$storage_dir" | awk '{print $1}')"
-database_bytes="$(docker exec "$container" psql -At -U postgres -d postgres -c 'select pg_database_size(current_database());')"
+database_bytes="$(docker exec "$container" psql -At -U "$restore_superuser" -d postgres -c 'select pg_database_size(current_database());')"
 finished_at="$(date +%s)"
 rto_seconds="$((finished_at - started_at))"
 
