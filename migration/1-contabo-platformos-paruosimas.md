@@ -29,9 +29,10 @@
 - [x] Užfiksuota `sudo docker stats --no-stream` išvestis po apkrovos; visi 11 Supabase konteinerių veikia, bendras momentinis jų RAM naudojimas apie 2,0 GiB.
 - [x] Užfiksuotas Postgres DB dydis ir `pg_stat_wal` checkpoint po apkrovos: DB 797 MB, aktyvus `pg_wal` katalogas 816 MiB.
 - [x] Įdiegtas kasdienis šifruotas VPS backup timeris, patvirtintas R2 upload ir `53 s` disposable restore.
-- [x] Paruoštas periodinio VPS monitoriaus ir 5 min. systemd timerio diegiklis; diegimo bei išorinio alert delivery testas dar neatliktas.
+- [x] Įdiegtas periodinis VPS monitorius ir 5 min. systemd timeris; pirmas paleidimas baigtas `0/SUCCESS`, visos vidinės patikros `PASS` (2026-07-19).
+- [ ] Patikrintas bent vienas išorinio webhook gedimo ir atsistatymo pranešimas.
 
-**Būsena:** pagrindiniai 1 fazės platformos vartai įvykdyti: VPS hardening, UFW/Contabo firewall, swap, Docker, log rotation, persistent volumes, prisegtas staging Supabase stack, Cloudflare Tunnel, viešų DB/pooler/Studio portų izoliacija ir VPS → R2 patikra atlikti. Po 2026-07-18 staging apkrovos testo liko 174 GiB disko ir 9,1 GiB available RAM, konteinerių momentinis RAM naudojimas siekė apie 2,0 GiB, DB dydis — 797 MB, o aktyvus `pg_wal` katalogas — 816 MiB. Dar neįrodyti automatiniai monitoring/backup failure alertai.
+**Būsena:** pagrindiniai 1 fazės platformos vartai įvykdyti: VPS hardening, UFW/Contabo firewall, swap, Docker, log rotation, persistent volumes, prisegtas staging Supabase stack, Cloudflare Tunnel, viešų DB/pooler/Studio portų izoliacija ir VPS → R2 patikra atlikti. Po 2026-07-18 staging apkrovos testo liko 174 GiB disko ir 9,1 GiB available RAM, konteinerių momentinis RAM naudojimas siekė apie 2,0 GiB, DB dydis — 797 MB, o aktyvus `pg_wal` katalogas — 816 MiB. Kas 5 min. veikiantis monitorius tikrina VPS, Supabase, backup ir read-model būseną; liko patikrinti tik išorinį gedimo bei atsistatymo pranešimų pristatymą.
 **Pradėta:** 2026-07-16  
 **Tikslas:** paruošti izoliuotą staging target, kuriame vėliau būtų galima atlikti pirmą restore rehearsal. Produkcinis Supabase šiame etape nekeičiamas.
 
@@ -304,7 +305,8 @@ Istorinis paruošimo žingsnis užbaigtas: `/srv/supabase/{docker,volumes,backup
 - [x] Automatizuotas VPS backup vykdymas: kasdienis systemd timeris, root-only R2 secret, `age` šifravimas, R2 upload ir restore patikrinti.
 - [x] Atlikti neprodukcinį R2 `list/head` connectivity testą.
 - [x] Patikrinti, kad R2 backup objektas yra kliento pusėje `age` užšifruotas ir atkuriamas.
-- [ ] Įdiegti paruoštą `install-vps-monitoring.sh`, patikrinti disk/Docker/backup/health/refresh signalus ir bent vieną išorinio alert webhook testą.
+- [x] Įdiegtas `install-vps-monitoring.sh`: 5 min. timeris aktyvus, disk/Docker/backup/API health/refresh patikros pirmame paleidime baigtos `0/SUCCESS` ir `PASS`.
+- [ ] Patikrinti bent vieną išorinio alert webhook gedimo ir atsistatymo pranešimą.
 - [x] Sukonfigūruoti R2 retention ir Docker log rotation taip, kad backup bei konteinerių logai neaugtų neribotai.
 
 ## 5. Stop vartai prieš 2 fazę
@@ -321,7 +323,7 @@ Istorinis paruošimo žingsnis užbaigtas: `/srv/supabase/{docker,volumes,backup
 
 ## 6. Kitas veiksmas
 
-1 fazės platforma ir automatinis backup/restore paruošti, o konteinerių bei Postgres/WAL momentinės metrikos užfiksuotos. Kitas platformos darbas — įdiegti paruoštą periodinį monitorių ir patikrinti išorinio alert pristatymą. Docker komandoms naudoti `sudo`, nes `deploy` vartotojas sąmoningai nepridėtas prie privilegijuotos `docker` grupės:
+1 fazės platforma, automatinis backup/restore ir periodinis monitorius paruošti, o konteinerių bei Postgres/WAL momentinės metrikos užfiksuotos. Kitas platformos darbas — nustatyti išorinio webhook adresą ir patikrinti gedimo bei atsistatymo pranešimų pristatymą. Docker komandoms naudoti `sudo`, nes `deploy` vartotojas sąmoningai nepridėtas prie privilegijuotos `docker` grupės:
 
 ```bash
 sudo docker stats --no-stream

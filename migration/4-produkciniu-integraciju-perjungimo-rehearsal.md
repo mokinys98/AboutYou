@@ -21,26 +21,28 @@
 - [ ] VPS Auth/SMTP ir redirect allow-list patikrinti su galutiniu Pages hostname.
 - [x] Cloudflare Pages preview build naudoja VPS `NUXT_PUBLIC_SUPABASE_URL`, VPS anon raktą ir staging Worker API URL.
 - [x] Pages preview atliktas katalogo, filtrų, produkto ir watchlist smoke testas; Production nepakeistas (2026-07-18).
-- [x] Automatizuotas viešas rehearsal preflight: `npm run migration:preflight` patikrino Pages runtime config, Worker health/CORS/auth gate ir abiejų Supabase JWKS; `16/16` PASS (2026-07-18).
+- [x] Automatizuotas viešas rehearsal preflight: `npm run migration:preflight` patikrino Pages runtime config, Worker health/CORS/auth gate ir abiejų Supabase JWKS; pakartotinai `16/16` PASS po monitoringo diegimo (2026-07-19).
 - [x] VPS paleistas `scripts/migration/vps-readiness.sh`: host, SSH, UFW, Docker, Tunnel, konteineriai, portai, JWKS, Postgres, cron ir R2 secret teisės tvarkingi; nustatytas vienas realus trūkumas — nėra backup systemd timerio (2026-07-18).
 - [x] Paruoštas vieno paleidimo `scripts/migration/install-vps-backup.sh` diegiklis: custom-format DB dump, roles be slaptažodžių, fiziniai Storage baitai, Postgres custom/pgsodium raktų volume, `age` šifravimas, R2 upload dydžio patikra, vietinė 3 d. retencija ir kasdienis systemd timeris.
 - [x] VPS įdiegtas ir aktyvuotas kasdienis `aboutyou-supabase-backup.timer`.
 - [x] Pirmas automatinio kelio backup sėkmingas: R2 objektas `50 731 288` B, lokali šifruota kopija, SHA-256 ir service `0/SUCCESS` patvirtinti (2026-07-18).
 - [x] Paruoštas `scripts/migration/verify-vps-backup-restore.sh`: naujausias R2 backup atkuriamas izoliuotame konteineryje be tinklo/portų, neliečiant staging DB.
-- [x] Paruošti `scripts/migration/vps-monitor.sh` ir `install-vps-monitoring.sh`: 5 min. systemd patikros diskui, Docker, backup amžiui, JWKS/API ir refresh/cron būsenai; išorinis webhook neprivalomas.
+- [x] Įdiegti `scripts/migration/vps-monitor.sh` ir `install-vps-monitoring.sh`: 5 min. systemd timeris aktyvus, pirmas paleidimas `0/SUCCESS`, visos vidinės patikros `PASS` (2026-07-19).
 - [ ] Patikrinta Telegram webhook, profilio susiejimas ir bent vienas testinis alertas per Worker → VPS DB.
 - [x] Telegram staging rehearsal sąmoningai atidėtas: antro boto nekuriame, production botas lieka nepaliestas iki galutinio cutover.
 - [ ] TODO po migracijos: pridėti aiškią profilio Telegram atjungimo UI logiką ir parengti vieno production boto webhook perjungimo į VPS Worker procedūrą su rollback.
 - [ ] Priimtas sprendimas dėl istorinių `sync-raw` / `sync-debug` objektų: perkelti su parity arba formaliai atsisakyti istorijos.
 - [x] Įrodytas automatinis šifruotas VPS backup į R2 ir restore į disposable aplinką: pilnas restore bei smoke testas sėkmingas, RTO `53 s` (2026-07-19).
-- [ ] Veikia disk, Docker health, backup age, API 5xx ir refresh failure alertai.
+- [x] Veikia periodinės disk, Docker health, backup age, JWKS/API health ir refresh/cron failure patikros.
+- [ ] Patikrintas išorinio webhook gedimo ir atsistatymo pranešimų pristatymas.
 - [ ] Patvirtintas produkcinio masto/SLO kriterijus: pilnas faktinio katalogo testas arba formaliai priimta mažesnė riba.
 - [ ] Paruoštas production secret change, freeze, smoke test ir rollback runbook.
 
 **Būsena:** nepradėtas produkcinis perjungimas. VPS duomenų, rinktuvų, staging Worker
-ir Pages Preview kelias veikia, o automatinis off-host backup bei izoliuotas restore
-patvirtinti. Produkcinis Worker ir Pages dar neturi būti perjungiami, kol neuždaryti
-likę Auth, monitoring, Storage istorijos ir source–target cutover/rollback vartai.
+ir Pages Preview kelias veikia, o automatinis off-host backup, izoliuotas restore bei
+kas 5 min. vykdomos vidinės monitoringo patikros patvirtinti. Produkcinis Worker ir
+Pages dar neturi būti perjungiami, kol neuždaryti likę Auth, išorinio alert pristatymo,
+Storage istorijos ir source–target cutover/rollback vartai.
 
 ## Automatizuotas viešas preflight
 
@@ -180,6 +182,11 @@ systemd timerį ir pirmą patikrą paleidžia iškart. Monitorius tikrina:
 - backup timerį, paskutinio service rezultatą ir lokalaus šifruoto backup amžių;
 - read-model versijų lygybę, klaidos nebuvimą, cron skaičių ir 30 min. nesėkmes.
 
+2026-07-19 diegimas ir pirmas paleidimas sėkmingi: service baigėsi
+`0/SUCCESS`, backup amžius buvo `3811 s`, refresh būsena `42/42 clean`, abu cron
+darbai aktyvūs, o per paskutines 30 min. refresh klaidų nerasta. `inactive (dead)` po
+paleidimo yra normali oneshot service būsena; kitą paleidimą valdo aktyvus timeris.
+
 Diegimas VPS, parsisiuntus abu failus iš to paties immutable commit į `/tmp`:
 
 ```bash
@@ -245,7 +252,7 @@ lieka `https://aboutyou-private-catalog-web.pages.dev`.
 5. Sukurti Pages preview build su VPS public URL/anon key ir staging Worker API URL.
 6. Atlikti invite-only Auth, katalogo, filtrų, product detail, watchlist, admin ir
    Telegram smoke testus.
-7. Backup/restore įrodytas; užbaigti monitoringą ir priimti Storage istorijos bei
+7. Backup/restore ir vidinis monitoringas įrodyti; patikrinti išorinį alert pristatymą ir priimti Storage istorijos bei
    masto/SLO sprendimus.
 8. Parengti production perjungimo lentelę: senos reikšmės rollback’ui, naujos
    reikšmės, savininkas, keitimo trukmė ir patikros komanda.
@@ -286,14 +293,14 @@ Production perjungimas draudžiamas, jei bent viena sąlyga teisinga:
 - neveikia invite/login/callback/logout;
 - neaišku, kuris scheduler’is paleidžia catalog/metadata workflow;
 - nėra šviežio automatinio off-host backup ir patikrinto restore;
-- nėra monitoring/alertų kritiniams gedimams;
+- nėra patikrinto išorinio monitoring alert pristatymo kritiniams gedimams;
 - nepriimtas istorinių Storage objektų parity arba atsisakymo sprendimas;
 - nėra rollback reikšmių ir maksimalaus sprendimo laiko.
 
 ## Kitas saugus veiksmas
 
-Užbaigti galutinio Pages hostname Auth/SMTP testus, įdiegti kritinių VPS gedimų
-monitoringą ir parengti production secret/freeze/smoke/rollback runbook. Produkcinio
+Užbaigti galutinio Pages hostname Auth/SMTP testus, patikrinti išorinio VPS alert
+pristatymą ir užbaigti production secret/freeze/smoke/rollback vartus. Produkcinio
 Worker ir Pages secret’ų dar nekeisti.
 
 ### Post-canary DB/WAL checkpoint — 2026-07-18
