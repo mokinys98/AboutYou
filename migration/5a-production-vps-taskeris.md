@@ -20,7 +20,7 @@ gh secret list --env production-vps
 - [x] Paleistas production `Sync catalog` — run `29664197881`.
 - [x] Production `Sync catalog` run `29664197881` baigėsi `success` per `14 min 58 s` ir paprašė read-model refresh versijos `44`.
 - [x] Production UI smoke užskaitytas kaip `PASS` ir užfiksuotas cutover dokumentacijoje.
-- [ ] VPS patikrinti naujausią `sync_runs` įrašą ir read-model refresh (`44/44` ar naujesnį), tada uždaryti likusį katalogo checkpointą.
+- [x] VPS patikrintas naujausias `sync_runs`: `success`, `313` puslapių, `10000` produktų; read-model refresh `44/44 clean`.
 
 ## Greitas rollback
 
@@ -34,7 +34,8 @@ gh secret list --env production-vps
 - [x] Cloudflare DNS konfliktuojantis apex `A → 2.57.91.91` pakeistas į proxied `CNAME @ → aboutyou-private-catalog-web.pages.dev`; domenas viešai grąžina `HTTP 200` ir build naudoja VPS Supabase bei production Worker.
 - [x] Cloudflare Pages custom-domain būsena pasikeitė į `active`, validation taip pat `active`.
 - [x] Worker `WEB_APP_URL` pakeistas į `https://rinkissaupigiausia.online`; deploy versija `46c50c94-0bc9-4b46-95e0-4c2f0f8df067`, `/health`, naujo domeno ir rollback domeno CORS patikros sėkmingos.
-- [ ] Atnaujinti self-hosted Supabase Auth `SITE_URL` / redirect allowlist, tada pakartoti login ir logout smoke pagrindiniame domene.
+- [x] Self-hosted Supabase Auth `SITE_URL` pakeistas į `https://rinkissaupigiausia.online`, paliekant tikslius naujo domeno, rollback `pages.dev` ir localhost callback/invite URL allowlist’e; Auth `healthy`, settings ir JWKS grąžina `200`.
+- [ ] Pakartoti login ir logout smoke pagrindiniame domene `https://rinkissaupigiausia.online`.
 - [ ] Išorinis alert webhook.
 - [ ] Sena `sync-raw` / `sync-debug` istorija.
 - [ ] Telegram perjungimas.
