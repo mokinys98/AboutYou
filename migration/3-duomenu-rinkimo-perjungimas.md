@@ -18,19 +18,25 @@
 - [x] 2026-07-18 atliktas `SYNC_MAX_PRODUCTS=500` testas: 25/25 targetų `success`, apdorotas 10 521 produktas, sync truko 4 min. 26 sek.
 - [x] Po 500/target testo read-model refresh baigtas `requested_version=37`, `completed_version=37`, `status=refreshed`, trukmė 24 953 ms.
 - [x] Sukurtas atskiras `.github/workflows/sync-product-metadata-staging.yml` workflow.
-- [ ] Staging produkto metadata workflow dar nepaleistas; pirmas canary turi naudoti `max_products=50`.
+- [x] Staging produkto metadata workflow canary paleistas su `max_products=50`: 50/50 `complete`, trukmė 29 s., `retryable=0`, `blocked_schema=0`, `source_unavailable=0`.
 - [x] Production Supabase secrets ir production cron konfigūracija šioje fazėje nepakeisti.
 - [x] Po 500/target testo VPS turi 9,1 GiB available RAM ir 174 GiB laisvo disko; swap praktiškai nenaudojamas.
 - [x] Užfiksuotas Docker/Postgres/WAL checkpoint: konteineriai naudoja apie 2,0 GiB RAM, DB dydis 797 MB, aktyvus `pg_wal` katalogas 816 MiB.
 - [x] Metadata preflight patvirtino `product_sync_diagnostics`, `product_sync_artifacts`, `product_raw_sample_members` ir privačius `sync-debug` / `sync-raw` bucket’us.
 
-**Būsena:** staging katalogo rinktuvas ir automatinis validavimo gate veikia. Naujausias 500 produktų/target testas apdorojo 10 521 produktą, visi 25 targetai baigėsi sėkmingai, o read-model refresh pasiekė `37/37`. VPS host, Docker ir Postgres/WAL checkpoint atliktas; metadata lentelės ir privatūs Storage bucket’ai paruošti. Staging metadata workflow sukurtas, bet dar nepaleistas. Production konfigūracija nepakeista.
+**Būsena:** staging katalogo rinktuvas ir automatinis validavimo gate veikia. Naujausias 500 produktų/target testas apdorojo 10 521 produktą, visi 25 targetai baigėsi sėkmingai. Metadata canary sėkmingai užbaigė 50/50 produktų, sukūrė vieną `success_sample/ready` artifact ir realų 11 528 B `sync-raw` objektą, naujų diagnostics klaidų nėra. Cron read-model refresh baigėsi `38/38`, `refreshed`, per 19 229 ms. Production konfigūracija nepakeista.
 
-**Kitas veiksmas:** paleisti tik staging metadata canary su `max_products=50`, tada patikrinti DB/Storage rezultatą ir pakartoti DB/WAL dydžio matavimą. Production canary dar nevykdomas.
+**Kitas veiksmas:** nuskaityti naują raw payload, pakartoti DB/WAL dydžio matavimą ir užbaigti Pages/Worker/Auth aplinkos perjungimo smoke testus. Production canary dar nevykdomas.
 
 Istorinis checkpoint: pradžioje VPS `cron.job` neturėjo nei `catalog-read-model-refresh`, nei
 istorijos cleanup darbo. Abu darbai vėliau sukurti idempotentiškai ir patikrinti; GitHub
 workflow tik iškviečia `request_catalog_items_read_refresh()`, o refresh apdoroja VPS `pg_cron`.
+
+2026-07-18 metadata canary metu patvirtinta, kad cron darbas aktyvus ir ankstesni
+paleidimai baigėsi `succeeded`. 19:15 UTC cron pasiėmė `requested_version=38` darbą;
+tuo metu rankinis `process_catalog_items_read_refresh()` teisingai grąžino
+`{"status":"busy"}`, nes cron procesas jau laikė refresh užraktą. Tai nėra klaida ir
+antro lygiagretaus refresh paleisti nereikia.
 
 ```bash
 sudo docker exec supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'catalog-read-model-refresh') THEN PERFORM cron.schedule('catalog-read-model-refresh', '*/5 * * * *', 'select public.process_catalog_items_read_refresh();'); END IF; IF NOT EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'catalog-read-model-refresh-history-cleanup') THEN PERFORM cron.schedule('catalog-read-model-refresh-history-cleanup', '15 3 * * *', 'delete from cron.job_run_details where jobid in (select jobid from cron.job where jobname in (''catalog-read-model-refresh'', ''catalog-read-model-refresh-history-cleanup'')) and end_time < now() - interval ''14 days'';'); END IF; END \$\$;"
@@ -85,8 +91,15 @@ GitHub `staging` Environment naudoja tik staging `SUPABASE_URL` ir
 4. patikrinti `sync-raw` ir `sync-debug` Storage objektų count bei bytes;
 5. patikrinti, kad read-model refresh baigtas be klaidos.
 
-Workflow sukūrimas nėra sėkmingo canary įrodymas — 2026-07-18 GitHub Actions dar
-nebuvo nė vieno `Sync product metadata (staging)` paleidimo.
+2026-07-18 pirmas GitHub Actions canary su `max_products=50` baigėsi sėkmingai:
+50 produktų gavo `complete`, klaidų grupės liko tuščios, vienas raw payload buvo
+archyvuotas kaip `success_sample/ready`, o refresh užklausa pakėlė
+`requested_version` iki 38. Patikros metu `completed_version` dar buvo 37 ir būsena
+`pending`, todėl tuo tarpiniu patikros momentu refresh vartai dar nebuvo uždaryti.
+
+Galutinė patikra: 19:15 UTC cron darbas baigėsi `succeeded`, read-model būsena tapo
+`requested_version=38`, `completed_version=38`, `last_status=refreshed`, trukmė
+19 229 ms, `last_error` tuščias.
 
 Sync procesui reikalingi tik serveriniai kintamieji:
 

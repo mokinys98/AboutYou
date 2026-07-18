@@ -8,7 +8,7 @@
 - [x] Užfiksuoti `sudo docker stats --no-stream` po apkrovos.
 - [x] Užfiksuoti Postgres DB dydį ir `pg_stat_wal` po apkrovos.
 - [x] Patikrinti metadata lenteles ir privačius `sync-debug` / `sync-raw` bucket’us prieš canary.
-- [ ] Paleisti `Sync product metadata (staging)` canary su `max_products=50` ir patikrinti DB/Storage rezultatą.
+- [x] Paleisti `Sync product metadata (staging)` canary su `max_products=50`: 50/50 `complete`, vienas naujas `sync-raw` objektas, canary klaidų nėra.
 - [ ] Patikrinti invite-only Auth: password login, magic link, invite, logout ir priverstinį re-login; savitarnos password recovery pagal patvirtintą politiką netestuojamas.
 - [ ] Patikrinti, kad Worker validuoja staging Auth JWT per staging JWKS ir issuer.
 - [ ] Patikrinti katalogą, filtrus, facets, cursor pagination, cache izoliaciją ir watchlist.
@@ -19,7 +19,7 @@
 - [ ] Atlikti 250k reprezentatyvų testą arba formaliai patvirtinti mažesnę produkcinę ribą ir SLO.
 - [ ] Patvirtinti dashboard p95, disko rezervą, refresh circuit-breaker ir monitoring/alertus.
 
-**Būsena:** 3 fazė vykdoma. Katalogo rinktuvas, staging GitHub Actions ir read-model refresh gate atlaikė 500 produktų kiekvienam targetui testą. Host RAM ir disko rezervas pakankamas, tačiau metadata, Auth/JWKS, aplikacijos funkcijų, Storage parity, disposable restore ir 250k/SLO testai dar neatlikti. Production canary ir cutover dar negalimi.
+**Būsena:** 3 fazė vykdoma. Katalogo rinktuvas, staging GitHub Actions ir read-model refresh gate atlaikė 500 produktų kiekvienam targetui testą. Metadata canary užbaigė 50/50 produktų be naujų retry/schema/source klaidų ir įrašė vieną `sync-raw` objektą. Dar reikia užbaigti canary artifact/refresh/WAL patikrą, Auth/JWKS, aplikacijos funkcijas, pilną Storage parity, disposable restore ir 250k/SLO testus. Production canary ir cutover dar negalimi.
 
 ## 2026-07-18 staging katalogo sync apkrovos testas
 
@@ -108,9 +108,9 @@ nepatikrino.
   `product_sync_artifacts` lentelės staging DB jau egzistuoja.
 - [x] Sukurtas private `sync-debug` bucket’as su `application/gzip` ir 5 MiB limitu.
 - [x] Sukurtas private `sync-raw` bucket’as su `application/gzip` ir 5 MiB limitu.
-- [ ] Paleistas `Sync product metadata (staging)` canary su `max_products=50`.
-- [ ] Patikrinta, kad raw ir diagnostikos failai realiai įrašomi į Storage.
-- [ ] Patikrinta, kad artifact įrašai turi `upload_status=ready`.
+- [x] Paleistas `Sync product metadata (staging)` canary su `max_products=50`.
+- [x] Patikrinta, kad bent vienas raw failas realiai įrašytas į `sync-raw` Storage.
+- [x] Patikrinta, kad canary artifact turi `artifact_kind=success_sample` ir `upload_status=ready`.
 - [ ] Patikrintas bent vienas raw payload nuskaitymas per produkto debug API.
 
 Bucket’ų patikra SQL Editor grąžino:
@@ -120,13 +120,42 @@ sync-debug | public=false | file_size_limit=5242880
 sync-raw   | public=false | file_size_limit=5242880
 ```
 
+### Metadata canary rezultatas — 2026-07-18
+
+- parserio versija: 5;
+- `claimed=50`, `payload_ok=50`, `complete=50`;
+- `retryable=0`, `blocked_schema=0`, `source_unavailable=0`;
+- `raw_archived=1`, `raw_archive_failed=0`;
+- trukmė: 29 s.;
+- refresh paprašytas su `requested_version=38`;
+- po canary DB rodė 50 `complete` ir 53 654 `pending` įrašus;
+- canary laikotarpiu sukurtas vienas `success_sample/ready` artifact (11 kB) ir
+  neatsirado nė vieno naujo `product_sync_diagnostics` įrašo;
+- `storage.objects` rodė vieną fizinį `sync-raw` objektą ir nė vieno
+  `sync-debug` objekto; tai tikėtina, nes canary neturėjo naujų diagnostinių klaidų;
+- fizinio objekto dydis 11 528 B, MIME `application/gzip`, HTTP upload būsena 200;
+- read-model būsena patikros metu liko `requested=38`, `completed=37`, `pending`.
+
+Cron istorija patvirtino aktyvų `*/5 * * * *` darbą ir sėkmingus ankstesnius
+paleidimus. 19:15 UTC refresh būsena buvo `running`; rankinis funkcijos kvietimas
+grąžino `{"status":"busy"}`, nes cron jau vykdė tą patį darbą. Tai laikoma normaliu
+advisory-lock elgesiu, o ne nesėkmingu refresh.
+
+Galutinė cron patikra patvirtino `succeeded`: refresh baigėsi `38/38`, būsena
+`refreshed`, trukmė 19 229 ms, `last_error` tuščias.
+
+Bendri artifact ir diagnostics skaičiai apima iš restore atkeltą istoriją: 5
+`success_sample/upload_failed` ir seni HTTP/redirect diagnostikos įrašai nėra
+automatiškai priskiriami šiam canary. Galutinei canary išvadai juos reikia filtruoti
+nuo `2026-07-18 19:10:40 UTC`.
+
 ### Vykdymo seka
 
 1. [x] Staging DB patvirtinti `product_sync_diagnostics`, `product_sync_artifacts`
    ir `product_raw_sample_members` objektai.
 2. [x] Patvirtinti privatūs `sync-debug` ir `sync-raw` bucket’ai su
    `application/gzip` ir 5 MiB limitu.
-3. [ ] Į `main` įkelti aktualų kodą ir paleisti `Sync product metadata (staging)` su
+3. [x] Į `main` įkelti aktualų kodą ir paleisti `Sync product metadata (staging)` su
    `max_products=50`.
 4. [ ] Po canary patikrinti, kad diagnostikos HTML ir raw gzip payload’ai pasiekė
    Storage, manifest įrašai turi `upload_status=ready`, o API debug vaizdas gali
@@ -145,9 +174,9 @@ sync-raw   | public=false | file_size_limit=5242880
 
 ## Kitas saugus veiksmas
 
-1. GitHub Actions paleisti `Sync product metadata (staging)` su `max_products=50`.
-2. Patikrinti metadata lenteles, `sync-raw` / `sync-debug` objektus, read-model refresh ir pakartoti DB/WAL dydžio matavimą.
-3. Toliau vykdyti funkcinių testų matricą iš progreso bloko.
+1. Pakartoti DB/WAL dydžio matavimą ir palyginti su 797 MB / 816 MiB baseline.
+2. Patikrinti bent vieno naujo raw payload nuskaitymą.
+3. Užbaigti Pages/Worker/Auth ir likusią funkcinių testų matricą.
 
 Mažas production canary nėra kitas žingsnis. Į production galima judėti tik uždarius
 likusius 3 fazės funkcijų, Storage, restore, monitoring ir SLO vartus.
