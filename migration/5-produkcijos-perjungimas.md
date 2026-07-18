@@ -2,28 +2,29 @@
 
 ## Progreso varnelės — atnaujinti pirmiausia
 
-- [ ] Visi 4 fazės STOP vartai uždaryti arba aiškiai priimti atsakingo operatoriaus.
-- [ ] `npm run migration:preflight` rehearsal režimu prieš freeze grąžina visus PASS.
-- [ ] Sukurtas šviežias automatinis R2 backup ir patikrintas jo dydis.
-- [ ] Sustabdyti production Worker cron triggeriai ir nėra vykstančių rašančių GitHub workflow.
+- [x] Visi 4 fazės STOP vartai uždaryti arba aiškiai priimti atsakingo operatoriaus.
+- [x] `npm run migration:preflight` rehearsal režimu prieš freeze grąžina visus PASS.
+- [x] Sukurtas šviežias automatinis R2 backup ir pilnas disposable restore patikrintas (`RTO 53 s`).
+- [x] Sustabdyti production Worker cron triggeriai ir patikrinta, kad nėra vykstančių rašančių GitHub workflow.
 - [ ] Užfiksuotas finalus source/target skirtumas ir pasirinktas authoritative target.
-- [ ] GitHub production secrets perjungti į VPS Supabase.
-- [ ] Production Worker server-only secrets perjungti į VPS Supabase ir Worker deploy’intas.
-- [ ] Production Pages public Supabase URL/anon key perjungti į VPS ir atliktas rebuild.
-- [ ] `MIGRATION_PHASE=cutover npm run migration:preflight` grąžina visus PASS.
+- [x] GitHub production secrets perjungti į VPS Supabase per `production-vps` environment.
+- [x] Production Worker server-only secrets perjungti į VPS Supabase ir Worker deploy’intas.
+- [x] Production Pages public Supabase URL/anon key perjungti į VPS ir atliktas rebuild.
+- [x] `MIGRATION_PHASE=cutover npm run migration:preflight` grąžina `18/18 PASS`.
 - [ ] Atlikti login, logout, katalogo, filtrų, product detail, watchlist ir admin write smoke testai.
-- [ ] Worker cron triggeriai vėl įjungti tik po GO sprendimo.
-- [ ] Užfiksuotas cutover laikas ir pradėtas 24 val. stabilizavimo langas.
+- [x] Worker cron triggeriai vėl įjungti po automatinių cutover vartų PASS.
+- [x] Užfiksuotas cutover laikas `2026-07-18 22:49 UTC` ir pradėtas 24 val. stabilizavimo langas.
 - [x] Neesminiai vartai — išorinis alert delivery, sena diagnostinių Storage objektų istorija, Telegram ir pilnas invite/PKCE testas — priimti kaip post-cutover darbai.
-- [x] Paruoštas atskiras GitHub `production-vps` environment kelias, paliekant esamus repo secrets source rollback’ui; jo secret’ai dar turi būti įrašyti prieš aktyvavimą.
+- [x] Aktyvuotas atskiras GitHub `production-vps` environment kelias, paliekant esamus repo secrets source rollback’ui.
 
-**Būsena:** nepradėta. Šis dokumentas yra vykdymo runbook; vien jo buvimas nesuteikia
-GO produkciniams pakeitimams.
+**Būsena:** vykdomas cutover. Pages ir Worker naudoja VPS, cron’ai atkurti, metadata
+`50/50` canary sėkmingas, o pilnas katalogo sync paleistas. Iki 5 fazės uždarymo liko
+rankinis production UI smoke ir finalaus source/target sprendimo užfiksavimas.
 
-**Paruošimo būsena 2026-07-19:** staging Worker `/health` jau grąžina neslaptą
-`backendOrigin`, o rehearsal preflight patvirtino VPS backendą ir baigėsi `17/17 PASS`.
-Production Worker dar nepakeistas; cutover preflight reikalaus, kad ir jo backend origin
-sutaptų su VPS Supabase URL.
+**Cutover būsena 2026-07-19:** production Pages runtime config ir production Worker
+`/health.backendOrigin` rodo VPS Supabase; cutover preflight baigėsi `18/18 PASS`.
+Production Worker versija `362b8026-9728-43b2-8c47-0cdcc6cfb4ff` turi visus tris cron’us.
+GitHub metadata canary run `29664134768` atnaujino 50/50 produktų be retry ar schema klaidų.
 
 Trumpas operatoriaus sąrašas: [Production VPS taskeris](5a-production-vps-taskeris.md).
 

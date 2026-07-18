@@ -2,22 +2,23 @@
 
 ## GitHub `production-vps` environment — prieš cutover
 
-- [ ] GitHub → **Settings** → **Environments** → **New environment**.
-- [ ] Environment pavadinti `production-vps`.
-- [ ] Neįjungti required reviewers ar deployment wait timer.
-- [ ] Pridėti environment secret `SUPABASE_URL` su VPS Supabase HTTPS URL.
-- [ ] Pridėti environment secret `SUPABASE_SERVICE_ROLE_KEY` su VPS service-role raktu.
-- [ ] Patikrinti, kad įrašyti abu secret pavadinimai:
+- [x] GitHub → **Settings** → **Environments** → **New environment**.
+- [x] Environment pavadintas `production-vps`.
+- [x] Neįjungti required reviewers ar deployment wait timer.
+- [x] Pridėtas environment secret `SUPABASE_URL` su VPS Supabase HTTPS URL.
+- [x] Pridėtas environment secret `SUPABASE_SERVICE_ROLE_KEY` su VPS service-role raktu.
+- [x] Patikrinta, kad įrašyti abu secret pavadinimai:
 
 ```powershell
 gh secret list --env production-vps
 ```
 
-- [ ] Esamų repository secrets `SUPABASE_URL` ir `SUPABASE_SERVICE_ROLE_KEY` nekeisti — jie lieka source rollback’ui.
-- [ ] Į `main` perkelti paruoštus workflow, kuriuose nustatyta `environment: production-vps`.
-- [ ] Paleisti `Sync product metadata` su `max_products=50`.
-- [ ] Patikrinti, kad workflow sėkmingas ir VPS read-model refresh yra švarus.
-- [ ] Paleisti `Sync catalog` ir patikrinti naują VPS `sync_runs` įrašą.
+- [x] Esami repository secrets `SUPABASE_URL` ir `SUPABASE_SERVICE_ROLE_KEY` nepakeisti — jie lieka source rollback’ui.
+- [x] Į `main` perkelti workflow, kuriuose nustatyta `environment: production-vps`.
+- [x] Paleistas `Sync product metadata` su `max_products=50` — run `29664134768`.
+- [x] Workflow sėkmingas: 50/50 complete, 0 retryable, 0 blocked schema, paprašytas refresh `43`.
+- [x] Paleistas production `Sync catalog` — run `29664197881`.
+- [ ] Patikrinti, kad catalog run sėkmingas, VPS atsirado naujas `sync_runs` įrašas ir refresh `43/43` ar naujesnis.
 
 ## Greitas rollback
 
