@@ -170,7 +170,15 @@ fi
 
 echo "Applying backed-up role settings to roles initialized by the Supabase image"
 awk '/^(SET |RESET |ALTER ROLE )/' "$payload_dir/roles.sql" > "$role_settings_file"
-docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$role_settings_file"
+restore_superuser="$(
+  docker exec "$container" psql -At -U postgres -d postgres -c \
+    "SELECT rolname FROM pg_roles WHERE rolsuper ORDER BY (rolname = 'supabase_admin') DESC, rolname LIMIT 1;"
+)"
+if [ -z "$restore_superuser" ]; then
+  echo "Disposable Supabase Postgres has no superuser for reserved role settings" >&2
+  exit 1
+fi
+docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U "$restore_superuser" -d postgres < "$role_settings_file"
 
 echo "Restoring database dump into disposable container"
 docker exec -i "$container" pg_restore \

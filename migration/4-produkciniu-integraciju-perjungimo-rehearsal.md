@@ -117,6 +117,11 @@ sustojo prieš importą, nes iš veikiančio konteinerio `Cmd` buvo perimtas tu�
 argumentas. Staging DB nepaliesta, cleanup pašalino disposable konteinerį; scenarijus
 pataisytas atmesti tuščius argumentus. Restore vartas lieka atviras iki pakartojimo.
 
+Pakartojus su pataisyta versija disposable Postgres sėkmingai startavo, tačiau role
+settings importas sustojo, nes Supabase image `postgres` rolė nėra superuser ir negali
+keisti reserved `anon`. Scenarijus pataisytas aptikti tikrą disposable konteinerio
+superuser (prioritetas `supabase_admin`) ir roles nustatymus taikyti jo vardu.
+
 ## Galutinė architektūra
 
 Cloudflare Pages ir Worker lieka Cloudflare platformoje. Į VPS keliasi tik Supabase
