@@ -44,6 +44,7 @@ else
 fi
 
 compose_files=(
+  --env-file "$stack_dir/.env"
   -f "$stack_dir/docker-compose.yml"
   -f "$stack_dir/docker-compose.staging.yml"
 )
