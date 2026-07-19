@@ -16,16 +16,8 @@ onMounted(async () => {
     return;
   }
 
-  const code = url.searchParams.get("code");
-  if (code) {
-    const { error: exchangeError } = await $supabase.auth.exchangeCodeForSession(code);
-    if (exchangeError) {
-      error.value = "Atkūrimo nuoroda nebegalioja arba jau buvo panaudota.";
-      status.value = "";
-      return;
-    }
-  }
-
+  // The client plugin has detectSessionInUrl enabled and exchanges the PKCE
+  // code during initialization. Do not exchange it a second time here.
   const { data } = await $supabase.auth.getSession();
   if (!data.session) {
     error.value = "Atkūrimo nuoroda nebegalioja arba jau buvo panaudota.";

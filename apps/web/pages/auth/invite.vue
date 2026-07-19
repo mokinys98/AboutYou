@@ -16,8 +16,7 @@ onMounted(async () => {
     return;
   }
 
-  const code = url.searchParams.get("code");
-  if (code) await $supabase.auth.exchangeCodeForSession(code);
+  // detectSessionInUrl in the Supabase client handles the PKCE code once.
   const { data } = await $supabase.auth.getSession();
   if (!data.session) {
     error.value = "Kvietimo nuoroda nebegalioja arba jau buvo panaudota.";
