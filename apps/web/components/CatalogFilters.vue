@@ -33,8 +33,12 @@ const visibleGroups = computed(() => groups.value.filter((group) => showMoreFilt
 const selected = (key: string, value: string) => (local[key] || "").split(",").includes(value);
 const activeCount = (key: string) => (local[key] || "").split(",").filter(Boolean).length;
 const saleDiscount = computed({
-  get: () => Number(local.discount_min) || 10,
-  set: (value: number) => { local.discount_min = String(value); }
+  get: () => Number(local.discount_min) || 0,
+  set: (value: number) => { local.discount_min = value ? String(value) : ""; }
+});
+const lplProximity = computed({
+  get: () => Number(local.lpl_proximity_pct) || 0,
+  set: (value: number) => { local.lpl_proximity_pct = String(value); }
 });
 const belowLpl = computed(() => local.below_observed_30d === "true" && local.price_comparison === "source_lpl");
 const premiumOnly = computed(() => local.premium === "true");
@@ -46,7 +50,7 @@ const filteredItems = (group: FilterGroup) => {
   return group.items.filter((item) => (item.label || item.value).toLocaleLowerCase("lt").includes(query)).slice(0, 80);
 };
 
-const apply = () => emit("update:modelValue", Object.fromEntries(Object.entries(local).filter(([, value]) => value)));
+const apply = () => emit("update:modelValue", Object.fromEntries(Object.entries(local).filter(([, value]) => value !== "")));
 const toggle = (key: string, value: string) => {
   const values = new Set((local[key] || "").split(",").filter(Boolean));
   values.has(value) ? values.delete(value) : values.add(value);
@@ -103,6 +107,7 @@ const activeChips = computed(() => {
     }
   }
   if (local.discount_min) chips.push({ key: "discount_min", label: `Išpardavimas nuo ${local.discount_min} %` });
+  if (local.lpl_proximity_pct !== undefined && local.lpl_proximity_pct !== "") chips.push({ key: "lpl_proximity_pct", label: `Arti LPL: iki +${local.lpl_proximity_pct} %` });
   if (belowLpl.value) chips.push({ key: "below_observed_30d", label: "Kaina < LPL" });
   if (local.price_min || local.price_max) chips.push({ key: "price", label: `${local.price_min || "0"}–${local.price_max || "∞"} €` });
   if (premiumOnly.value) chips.push({ key: "premium", label: "ABOUT YOU Premium" });
@@ -155,11 +160,14 @@ onUnmounted(() => {
       </details>
 
       <details class="filter-popover discount-filter" :open="activeFilter === 'discount'">
-        <summary :class="{ active: local.discount_min || belowLpl }" @click.prevent="toggleFilter('discount')"><span class="sale-dot" aria-hidden="true" />Išpardavimas <span v-if="local.discount_min" class="filter-count">nuo {{ local.discount_min }} %</span><span v-if="belowLpl" class="filter-count">&lt; LPL</span></summary>
+        <summary :class="{ active: local.discount_min || (local.lpl_proximity_pct !== undefined && local.lpl_proximity_pct !== '') || belowLpl }" @click.prevent="toggleFilter('discount')"><span class="sale-dot" aria-hidden="true" />Išpardavimas <span v-if="local.discount_min" class="filter-count">nuo {{ local.discount_min }} %</span><span v-if="local.lpl_proximity_pct !== undefined && local.lpl_proximity_pct !== ''" class="filter-count">arti LPL +{{ local.lpl_proximity_pct }} %</span><span v-if="belowLpl" class="filter-count">&lt; LPL</span></summary>
         <div class="filter-menu">
           <div class="discount-value"><span>Minimali nuolaida nuo LPL</span><strong>{{ saleDiscount }} %</strong></div>
-          <input v-model.number="saleDiscount" class="discount-range" type="range" min="10" max="70" step="10" aria-label="Minimali nuolaida procentais" @change="apply">
-          <div class="discount-scale" aria-hidden="true"><span v-for="value in [10, 20, 30, 40, 50, 60, 70]" :key="value">{{ value }}</span></div>
+          <input v-model.number="saleDiscount" class="discount-range" type="range" min="0" max="70" step="10" aria-label="Minimali nuolaida procentais" @change="apply">
+          <div class="discount-scale" aria-hidden="true"><span v-for="value in [0, 10, 20, 30, 40, 50, 60, 70]" :key="value">{{ value }}</span></div>
+          <div class="discount-value lpl-proximity-value"><span>Kaina arti LPL, iki</span><strong>{{ lplProximity }} %</strong></div>
+          <input v-model.number="lplProximity" class="discount-range" type="range" min="0" max="15" step="1" aria-label="Didžiausias kainos skirtumas nuo LPL procentais" @change="apply">
+          <div class="discount-scale lpl-proximity-scale" aria-hidden="true"><span v-for="value in [0, 5, 10, 15]" :key="value">{{ value }}</span></div>
           <button class="filter-switch" :class="{ active: belowLpl }" type="button" role="switch" :aria-checked="belowLpl" @click="toggleBelowLpl">
             <span><strong>Rodyti kainą &lt; LPL</strong><small>Įtraukia tik prekes, kurių mūsų kaina mažesnė už LPL.</small></span><i aria-hidden="true" />
           </button>

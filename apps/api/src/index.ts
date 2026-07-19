@@ -447,6 +447,13 @@ app.get("/v1/catalog", async (c) => {
   if (cached) return cached;
 
   let query = c.get("db").from("catalog_items_read").select("*", filters.cursor ? undefined : { count: "exact" });
+  if (filters.lplProximityPct !== undefined) {
+    const { data: matchingProducts, error: proximityError } = await c.get("db").rpc("catalog_products_near_lpl", { p_proximity_pct: filters.lplProximityPct });
+    if (proximityError) return c.json({ error: proximityError.message }, 500);
+    const ids = (matchingProducts ?? []).map((row: { id: string }) => row.id);
+    if (!ids.length) return c.json({ items: [], nextCursor: null, totalCount: 0 });
+    query = query.in("id", ids);
+  }
   if (filters.brands.length) query = query.in("brand", filters.brands);
   if (filters.brandTiers.length) query = query.in("brand_tier", filters.brandTiers);
   if (filters.sources.length) query = query.in("source", filters.sources);
@@ -832,7 +839,7 @@ export function parseFilters(query: Record<string, string>) {
     excludeBasics: query.exclude_basics === "true",
     excludeAccessories: query.exclude_accessories === "true",
     priceMin: query.price_min ? Number(query.price_min) : undefined, priceMax: query.price_max ? Number(query.price_max) : undefined,
-    discountMin: query.discount_min ? Number(query.discount_min) : undefined, belowObserved30d: query.below_observed_30d === "true",
+    discountMin: query.discount_min ? Number(query.discount_min) : undefined, lplProximityPct: query.lpl_proximity_pct !== undefined && query.lpl_proximity_pct !== "" ? Number(query.lpl_proximity_pct) : undefined, belowObserved30d: query.below_observed_30d === "true",
     newOnly: query.new_only === "true",
     priceComparison: query.price_comparison,
     sort: query.sort, cursor: query.cursor, limit: query.limit ? Number(query.limit) : undefined

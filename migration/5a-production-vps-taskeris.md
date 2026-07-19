@@ -36,8 +36,8 @@ gh secret list --env production-vps
 - [x] Worker `WEB_APP_URL` pakeistas į `https://rinkissaupigiausia.online`; deploy versija `46c50c94-0bc9-4b46-95e0-4c2f0f8df067`, `/health`, naujo domeno ir rollback domeno CORS patikros sėkmingos.
 - [x] Self-hosted Supabase Auth `SITE_URL` pakeistas į `https://rinkissaupigiausia.online`, paliekant tikslius naujo domeno, rollback `pages.dev` ir localhost callback/invite URL allowlist’e; Auth `healthy`, settings ir JWKS grąžina `200`.
 - [x] Login ir logout smoke pagrindiniame domene `https://rinkissaupigiausia.online` — `PASS`, patvirtino operatorius.
-- [ ] Išorinis alert webhook.
-- [ ] Sena `sync-raw` / `sync-debug` istorija.
-- [ ] Telegram perjungimas.
+- [ ] Išorinis alert webhook. (Kam to reikia aiškinti)
+- [ ] Sena `sync-raw` / `sync-debug` istorija. (Galime persikelti 20%, o kitus generuojam patys kai yra problemų)
+- [x] Telegram perjungimas.
 - [ ] Pilnas invite / PKCE scenarijus.
 - [ ] Pilnas metadata užpildymas.
