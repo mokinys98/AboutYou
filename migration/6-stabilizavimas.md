@@ -53,6 +53,25 @@ npm.cmd run migration:preflight
 Remove-Item Env:MIGRATION_PHASE
 ```
 
+## Telegram perjungimas i nauja projekta
+
+Rysys saugomas konkretaus projekto DB, todel pries webhook perjungima senam botui reikia nusiusti `/unlink`.
+
+1. Sename projekte botui nusiusti `/unlink`. Jis pasalina rysi pagal Telegram naudotojo ID.
+2. Patikrinti seno Worker atsakyma ir logus (`200`, be `telegram_webhook_command_failed`).
+3. Naujame Worker nustatyti ta pati `TELEGRAM_BOT_TOKEN` ir `TELEGRAM_WEBHOOK_SECRET`, tada perkelti webhook:
+
+```powershell
+curl.exe -X POST "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" `
+  -H "content-type: application/json" `
+  -d '{"url":"https://<new-api-worker-domain>/telegram/webhook","secret_token":"<TELEGRAM_WEBHOOK_SECRET>","allowed_updates":["message"],"drop_pending_updates":true}'
+```
+
+4. Naujame projekte profilyje pasirinkti „Prijungti Telegram“ ir Telegram lange paspausti `START`.
+5. Patikrinti `/status` bei profilio testini pranesima.
+
+`/unlink` veikia tame Worker/DB, kuris tuo metu gauna webhook, todel ji reikia issiusti pries webhook perjungima.
+
 ## Laiko seka
 
 ### T+15 min.

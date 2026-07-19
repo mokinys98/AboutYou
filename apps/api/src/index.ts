@@ -125,11 +125,24 @@ app.post("/telegram/webhook", async (c) => {
     } else if (command === "/status") {
       const { data } = await db.from("telegram_connections").select("status").eq("telegram_user_id", message.from.id).maybeSingle();
       await sendTelegramText(message.chat.id, data?.status === "connected" ? "✅ Telegram prijungtas." : "Telegram neprijungtas. Atidarykite profilį kataloge.", c.env);
+    } else if (command === "/unlink") {
+      const { data: connection, error: lookupError } = await db.from("telegram_connections")
+        .select("user_id").eq("telegram_user_id", message.from.id).maybeSingle();
+      if (lookupError) throw new Error(lookupError.message);
+      if (connection?.user_id) {
+        const { error: deleteError } = await db.from("telegram_connections")
+          .delete().eq("telegram_user_id", message.from.id);
+        if (deleteError) throw new Error(deleteError.message);
+        const { error: tokenError } = await db.from("telegram_link_tokens").delete()
+          .eq("user_id", connection.user_id).is("used_at", null);
+        if (tokenError) throw new Error(tokenError.message);
+      }
+      await sendTelegramText(message.chat.id, "Telegram atsietas nuo šio projekto. Dabar galite susieti jį su kitu projektu.", c.env);
     } else if (command === "/alerts") {
       const url = `${c.env.WEB_APP_URL?.replace(/\/$/, "") ?? ""}/profile#alerts`;
       await sendTelegramText(message.chat.id, `Alertus galite valdyti profilyje:\n${url}`, c.env);
     } else {
-      await sendTelegramText(message.chat.id, "Komandos:\n/status – ryšio būsena\n/alerts – valdyti alertus\n/help – pagalba", c.env);
+      await sendTelegramText(message.chat.id, "Komandos:\n/status – ryšio būsena\n/unlink – atsieti nuo šio projekto\n/alerts – valdyti alertus\n/help – pagalba", c.env);
     }
   } catch (error) {
     console.error(JSON.stringify({ event: "telegram_webhook_command_failed", updateId: parsed.data.update_id, error: error instanceof Error ? error.message : String(error) }));
