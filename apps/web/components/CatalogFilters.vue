@@ -44,7 +44,6 @@ const belowLpl = computed(() => local.below_observed_30d === "true" && local.pri
 const premiumOnly = computed(() => local.premium === "true");
 const excludeBasics = computed(() => local.exclude_basics === "true");
 const excludeAccessories = computed(() => local.exclude_accessories === "true");
-const priceUpTo50 = computed(() => local.price_max === "50");
 const formattedTotalCount = computed(() => new Intl.NumberFormat("lt-LT").format(props.totalCount ?? 0));
 const filteredItems = (group: FilterGroup) => {
   const query = (searches[group.key] || "").trim().toLocaleLowerCase("lt");
@@ -80,11 +79,6 @@ const toggleExcludeBasics = () => {
 };
 const toggleExcludeAccessories = () => {
   local.exclude_accessories = excludeAccessories.value ? "" : "true";
-  apply();
-};
-const togglePriceUpTo50 = () => {
-  local.price_max = priceUpTo50.value ? "" : "50";
-  if (!priceUpTo50.value) local.price_min = "";
   apply();
 };
 const clear = () => {
@@ -166,10 +160,6 @@ onUnmounted(() => {
     <div class="filter-mobile-body">
     <div class="filter-dropdown-row" aria-label="Pagrindiniai filtrai">
       <div class="mobile-filter-toggles">
-        <button class="mobile-filter-toggle-row" type="button" :aria-pressed="priceUpTo50" @click="togglePriceUpTo50">
-          <span><strong>Kaina iki 50 €</strong><small>Rodomos prekės iki nustatytos kainos</small></span>
-          <i class="mobile-toggle" :class="{ active: priceUpTo50 }" aria-hidden="true"><b /></i>
-        </button>
         <button class="mobile-filter-toggle-row" type="button" :aria-pressed="premiumOnly" @click="togglePremium">
           <span><strong>Premium</strong><small>Atrinkti premium ženklai</small></span>
           <i class="mobile-toggle" :class="{ active: premiumOnly }" aria-hidden="true"><b /></i>
@@ -177,6 +167,10 @@ onUnmounted(() => {
         <button class="mobile-filter-toggle-row" type="button" :aria-pressed="excludeBasics" @click="toggleExcludeBasics">
           <span><strong>Be kojinių ir apatinių</strong><small>Išmeta apatinių kategoriją</small></span>
           <i class="mobile-toggle" :class="{ active: excludeBasics }" aria-hidden="true"><b /></i>
+        </button>
+        <button class="mobile-filter-toggle-row" type="button" :aria-pressed="excludeAccessories" @click="toggleExcludeAccessories">
+          <span><strong>Be aksesuarų</strong><small>Išmeta aksesuarų kategoriją</small></span>
+          <i class="mobile-toggle" :class="{ active: excludeAccessories }" aria-hidden="true"><b /></i>
         </button>
       </div>
       <details class="filter-popover price-filter" :open="activeFilter === 'price'">
@@ -243,7 +237,6 @@ onUnmounted(() => {
     <div class="filter-mobile-footer">
       <div class="filter-mobile-footer-meta"><span>Pasirinkta: {{ activeChips.length }}</span><button type="button" @click="clear">Išvalyti viską</button></div>
       <button class="filter-mobile-apply" type="button" @click="emit('update:open', false)">Rodyti {{ formattedTotalCount }} prekes</button>
-      <span class="filter-mobile-help" aria-hidden="true">?</span>
     </div>
   </section>
 </template>

@@ -2519,10 +2519,11 @@ td small {
         display: none
     }
 
-    .filter-strip {
+    .catalog-page .filter-strip {
         position: fixed;
         inset: 0 0 0 auto;
         width: min(380px, calc(100vw - 20px));
+        box-sizing: border-box;
         max-height: none;
         margin: 0;
         background: #fff;
@@ -2530,6 +2531,7 @@ td small {
         padding: 0 18px;
         display: flex;
         flex-direction: column;
+        align-items: stretch;
         gap: 0;
         overflow: hidden;
         transform: translateX(105%);
@@ -2609,6 +2611,7 @@ td small {
     .mobile-filter-toggles {
         display: flex;
         flex-direction: column;
+        width: 100%;
         margin-bottom: 16px;
     }
 
@@ -2674,7 +2677,7 @@ td small {
     }
 
     .filter-dropdown-row>.price-filter {
-        display: none
+        display: block
     }
 
     .filter-mobile-body {
@@ -2827,6 +2830,8 @@ td small {
         position: relative;
         display: block;
         flex: 0 0 auto;
+        align-self: stretch;
+        width: auto;
         margin: 0 -18px;
         padding: 15px 18px 16px;
         border-top: 1px solid #d9d9d6;
@@ -2854,8 +2859,12 @@ td small {
     }
 
     .filter-mobile-apply {
+        position: static;
+        right: auto;
+        bottom: auto;
         display: block;
         width: 100%;
+        box-sizing: border-box;
         min-height: 48px;
         padding: 0 48px 0 12px;
         border: 0;
@@ -2864,21 +2873,6 @@ td small {
         font-size: 13px;
         font-weight: 700;
         cursor: pointer
-    }
-
-    .filter-mobile-help {
-        position: absolute;
-        right: 12px;
-        bottom: 10px;
-        display: grid;
-        place-items: center;
-        width: 32px;
-        height: 32px;
-        border-radius: 50%;
-        background: #fff;
-        box-shadow: 0 2px 8px #0002;
-        color: #111;
-        font-size: 20px
     }
 
     .product-grid,
