@@ -2517,12 +2517,12 @@ td small {
     .filter-strip {
         position: fixed;
         inset: 0 0 0 auto;
-        width: min(390px, 92vw);
+        width: min(380px, calc(100vw - 20px));
         max-height: none;
         margin: 0;
         background: #fff;
         z-index: 100;
-        padding: 20px 18px 0;
+        padding: 0 18px;
         display: flex;
         flex-direction: column;
         gap: 0;
@@ -2537,16 +2537,30 @@ td small {
 
     .filter-mobile-head {
         display: flex;
-        justify-content: space-between;
+        position: relative;
+        justify-content: center;
         align-items: center;
         flex: 0 0 auto;
-        margin-bottom: 18px
+        min-height: 44px;
+        margin: 0;
+        border-bottom: 0;
+        font-size: 16px
     }
 
     .filter-mobile-head .close {
-        font-size: 28px;
+        position: absolute;
+        right: 0;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        color: #111;
+        font-size: 24px;
+        line-height: 1;
         border: 0;
-        background: none
+        background: none;
+        cursor: pointer
     }
 
     .filter-popover {
@@ -2556,8 +2570,15 @@ td small {
     .filter-dropdown-row {
         display: grid;
         gap: 0;
+        justify-items: start;
+        align-items: start;
         overflow: visible;
         padding-bottom: 0
+    }
+
+    .catalog-page .filter-popover {
+        width: max-content;
+        max-width: 100%;
     }
 
     .filter-mobile-body {
@@ -2565,15 +2586,18 @@ td small {
         flex: 1 1 auto;
         min-height: 0;
         flex-direction: column;
-        gap: 12px;
+        gap: 0;
         overflow-y: auto;
         overscroll-behavior: contain;
         scrollbar-width: thin;
-        padding: 0 2px 18px;
+        padding: 0 0 18px;
     }
 
     .filter-popover>summary {
-        padding: 14px 34px 14px 12px
+        min-height: 50px;
+        padding: 0 30px 0 3px;
+        font-size: 12px;
+        border-color: #d2d2d2
     }
 
     .filter-menu {
@@ -2597,21 +2621,42 @@ td small {
         justify-content: space-between;
         width: 100%;
         min-height: 50px;
+        margin-top: 0;
+        padding: 0 8px;
         border-width: 0 0 1px;
-        border-color: var(--line)
+        border-color: var(--line);
+        font-size: 12px;
+        font-weight: 700
     }
 
     .quick-filter-row {
         display: grid;
-        gap: 12px
+        gap: 0;
+        padding-top: 10px
     }
 
     .quick-filter-group {
-        align-items: flex-start
+        align-items: flex-start;
+        gap: 8px;
+        padding-bottom: 4px
     }
 
     .quick-filter-group>span {
-        width: 100%
+        width: 100%;
+        margin-bottom: 2px;
+        color: #777;
+        font-size: 11px;
+        font-weight: 700
+    }
+
+    .quick-filter-pill {
+        min-height: 36px;
+        padding: 0 12px;
+        gap: 7px;
+        border-color: #d6d6d6;
+        color: #333;
+        font-size: 12px;
+        font-weight: 700
     }
 
     .clear-filters {
@@ -2626,15 +2671,7 @@ td small {
     }
 
     .filter-mobile-apply {
-        position: static;
-        flex: 0 0 auto;
-        width: 100%;
-        margin: 0;
-        padding: 16px 14px calc(16px + env(safe-area-inset-bottom));
-        border-width: 1px 0 0;
-        border-color: #111;
-        box-shadow: 0 -8px 18px rgb(255 255 255 / 92%);
-        z-index: 2;
+        display: none;
     }
 
     .product-grid,
