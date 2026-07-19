@@ -12,6 +12,12 @@ const { $supabase } = useNuxtApp();
 
 let cooldownTimer: ReturnType<typeof setInterval> | undefined;
 
+onMounted(() => {
+  if (useRoute().query.reset === "success") {
+    status.value = "Slaptažodis pakeistas. Dabar galite prisijungti su naujuoju slaptažodžiu.";
+  }
+});
+
 function clearMessages() {
   error.value = "";
   status.value = "";
@@ -140,6 +146,8 @@ onBeforeUnmount(() => {
             {{ activeAction === "password" ? "Jungiamasi…" : "Prisijungti" }}
           </button>
         </form>
+
+        <NuxtLink class="login-forgot" to="/auth/forgot-password">Pamiršote slaptažodį?</NuxtLink>
 
         <div class="login-divider" aria-hidden="true"><span>arba</span></div>
 
@@ -273,6 +281,14 @@ onBeforeUnmount(() => {
 .login-field input:focus { border-color: var(--ink); box-shadow: 0 0 0 2px #1112; }
 .login-submit, .login-magic-button { width: 100%; min-height: 50px; }
 .login-submit { margin-top: 4px; }
+.login-forgot {
+  display: block;
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
+}
+.login-forgot:hover { color: var(--ink); }
 .login-card button:disabled { cursor: not-allowed; opacity: .48; }
 .login-card button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 
