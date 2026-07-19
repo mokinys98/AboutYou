@@ -48,15 +48,30 @@ a {
     text-decoration: none
 }
 
-.site-header nav {
+.site-navigation {
     display: flex;
     align-items: center;
     gap: 28px;
     font-size: 13px
 }
 
-.site-header nav a {
+.site-navigation a {
     text-decoration: none
+}
+
+.menu-trigger,
+.mobile-menu-head {
+    display: none
+}
+
+.menu-close {
+    border: 0;
+    background: none;
+    color: inherit;
+    cursor: pointer;
+    font-size: 30px;
+    line-height: 1;
+    padding: 0 4px
 }
 
 .link-button,
@@ -1138,12 +1153,83 @@ td small {
         margin: 0 16px
     }
 
-    .site-header nav a {
-        display: none
+    .menu-trigger {
+        display: grid;
+        gap: 5px;
+        width: 42px;
+        height: 42px;
+        place-content: center;
+        border: 1px solid var(--ink);
+        background: #fff;
+        cursor: pointer;
+        z-index: 120
     }
 
-    .site-header nav {
-        gap: 10px
+    .menu-trigger span {
+        display: block;
+        width: 18px;
+        height: 1px;
+        background: var(--ink)
+    }
+
+    .site-navigation {
+        position: fixed;
+        inset: 0 0 0 auto;
+        z-index: 110;
+        display: flex;
+        align-items: stretch;
+        flex-direction: column;
+        gap: 0;
+        width: min(360px, 88vw);
+        height: 100dvh;
+        padding: 22px 24px;
+        background: #fff;
+        box-shadow: -18px 0 50px #0002;
+        transform: translateX(105%);
+        transition: transform .25s ease;
+        visibility: hidden;
+    }
+
+    .site-navigation.open {
+        transform: translateX(0);
+        visibility: visible
+    }
+
+    .site-navigation a,
+    .site-navigation .link-button {
+        display: block;
+        width: 100%;
+        padding: 18px 0;
+        border-bottom: 1px solid var(--line);
+        font-size: 16px;
+        text-align: left
+    }
+
+    .site-navigation .link-button {
+        margin-top: auto;
+        border-bottom: 0;
+        border-top: 1px solid var(--line);
+        padding-bottom: 4px
+    }
+
+    .mobile-menu-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 42px;
+        margin-bottom: 20px;
+        border-bottom: 1px solid var(--ink);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: .12em;
+        text-transform: uppercase
+    }
+
+    .menu-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        background: #0008
     }
 
     .catalog-page,
