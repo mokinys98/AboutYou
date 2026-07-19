@@ -2469,6 +2469,11 @@ td small {
     display: none
 }
 
+.mobile-filter-toggles,
+.filter-mobile-footer {
+    display: none
+}
+
 .filter-strip .range-row input {
     min-width: 90px
 }
@@ -2538,33 +2543,53 @@ td small {
     .filter-mobile-head {
         display: flex;
         position: relative;
-        justify-content: center;
+        justify-content: space-between;
         align-items: center;
         flex: 0 0 auto;
-        min-height: 44px;
-        margin: 0;
-        border-bottom: 0;
+        min-height: 62px;
+        margin: 0 -18px;
+        padding: 0 20px 0 20px;
+        border-bottom: 1px solid #d9d9d6;
         font-size: 16px
+    }
+
+    .filter-mobile-title {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        line-height: 1
+    }
+
+    .filter-mobile-title small {
+        color: #777;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: .18em
+    }
+
+    .filter-mobile-title strong {
+        font-size: 18px
     }
 
     .filter-mobile-head .close {
         position: absolute;
-        right: 0;
+        right: 20px;
         top: 50%;
         transform: translateY(-50%);
-        width: 28px;
-        height: 28px;
+        width: 40px;
+        height: 40px;
         padding: 0;
         color: #111;
-        font-size: 24px;
+        font-size: 28px;
         line-height: 1;
-        border: 0;
+        border: 1px solid #111;
         background: none;
         cursor: pointer
     }
 
     .filter-popover {
-        margin-bottom: 8px
+        width: 100%;
+        margin: 0
     }
 
     .filter-dropdown-row {
@@ -2577,8 +2602,79 @@ td small {
     }
 
     .catalog-page .filter-popover {
-        width: max-content;
-        max-width: 100%;
+        width: 100%;
+        max-width: none;
+    }
+
+    .mobile-filter-toggles {
+        display: flex;
+        flex-direction: column;
+        margin-bottom: 16px;
+    }
+
+    .mobile-filter-toggle-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        min-height: 74px;
+        padding: 13px 0;
+        border: 0;
+        border-bottom: 1px solid #d9d9d6;
+        background: transparent;
+        color: #111;
+        text-align: left;
+        cursor: pointer
+    }
+
+    .mobile-filter-toggle-row>span {
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+        min-width: 0
+    }
+
+    .mobile-filter-toggle-row strong {
+        font-size: 14px;
+        font-weight: 500
+    }
+
+    .mobile-filter-toggle-row small {
+        color: #777;
+        font-size: 11px
+    }
+
+    .mobile-toggle {
+        position: relative;
+        flex: 0 0 auto;
+        width: 40px;
+        height: 24px;
+        border-radius: 999px;
+        background: #d7d7d3;
+        transition: background .15s
+    }
+
+    .mobile-toggle b {
+        position: absolute;
+        top: 4px;
+        left: 4px;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #fff;
+        transition: transform .15s
+    }
+
+    .mobile-toggle.active {
+        background: #111
+    }
+
+    .mobile-toggle.active b {
+        transform: translateX(16px)
+    }
+
+    .filter-dropdown-row>.price-filter {
+        display: none
     }
 
     .filter-mobile-body {
@@ -2594,10 +2690,65 @@ td small {
     }
 
     .filter-popover>summary {
-        min-height: 50px;
-        padding: 0 30px 0 3px;
-        font-size: 12px;
-        border-color: #d2d2d2
+        display: flex;
+        width: 100%;
+        min-height: 57px;
+        box-sizing: border-box;
+        padding: 0 28px 0 0;
+        border: 0;
+        border-bottom: 1px solid #d9d9d6;
+        border-radius: 0;
+        color: #111;
+        font-size: 14px;
+        font-weight: 500
+    }
+
+    .filter-popover>summary.active {
+        border-color: #d9d9d6;
+        background: transparent;
+        color: #111
+    }
+
+    .filter-popover>summary .filter-count {
+        display: none
+    }
+
+    .filter-popover>summary .sale-dot {
+        width: 8px;
+        height: 8px;
+        margin-right: 12px
+    }
+
+    .filter-popover>summary:after {
+        right: 4px;
+        top: 50%;
+        margin: 0;
+        border: 0;
+        color: #111;
+        content: "›";
+        font-size: 24px;
+        font-weight: 400;
+        line-height: 1;
+        transform: translateY(-50%)
+    }
+
+    .filter-popover[open]>summary:after {
+        margin: 0;
+        transform: translateY(-50%) rotate(90deg)
+    }
+
+    .mobile-summary-check {
+        display: inline-grid;
+        place-items: center;
+        width: 20px;
+        height: 20px;
+        margin-left: auto;
+        margin-right: 22px;
+        border-radius: 50%;
+        background: #111;
+        color: #fff;
+        font-size: 13px;
+        line-height: 1
     }
 
     .filter-menu {
@@ -2630,9 +2781,7 @@ td small {
     }
 
     .quick-filter-row {
-        display: grid;
-        gap: 0;
-        padding-top: 10px
+        display: none
     }
 
     .quick-filter-group {
@@ -2663,6 +2812,10 @@ td small {
         margin-left: 0
     }
 
+    .active-filter-chips {
+        display: none
+    }
+
     .drawer-backdrop {
         position: fixed;
         inset: 0;
@@ -2670,8 +2823,62 @@ td small {
         z-index: 90
     }
 
+    .filter-mobile-footer {
+        position: relative;
+        display: block;
+        flex: 0 0 auto;
+        margin: 0 -18px;
+        padding: 15px 18px 16px;
+        border-top: 1px solid #d9d9d6;
+        background: #fff;
+        z-index: 3
+    }
+
+    .filter-mobile-footer-meta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 13px;
+        color: #777;
+        font-size: 11px
+    }
+
+    .filter-mobile-footer-meta button {
+        padding: 0;
+        border: 0;
+        border-bottom: 1px solid #111;
+        background: transparent;
+        color: #111;
+        font: inherit;
+        cursor: pointer
+    }
+
     .filter-mobile-apply {
-        display: none;
+        display: block;
+        width: 100%;
+        min-height: 48px;
+        padding: 0 48px 0 12px;
+        border: 0;
+        background: #111;
+        color: #fff;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer
+    }
+
+    .filter-mobile-help {
+        position: absolute;
+        right: 12px;
+        bottom: 10px;
+        display: grid;
+        place-items: center;
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 2px 8px #0002;
+        color: #111;
+        font-size: 20px
     }
 
     .product-grid,

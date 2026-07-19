@@ -183,7 +183,7 @@ watch(gridColumns, (value) => localStorage.setItem("catalog-grid-columns", Strin
           </div>
         </header>
         <div class="catalog-mobile-toolbar"><button class="filter-trigger" @click="filtersOpen = true">Filtrai</button><label>Rūšiuoti<select :value="filters.sort || 'newest'" @change="updateFilters({ ...filters, sort: ($event.target as HTMLSelectElement).value })"><option value="newest">Naujausi</option><option value="price_asc">Kaina ↑</option><option value="price_desc">Kaina ↓</option><option value="source_lpl_desc">Paskutinė mažiausia kaina: nuo didžiausios</option><option value="source_lpl_asc">Paskutinė mažiausia kaina: nuo mažiausios</option><option value="discount_desc">Nuolaida</option></select></label></div>
-        <CatalogFilters :model-value="filters" :facets="facets" :open="filtersOpen" @update:model-value="updateFilters" @update:open="filtersOpen = $event" />
+        <CatalogFilters :model-value="filters" :facets="facets" :total-count="totalCount" :open="filtersOpen" @update:model-value="updateFilters" @update:open="filtersOpen = $event" />
         <div class="catalog-alert-row"><FilterAlertDialog :filters="filters" :total-count="totalCount" :title="isNews ? 'Naujienos' : catalogTitle" /></div>
         <p v-if="error" class="error-state">{{ error }}</p>
         <div v-else-if="loading && !products.length" class="loading-grid" :style="{ '--catalog-columns': gridColumns }" role="status" aria-label="Kraunamos prekės"><div v-for="n in 8" :key="n" /></div>
