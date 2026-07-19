@@ -16,6 +16,11 @@ operacinės procedūros aprašytos [docs/catalog-read-model-stabilization.md](do
 
 `aboutyou-price-sort.user.js` veikia kaip diagnostikos įrankis naršyklėje, o jo tiesioginio ABOUT YOU produktų srauto kolektorius taip pat naudojamas `apps/sync`. Jei tiesioginis srautas pasikeičia, provideris automatiškai bando DOM slinkimo fallback ir nepilno rezultato nežymi sėkmingu.
 
+
+## Paleidimas tinkle
+1. npm.cmd --workspace @catalog/api run dev:real-db -- --ip 0.0.0.0 --port 8787
+2. npm.cmd --workspace @catalog/web run dev:real-db -- --host 0.0.0.0 --port 3000
+
 ## Paleidimas
 
 1. Sukurkite Supabase projektą ir paleiskite `supabase/migrations/202607050001_initial_catalog.sql`.
