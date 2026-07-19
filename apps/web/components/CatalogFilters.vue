@@ -153,6 +153,7 @@ onUnmounted(() => {
   <section class="filter-strip" :class="{ open }" aria-label="Katalogo filtrai">
     <div class="filter-mobile-head"><strong>Filtrai</strong><button class="close" type="button" aria-label="Uždaryti filtrus" @click="emit('update:open', false)">×</button></div>
 
+    <div class="filter-mobile-body">
     <div class="filter-dropdown-row" aria-label="Pagrindiniai filtrai">
       <details class="filter-popover price-filter" :open="activeFilter === 'price'">
         <summary :class="{ active: local.price_min || local.price_max }" @click.prevent="toggleFilter('price')">Kaina <span v-if="local.price_min || local.price_max" class="filter-count">1</span></summary>
@@ -213,6 +214,7 @@ onUnmounted(() => {
 
     <div v-if="activeChips.length" class="active-filter-chips" aria-label="Aktyvūs filtrai">
       <button v-for="chip in activeChips" :key="`${chip.key}-${chip.value || ''}`" type="button" @click="removeFilter(chip.key, chip.value)">{{ chip.label }} <span aria-hidden="true">×</span></button>
+    </div>
     </div>
     <button class="filter-mobile-apply" type="button" @click="emit('update:open', false)">Rodyti rezultatus</button>
   </section>

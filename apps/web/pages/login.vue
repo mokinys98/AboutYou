@@ -117,6 +117,9 @@ onBeforeUnmount(() => {
         <h2 id="login-title">Prisijunkite</h2>
         <p class="login-lead">Naudokite savo Supabase naudotojo duomenis.</p>
 
+        <p v-if="error" class="login-message error" role="alert" aria-live="assertive">{{ error }}</p>
+        <p v-if="status" class="login-message login-success" role="status" aria-live="polite">{{ status }}</p>
+
         <form class="login-form" @submit.prevent="signInWithPassword">
           <label class="login-field">
             <span>El. paštas</span>
@@ -168,8 +171,6 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
-        <p v-if="error" class="login-message error" role="alert" aria-live="assertive">{{ error }}</p>
-        <p v-if="status" class="login-message login-success" role="status" aria-live="polite">{{ status }}</p>
         <p class="login-security">Jūsų prisijungimą saugiai tvarko Supabase.</p>
       </div>
     </section>
