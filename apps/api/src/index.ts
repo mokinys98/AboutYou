@@ -446,13 +446,9 @@ app.get("/v1/catalog", async (c) => {
   const cached = await edgeCache.match(cacheKey);
   if (cached) return cached;
 
-  let query = c.get("db").from("catalog_items_read").select("*", filters.cursor ? undefined : { count: "exact" });
+  let query = c.get("db").from("catalog_items_read_with_lpl").select("*", filters.cursor ? undefined : { count: "exact" });
   if (filters.lplProximityPct !== undefined) {
-    const { data: matchingProducts, error: proximityError } = await c.get("db").rpc("catalog_products_near_lpl", { p_proximity_pct: filters.lplProximityPct });
-    if (proximityError) return c.json({ error: proximityError.message }, 500);
-    const ids = (matchingProducts ?? []).map((row: { id: string }) => row.id);
-    if (!ids.length) return c.json({ items: [], nextCursor: null, totalCount: 0 });
-    query = query.in("id", ids);
+    query = query.lte("lpl_price_ratio", 100 + filters.lplProximityPct);
   }
   if (filters.brands.length) query = query.in("brand", filters.brands);
   if (filters.brandTiers.length) query = query.in("brand_tier", filters.brandTiers);
