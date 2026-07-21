@@ -34,11 +34,12 @@ describe("Telegram alerts", () => {
   it("builds internal product and filter links and escapes notification text", () => {
     const filterPayload: TelegramNotification = {
       kind: "filter", alertId: "a", name: "A&B <nauji>", filters: { ...filters, brands: ["Nike"], priceMax: 5000, excludeAccessories: true },
-      triggers: ["newMatches"], totalCount: 2, products: [product("1", [])]
+      triggers: ["newMatches"], totalCount: 2, catalogVersion: 42, products: [product("1", [])]
     };
     expect(notificationUrl(filterPayload, "https://catalog.example/")).toContain("brands=Nike");
     expect(notificationUrl(filterPayload, "https://catalog.example/")).toContain("price_max=50");
     expect(notificationUrl(filterPayload, "https://catalog.example/")).toContain("exclude_accessories=true");
+    expect(notificationUrl(filterPayload, "https://catalog.example/")).toContain("catalog_version=42");
     expect(notificationText(filterPayload)).toContain("A&amp;B &lt;nauji&gt;");
     expect(notificationUrl({ ...filterPayload, kind: "product" }, "https://catalog.example")).toBe("https://catalog.example/products/1");
   });

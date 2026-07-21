@@ -12,7 +12,7 @@ let lastFacetsKey = "";
 let pendingFacets: { key: string; request: Promise<CatalogFacets | null> } | null = null;
 const facetsCacheTtlMs = 24 * 60 * 60 * 1000;
 const facetsCachePrefix = "catalog-facets:v1:";
-const filterKeys = ["brands", "brand_tiers", "categories", "category", "colors", "color_shades", "sources", "sizes", "other_sizes", "materials", "patterns", "features", "styles", "product_types", "premium", "exclude_basics", "exclude_accessories", "price_min", "price_max", "discount_min", "below_observed_30d", "price_comparison", "sort"];
+const filterKeys = ["brands", "brand_tiers", "categories", "category", "colors", "color_shades", "sources", "sizes", "other_sizes", "materials", "patterns", "features", "styles", "product_types", "premium", "exclude_basics", "exclude_accessories", "price_min", "price_max", "discount_min", "below_observed_30d", "price_comparison", "catalog_version", "sort"];
 const filters = computed<Record<string, string>>(() => Object.fromEntries(filterKeys.flatMap((key) => typeof route.query[key] === "string" && route.query[key] ? [[key, route.query[key] as string]] : [])));
 const fallbackCategoryFacets = createFallbackCategoryFacets();
 const categoryFacets = computed(() => facets.value?.categories.length ? facets.value.categories : fallbackCategoryFacets);
@@ -128,7 +128,11 @@ async function loadFacets(value = filters.value, options: { force?: boolean } = 
   }
   return result;
 }
-async function updateFilters(value: Record<string, string>) { await router.push({ query: Object.fromEntries(Object.entries(value).filter(([, item]) => item)) }); }
+async function updateFilters(value: Record<string, string>) {
+  const next = { ...value };
+  delete next.catalog_version;
+  await router.push({ query: Object.fromEntries(Object.entries(next).filter(([, item]) => item)) });
+}
 async function selectCategory(category: string) {
   const next: Record<string, string> = { ...filters.value, category: filters.value.category === category ? "" : category };
   delete next.categories;

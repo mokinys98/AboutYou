@@ -22,6 +22,7 @@ export type TelegramNotification = {
   kind: "filter" | "product";
   alertId: string;
   name: string;
+  catalogVersion?: number;
   filters?: CatalogAlertFilters;
   triggers: string[];
   totalCount: number;
@@ -127,6 +128,7 @@ export function notificationUrl(payload: TelegramNotification, webAppUrl: string
   if (filters.discountMin !== undefined) query.set("discount_min", String(filters.discountMin));
   if (filters.belowObserved30d) query.set("below_observed_30d", "true");
   if (filters.priceComparison && filters.priceComparison !== "observed") query.set("price_comparison", filters.priceComparison);
+  if (payload.catalogVersion !== undefined) query.set("catalog_version", String(payload.catalogVersion));
   return `${base}/?${query.toString()}`;
 }
 
