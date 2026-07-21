@@ -95,18 +95,23 @@
   ir `last_status` turi būti `refreshed` arba `clean`. Production patikroje
   gauta `requested_version = 107`, `completed_version = 107`, `last_status = clean`,
   `last_error = null`; paskutinis refresh truko apie 25,5 s.
-- [ ] **Atlikti kontroliuojamą sync testą.** Paleisti vieną realų arba riboto
+- [x] **Atlikti kontroliuojamą sync testą.** Paleisti vieną realų arba riboto
   dydžio catalog sync ir užfiksuoti versiją prieš bei po jo. Sync viduryje
   Telegram alertų vertinimas neturi sukurti naujo filtro outbox pranešimo.
+  Atliktame teste sync baigėsi `success` su 314 prekėmis, outbox liko 17 eilučių,
+  o filtro alertų kursoriai vėliau pasiekė 116.
 - [x] **Patikrinti publikavimą ir siuntimą.** Po refresh įsitikinti, kad filtro
   outbox payload turi tą pačią `catalogVersion` kaip
   `required_catalog_version`, o claim funkcija eilę paima tik tada, kai ši
   versija ne didesnė už `completed_version`. Production patikroje visos
   pateiktos eilutės turėjo `required_catalog_version = 107`,
   `payload.catalogVersion = 107` ir būseną `sent`.
-- [ ] **Atlikti paspaudimo testą.** Gauti testinį Telegram pranešimą ir iškart
-  paspausti nuorodą. Patikrinti, kad URL turi `catalog_version=<V>`, API gauna
-  prekę iš `catalog_items_read`, o ne seną edge/local cache atsakymą.
+- [x] **Atlikti paspaudimo testą.** Gauti testiniai Telegram pranešimai buvo
+  atidaryti iškart po siuntimo. Abiejose nuorodose (`category` ir
+  `price_max/discount_min`) yra `catalog_version=117`; DB tuo metu taip pat
+  rodė `completed_version = 117`, o išsiųstų outbox eilučių
+  `required_catalog_version = payload.catalogVersion = 117`. Tai patvirtina,
+  kad nuoroda generuojama tik publikuotai katalogo versijai.
 - [ ] **Išbandyti seną cache.** Prieš refresh užkrauti tą patį filtrą, kad būtų
   sukurtas tuščias atsakymas. Po refresh paspausti versijuotą Telegram nuorodą;
   prekė turi būti matoma nepaisant ankstesnio cache įrašo.
@@ -286,6 +291,146 @@ select cron.schedule(
 
 Nekviesti `cron.schedule` pakartotinai, jei job jau egzistuoja, nes galima
 netyčia perrašyti jo grafiką ar sukurti neplanuotą konfigūracijos pokytį.
+
+### Praktinės priėmimo testų procedūros
+
+Šiuos testus geriausia vykdyti staging aplinkoje arba su atskiru testiniu
+Telegram alertu. Prieš kiekvieną testą užsirašyti dabartinę katalogo versiją:
+
+```bash
+docker exec -i supabase-db psql -U postgres -d postgres -c \
+"select requested_version, completed_version
+ from public.catalog_read_model_refresh_state where singleton;"
+```
+
+#### Testas A: sync viduryje
+
+Šiam testui yra du variantai:
+
+- **Saugos smoke testas (rekomenduojamas pirmas).** Naudoti jau egzistuojantį
+  aktyvų filtro alertą ir patikrinti, kad katalogo rašymo metu jo versijos
+  kursorius bei outbox nepasistūmėja. Šiam variantui nereikia garantuoti naujos
+  prekės — tikrinama, kad viduryje sync nepradedamas siuntimas.
+- **Pilnas end-to-end testas.** Laikinai sukurti filtro alertą per web UI,
+  prijungti testinį Telegram chatą ir pasirinkti filtrą, kuriam sync tikrai
+  atneš naują prekę. Jei nėra žinomos naujos prekės arba testinio fixture,
+  šio varianto production aplinkoje vykdyti nereikia.
+
+Prieš sync užsirašyti pasirinkto alerto ID, jo
+`last_evaluated_catalog_version` ir outbox eilučių skaičių:
+
+```bash
+docker exec -i supabase-db psql -U postgres -d postgres -c \
+"select id, kind, enabled, last_evaluated_catalog_version
+ from public.alerts
+ where kind = 'filter' and enabled
+ order by updated_at desc limit 10;"
+
+docker exec -i supabase-db psql -U postgres -d postgres -c \
+"select count(*) as outbox_count
+ from public.telegram_notification_outbox;"
+```
+
+Tada paleisti įprastą `Sync catalog` GitHub Actions workflow (`Actions` → `Sync
+catalog` → `Run workflow`). Jei sync paleidžiamas kitu būdu, svarbu užfiksuoti
+jo pradžios laiką.
+
+Kol sync vyksta, patikrinti:
+
+   ```bash
+   docker exec -i supabase-db psql -U postgres -d postgres -c \
+   "select id, status, started_at, finished_at, products_count
+    from public.sync_runs
+    where status = 'running'
+    order by started_at desc;"
+   ```
+
+Kol yra `status = running`, paleisti:
+
+   ```bash
+   docker exec -i supabase-db psql -U postgres -d postgres -c \
+   "select public.evaluate_telegram_alerts(500);"
+   ```
+
+Patikrinti, kad neatsirado nauja filtro outbox eilutė su nauja versija, kol
+   `completed_version` dar nepasikeitė.
+Sync pabaigoje palaukti, kol `requested_version = completed_version`, tada
+   dar kartą paleisti alertų vertinimą. Tik dabar leidžiamas naujas filtro
+   outbox įrašas.
+
+Pass kriterijus smoke testui: kol sync vyksta, filtro alerto
+`last_evaluated_catalog_version` ir outbox skaičius nepasikeičia dėl naujos
+nepublikuotos prekės. Pilnam end-to-end testui papildomai turi atsirasti viena
+outbox eilė tik po sėkmingo refresh, o jos `catalogVersion` turi sutapti su
+`completed_version`.
+
+#### Testas B: Telegram nuoroda iškart po siuntimo
+
+1. Po sėkmingo refresh paleisti testinį alertų vertinimą arba palaukti Workerio
+   ciklo.
+2. Iš Telegram žinutės iškart paspausti `Atidaryti kataloge`.
+3. Patikrinti, kad nuorodoje yra `catalog_version=<V>`.
+4. Tą pačią versiją ir žinutės prekę patikrinti DB:
+
+   ```bash
+   docker exec -i supabase-db psql -U postgres -d postgres -c \
+   "select status, required_catalog_version,
+           payload->>'catalogVersion' as payload_version,
+           payload->'products' as products
+    from public.telegram_notification_outbox
+    where status = 'sent'
+    order by sent_at desc limit 1;"
+   ```
+
+Pass kriterijus: prekė matoma pirmame katalogo rezultate, o payload versija,
+URL versija ir `completed_version` sutampa.
+
+Production patikroje gautos dvi Telegram nuorodos su `catalog_version=117`;
+`catalog_read_model_refresh_state` ir naujausios išsiųstos outbox eilutės taip
+pat buvo 117 versijos.
+
+#### Testas C: seno cache scenarijus
+
+1. Prieš naują refresh naršyklėje atidaryti tą patį filtrą, kad būtų išsaugotas
+   senas arba tuščias `/v1/catalog` atsakymas.
+2. Užbaigti sync ir refresh.
+3. Gauti naują Telegram pranešimą ir atidaryti jo versijuotą nuorodą.
+4. Patikrinti, kad URL turi naują `catalog_version`, todėl naudojamas naujas
+   edge cache raktas; facetų localStorage raktas taip pat turi skirtis.
+
+Pass kriterijus: senas tuščias atsakymas negrįžta ir nauja prekė rodoma.
+
+#### Testas D: refresh klaida ir Telegram retry
+
+Refresh klaidos scenarijų dirbtinai sukelti tik staging aplinkoje. Production
+pakanka tikrinti natūralios klaidos ir retry įrašus.
+
+Refresh būseną tikrinti taip:
+
+```bash
+docker exec -i supabase-db psql -U postgres -d postgres -c \
+"select requested_version, completed_version, last_status, last_error
+ from public.catalog_read_model_refresh_state where singleton;"
+```
+
+Pass kriterijus refresh klaidos metu: `last_status = failed`,
+`completed_version` nepasistūmėja, filtro alerto versijos kursorius nepajuda ir
+naujas pranešimas neišsiunčiamas.
+
+Telegram retry būseną tikrinti taip:
+
+```bash
+docker exec -i supabase-db psql -U postgres -d postgres -c \
+"select id, status, attempts, next_attempt_at, last_error
+ from public.telegram_notification_outbox
+ where status in ('pending', 'processing', 'dead')
+ order by updated_at desc limit 20;"
+```
+
+Transient 429/5xx atveju eilė turi likti `pending` su padidėjusiu `attempts` ir
+`next_attempt_at` ateityje. `dead` reiškia, kad pasiektas retry limitas arba
+klaida pažymėta permanentine; tokią eilę reikia tirti, o ne kartotinai kurti
+naują alertą.
 
 ### Vėlesni patobulinimai
 
