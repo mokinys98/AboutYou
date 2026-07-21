@@ -1,0 +1,43 @@
+name: Sync catalog (staging)
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_products:
+        description: Maximum products per active target
+        required: false
+        default: "50"
+        type: string
+
+concurrency:
+  group: catalog-sync-staging
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: staging
+    permissions:
+      contents: read
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SYNC_HEADLESS: "true"
+      SYNC_MAX_PRODUCTS: ${{ inputs.max_products || '50' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Mark sync start
+        run: echo "SYNC_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+      - run: npm run sync
+      - name: Verify staging sync and read-model refresh
+        env:
+          VERIFY_REFRESH_TIMEOUT_MINUTES: "15"
+          VERIFY_REFRESH_POLL_SECONDS: "15"
+        run: npm run verify:catalog:staging

@@ -4,22 +4,23 @@ const repeatedPassword = ref("");
 const ready = ref(false);
 const pending = ref(false);
 const error = ref("");
-const status = ref("Tikrinama kvietimo nuoroda…");
+const status = ref("Tikrinama slaptažodžio atkūrimo nuoroda…");
 const { $supabase } = useNuxtApp();
 
 onMounted(async () => {
   const url = new URL(location.href);
   const hash = new URLSearchParams(url.hash.replace(/^#/, ""));
   if (hash.get("error") || hash.get("error_code")) {
-    error.value = "Kvietimo nuoroda nebegalioja arba jau buvo panaudota.";
+    error.value = "Atkūrimo nuoroda nebegalioja arba jau buvo panaudota.";
     status.value = "";
     return;
   }
 
-  // detectSessionInUrl in the Supabase client handles the PKCE code once.
+  // The client plugin has detectSessionInUrl enabled and exchanges the PKCE
+  // code during initialization. Do not exchange it a second time here.
   const { data } = await $supabase.auth.getSession();
   if (!data.session) {
-    error.value = "Kvietimo nuoroda nebegalioja arba jau buvo panaudota.";
+    error.value = "Atkūrimo nuoroda nebegalioja arba jau buvo panaudota.";
     status.value = "";
     return;
   }
@@ -27,7 +28,7 @@ onMounted(async () => {
   status.value = "";
 });
 
-async function setPassword() {
+async function updatePassword() {
   error.value = "";
   if (password.value.length < 8) {
     error.value = "Slaptažodį turi sudaryti bent 8 simboliai.";
@@ -40,38 +41,36 @@ async function setPassword() {
 
   pending.value = true;
   const { error: passwordError } = await $supabase.auth.updateUser({ password: password.value });
+  pending.value = false;
   if (passwordError) {
-    pending.value = false;
     error.value = passwordError.message.toLowerCase().includes("weak")
       ? "Pasirinkite stipresnį slaptažodį."
-      : "Slaptažodžio išsaugoti nepavyko. Bandykite dar kartą.";
+      : "Slaptažodžio išsaugoti nepavyko. Paprašykite naujos atkūrimo nuorodos.";
     return;
   }
 
-  try {
-    const api = useApi();
-    await api("/v1/users/accept-invite", { method: "POST" });
-  } catch {
-    // Password setup succeeded; accepting the invitation is safe to retry later.
-  }
-  pending.value = false;
-  await navigateTo("/");
+  await $supabase.auth.signOut();
+  await navigateTo("/login?reset=success");
 }
 </script>
 
 <template>
   <main class="auth-page">
-    <section class="auth-card" aria-labelledby="invite-title">
-      <p class="eyebrow">KOMANDOS KVETIMAS</p>
-      <h1 id="invite-title">Sukurkite slaptažodį</h1>
+    <section class="auth-card" aria-labelledby="reset-password-title">
+      <p class="eyebrow">PASKYROS ATKŪRIMAS</p>
+      <h1 id="reset-password-title">Nustatykite naują slaptažodį</h1>
       <p v-if="status" class="panel-note">{{ status }}</p>
       <p v-if="error" class="error" role="alert">{{ error }}</p>
-      <form v-if="ready" @submit.prevent="setPassword">
+      <form v-if="ready" @submit.prevent="updatePassword">
         <label>Slaptažodis<input v-model="password" type="password" minlength="8" autocomplete="new-password" required></label>
         <label>Pakartokite slaptažodį<input v-model="repeatedPassword" type="password" minlength="8" autocomplete="new-password" required></label>
-        <button class="primary" :disabled="pending">{{ pending ? "Saugoma…" : "Išsaugoti ir prisijungti" }}</button>
+        <button class="primary" :disabled="pending">{{ pending ? "Saugoma…" : "Išsaugoti naują slaptažodį" }}</button>
       </form>
-      <NuxtLink v-if="error && !ready" to="/login" class="back">Grįžti į prisijungimą</NuxtLink>
+      <NuxtLink v-if="error && !ready" to="/auth/forgot-password" class="back">Prašyti naujos nuorodos</NuxtLink>
     </section>
   </main>
 </template>
+
+<style scoped>
+.auth-card button:disabled { cursor: not-allowed; opacity: .55; }
+</style>

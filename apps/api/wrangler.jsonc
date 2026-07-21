@@ -5,8 +5,8 @@
   "compatibility_date": "2026-07-06",
   "compatibility_flags": ["nodejs_compat"],
   "vars": {
-    "ALLOWED_ORIGIN": "https://aboutyou-private-catalog-web.pages.dev",
-    "WEB_APP_URL": "https://aboutyou-private-catalog-web.pages.dev",
+    "ALLOWED_ORIGIN": "https://aboutyou-private-catalog-web.pages.dev,https://rinkissaupigiausia.online",
+    "WEB_APP_URL": "https://rinkissaupigiausia.online",
     "TELEGRAM_BOT_USERNAME": "AboutYouTrackerBot",
     "GITHUB_OWNER": "mokinys98",
     "GITHUB_REPO": "AboutYou",
@@ -18,6 +18,22 @@
       "47 * * * *",
       "*/5 * * * *"
     ]
+  },
+  "env": {
+    "staging": {
+      "name": "aboutyou-private-catalog-api-staging",
+      "vars": {
+        "ALLOWED_ORIGIN": "https://staging-preview.aboutyou-private-catalog-web.pages.dev,http://localhost:3000,http://localhost:3001,http://localhost:3002",
+        "WEB_APP_URL": "https://staging-preview.aboutyou-private-catalog-web.pages.dev",
+        "TELEGRAM_BOT_USERNAME": "AboutYouTrackerBot",
+        "GITHUB_OWNER": "mokinys98",
+        "GITHUB_REPO": "AboutYou",
+        "GITHUB_REF": "main"
+      },
+      "triggers": {
+        "crons": []
+      }
+    }
   },
   "observability": {
     "enabled": true,

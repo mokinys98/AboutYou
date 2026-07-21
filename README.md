@@ -16,6 +16,11 @@ operacinės procedūros aprašytos [docs/catalog-read-model-stabilization.md](do
 
 `aboutyou-price-sort.user.js` veikia kaip diagnostikos įrankis naršyklėje, o jo tiesioginio ABOUT YOU produktų srauto kolektorius taip pat naudojamas `apps/sync`. Jei tiesioginis srautas pasikeičia, provideris automatiškai bando DOM slinkimo fallback ir nepilno rezultato nežymi sėkmingu.
 
+
+## Paleidimas tinkle
+1. npm.cmd --workspace @catalog/api run dev:real-db -- --ip 0.0.0.0 --port 8787
+2. npm.cmd --workspace @catalog/web run dev:real-db -- --host 0.0.0.0 --port 3000
+
 ## Paleidimas
 
 1. Sukurkite Supabase projektą ir paleiskite `supabase/migrations/202607050001_initial_catalog.sql`.
@@ -63,6 +68,8 @@ klaidų diagnostikos lentelę ir privatų `sync-debug` Storage bucket'ą.
 Sinchronizavimo metu kas 5 s spausdinamas surinktų produktų ir srauto puslapių progresas. Vienai grupei taikomas 8 min. rinkimo timeout ir iki 4 bandymų kiekvienai nutrūkusiai srauto puslapio užklausai.
 
 Pagrindinis prisijungimo būdas yra el. paštas ir slaptažodis. Magic link paliktas kaip alternatyva: Supabase Auth URL Configuration pridėkite vietinį `http://localhost:3000/auth/callback` ir produkcinį Cloudflare Pages callback URL. Viešą naudotojų registraciją išjunkite. Produkciniam magic-link laiškų siuntimui sukonfigūruokite nuosavą SMTP tiekėją, nes numatytasis Supabase siuntimas yra skirtas tik bandymams ir turi griežtus limitus.
+
+Projektas yra invite-only: naudotojus sukuria ir pakviečia administratorius, o savitarnos „Pamiršau slaptažodį“ funkcijos aplikacijoje nėra. Jei naudotojas praranda prieigą, jis susisiekia su projekto savininku; savininkas slaptažodį atstato per Supabase administravimo veiksmus ir tik tada patvirtina, kad naudotojas gali prisijungti.
 
 ### Komandos narių kvietimai
 

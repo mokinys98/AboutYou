@@ -69,7 +69,18 @@ app.use("*", async (c, next) => cors({
   allowHeaders: ["Authorization", "Content-Type"],
   exposeHeaders: ["ETag"]
 })(c, next));
-app.get("/health", (c) => c.json({ ok: true }));
+export function supabaseOrigin(value: string | undefined) {
+  try {
+    return new URL(value ?? "").origin;
+  } catch {
+    return null;
+  }
+}
+
+app.get("/health", (c) => {
+  const backendOrigin = supabaseOrigin(c.env.SUPABASE_URL);
+  return c.json({ ok: backendOrigin !== null, backendOrigin }, backendOrigin === null ? 503 : 200);
+});
 
 const TelegramUpdateSchema = z.object({
   update_id: z.number().int(),
@@ -114,11 +125,24 @@ app.post("/telegram/webhook", async (c) => {
     } else if (command === "/status") {
       const { data } = await db.from("telegram_connections").select("status").eq("telegram_user_id", message.from.id).maybeSingle();
       await sendTelegramText(message.chat.id, data?.status === "connected" ? "✅ Telegram prijungtas." : "Telegram neprijungtas. Atidarykite profilį kataloge.", c.env);
+    } else if (command === "/unlink") {
+      const { data: connection, error: lookupError } = await db.from("telegram_connections")
+        .select("user_id").eq("telegram_user_id", message.from.id).maybeSingle();
+      if (lookupError) throw new Error(lookupError.message);
+      if (connection?.user_id) {
+        const { error: deleteError } = await db.from("telegram_connections")
+          .delete().eq("telegram_user_id", message.from.id);
+        if (deleteError) throw new Error(deleteError.message);
+        const { error: tokenError } = await db.from("telegram_link_tokens").delete()
+          .eq("user_id", connection.user_id).is("used_at", null);
+        if (tokenError) throw new Error(tokenError.message);
+      }
+      await sendTelegramText(message.chat.id, "Telegram atsietas nuo šio projekto. Dabar galite susieti jį su kitu projektu.", c.env);
     } else if (command === "/alerts") {
       const url = `${c.env.WEB_APP_URL?.replace(/\/$/, "") ?? ""}/profile#alerts`;
       await sendTelegramText(message.chat.id, `Alertus galite valdyti profilyje:\n${url}`, c.env);
     } else {
-      await sendTelegramText(message.chat.id, "Komandos:\n/status – ryšio būsena\n/alerts – valdyti alertus\n/help – pagalba", c.env);
+      await sendTelegramText(message.chat.id, "Komandos:\n/status – ryšio būsena\n/unlink – atsieti nuo šio projekto\n/alerts – valdyti alertus\n/help – pagalba", c.env);
     }
   } catch (error) {
     console.error(JSON.stringify({ event: "telegram_webhook_command_failed", updateId: parsed.data.update_id, error: error instanceof Error ? error.message : String(error) }));
@@ -422,7 +446,10 @@ app.get("/v1/catalog", async (c) => {
   const cached = await edgeCache.match(cacheKey);
   if (cached) return cached;
 
-  let query = c.get("db").from("catalog_items_read").select("*", filters.cursor ? undefined : { count: "exact" });
+  let query = c.get("db").from("catalog_items_read_with_lpl").select("*", filters.cursor ? undefined : { count: "exact" });
+  if (filters.lplProximityPct !== undefined) {
+    query = query.lte("lpl_price_ratio", 100 + filters.lplProximityPct);
+  }
   if (filters.brands.length) query = query.in("brand", filters.brands);
   if (filters.brandTiers.length) query = query.in("brand_tier", filters.brandTiers);
   if (filters.sources.length) query = query.in("source", filters.sources);
@@ -808,7 +835,7 @@ export function parseFilters(query: Record<string, string>) {
     excludeBasics: query.exclude_basics === "true",
     excludeAccessories: query.exclude_accessories === "true",
     priceMin: query.price_min ? Number(query.price_min) : undefined, priceMax: query.price_max ? Number(query.price_max) : undefined,
-    discountMin: query.discount_min ? Number(query.discount_min) : undefined, belowObserved30d: query.below_observed_30d === "true",
+    discountMin: query.discount_min ? Number(query.discount_min) : undefined, lplProximityPct: query.lpl_proximity_pct !== undefined && query.lpl_proximity_pct !== "" ? Number(query.lpl_proximity_pct) : undefined, belowObserved30d: query.below_observed_30d === "true",
     newOnly: query.new_only === "true",
     priceComparison: query.price_comparison,
     sort: query.sort, cursor: query.cursor, limit: query.limit ? Number(query.limit) : undefined

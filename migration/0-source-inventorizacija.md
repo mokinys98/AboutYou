@@ -1,6 +1,21 @@
 # 0 fazė — source inventorizacija ir atkuriamas backup
 
-**Būsena:** source baseline, šifruotas dump, patikrinta off-host R2 kopija, retention, VPS backup secret ir privataus `age` rakto escrow paruošti; liko Auth konfigūracijos inventorius ir VPS connectivity testas
+## Progreso varnelės — atnaujinti pirmiausia
+
+- [x] Source inventorizacija ir DB/Storage dydžių baseline.
+- [x] Roles/schema/data dump sukurtas, SHA-256 patikrintas.
+- [x] `age` šifravimas ir privatus identity escrow.
+- [x] Privatus Cloudflare R2 bucket, retention ir off-host restore patikra.
+- [x] R2 API token apribotas bucket’ui ir įdiegtas VPS secret faile.
+- [x] Auth, redirect, OAuth ir SMTP Dashboard inventorius.
+- [x] Resend DKIM/SPF/MX DNS `Verified`.
+- [x] Supabase Custom SMTP išsaugotas; reset-password laiškas `Delivered`.
+- [x] Recovery redirect pasiekia Pages aplikaciją.
+- [x] Patvirtinta: savitarnos recovery UI / `PASSWORD_RECOVERY` funkcija neįdiegiama, nes projektas yra invite-only; password reset atlieka savininkas pagal naudotojo kreipimąsi.
+- [x] R2 connectivity testas iš VPS; bucket listing sėkmingas per `/etc/aboutyou-backup/r2.env`.
+- [x] 2 fazės katalogo-only restore rehearsal atliktas; pilna fizinių Storage objektų parity palikta atskiram vartų darbui.
+
+**Būsena:** 0 fazės inventorizacija ir atkuriamo backup paruošimas baigti. Source baseline, šifruotas dump, patikrinta off-host R2 kopija, retention, VPS backup secret, privataus `age` rakto escrow, Auth URL/provider inventorizacija, Resend DNS ir VPS R2 connectivity paruošti. Projektas veikia invite-only režimu: source Auth vartotojai į staging nemigruojami, viešos registracijos ir savitarnos password-reset UI nėra; naudotojo slaptažodžio atkūrimą pagal kreipimąsi atlieka savininkas per Supabase administravimo veiksmus.
 **Pradėta:** 2026-07-15  
 **Tikslas:** užfiksuoti valdomo Supabase projekto faktinę būklę ir sukurti atkuriamą backup prieš bet kokius produkcinius pakeitimus.  
 **Source pakeitimai šioje fazėje:** draudžiami, išskyrus atskirai patvirtintą backup ar diagnostikos veiksmą.
@@ -197,7 +212,7 @@ Vykdyti tik užrakintame, šifruotame kataloge už repo ribų. Po dump:
 
 Storage objektams sudaromas atskiras manifestas su `bucket`, object key, dydžiu, MIME tipu, cache-control, atnaujinimo laiku ir, kai įmanoma, checksum / ETag. Vien `storage.objects` eilučių neužtenka.
 
-## 7. Dar neužpildyta faktinė source ataskaita
+## 7. Faktinė source ataskaita
 
 | Patikra | Rezultatas | Būsena |
 |---|---|---|
@@ -210,7 +225,7 @@ Storage objektams sudaromas atskiras manifestas su `bucket`, object key, dydžiu
 | Aktyvios / laukiančios užklausos | Matavimo metu 1 active, 10 idle ir background sesijos; query tekstai nefiksuoti | Pradinis baseline atliktas |
 | Pagrindinių lentelių row counts | `products` 51 535, `offers` 51 535, `auth.users` 2 | Atlikta 2026-07-15 |
 | Storage bucket count / bytes | 2 privatūs bucket'ai, antro matavimo metu 682 objektai, 6 155 261 B / apie 5,87 MiB | Atlikta 2026-07-15; source tebėra aktyvus |
-| Auth, SMTP, redirect ir OAuth inventorius | — | Laukiama Dashboard konfigūracijos peržiūros |
+| Auth, SMTP, redirect ir OAuth inventorius | Dashboard būsena užfiksuota be secret'ų; Resend DNS įrašai pridėti ir patvirtinti; atliktas reset-password siuntimo testas | Atlikta; Custom SMTP išsaugotas, DNS `Verified`, Resend `Delivered` |
 | Roles/schema/data dump | Sukurtas 2026-07-15 19:24:42 UTC, suspaustas ir užšifruotas | Atlikta; tai baseline backup, ne final cutover dump |
 | Dump SHA-256 manifestas | Šio dokumento 7.9 skyriuje | Atlikta ir patikrinta bandomu iššifravimu |
 | Off-host kopija | Cloudflare R2 Standard, EU jurisdikcija | Atlikta; objektas parsisiųstas atgal ir jo SHA-256 sutapo |
@@ -465,17 +480,21 @@ Operatoriaus pateikta faktinė Dashboard būsena:
 
 | Nustatymas | Būsena |
 |---|---|
-| Email provider | **Išjungtas** — stop signalas, nes aplikacija naudoja password, magic link ir invite srautus |
-| Allow new users to sign up | Išjungtas |
+| Email provider | Įjungtas |
+| Allow new users to sign up | Išjungtas — patvirtinta po Dashboard pakeitimo |
 | Anonymous sign-ins | Išjungti |
-| Custom SMTP | Išjungtas; tai reiškia, kad naudojamas ne custom SMTP, o Supabase default email siuntimas |
+| Confirm email | Įjungtas |
+| Custom SMTP | Įjungtas ir išsaugotas; slaptažodis dokumentacijoje nefiksuojamas |
+| Confirm sign up email template | Yra; naudojamas Supabase default template, kol šablonas atskirai nepakeistas |
 | Social/OAuth provideriai | Išjungti |
 | OAuth Server / OAuth Apps | OAuth Server išjungtas; OAuth Apps nerasta |
-| Confirm email | Dar nepatikrinta |
+| Confirm email | Įjungta — patvirtinta |
 | Site URL | `https://aboutyou-private-catalog-web.pages.dev` — patvirtinta |
 | Redirect URLs | 4 URL — visi repo matricoje ir Dashboard sąraše, patvirtinta |
 
-Email provider išjungimas nėra suderinamas su dabartiniu aplikacijos Auth modeliu. Jo įjungimas būtų atskiras source Dashboard pakeitimas ir šiame etape automatiškai neatliekamas.
+Vieša registracija dabar išjungta, todėl Dashboard būsena sutampa su repo dokumentuotu invite-only modeliu.
+
+Papildoma password politikos būsena: minimum 6 simboliai, papildomi password requirements nenustatyti. Invite puslapio kodas pats reikalauja bent 8 simbolių, tačiau bendrą Supabase provider politiką prieš production reikia suvienodinti ir sustiprinti.
 
 README nurodo, kad viešas naudotojų registravimasis turi likti išjungtas; tai turi būti patikrinta **Authentication → Providers → Email**. Supabase bendroje Auth konfigūracijoje atskirai valdomi naujų naudotojų registracija, email confirmation ir anonymous sign-ins. [Auth konfigūracija](https://supabase.com/docs/guides/auth/general-configuration)
 
@@ -513,14 +532,78 @@ Supabase default SMTP skirtas bandymams ir turi gavėjų bei siuntimo limitus, t
 
 Šie punktai pažymimi tik po realios Dashboard peržiūros:
 
-- [ ] Email provider įjungtas — šiuo metu išjungtas, stop signalas;
+- [x] Email provider įjungtas;
 - [x] vieša registracija išjungta;
 - [x] anonymous sign-ins išjungti;
-- [ ] email confirmation būsena užfiksuota;
+- [x] email confirmation įjungta;
 - [x] Site URL ir visi keturi Redirect URLs sutampa su repo matrica;
-- [x] Custom SMTP būklė užfiksuota kaip išjungta; siuntėjo domenas ir DNS autentifikacija dar neaktualūs;
+- [x] Custom SMTP įjungtas ir išsaugotas; siuntėjo domeno DNS autentifikacija patvirtinta;
 - [x] nenaudojami social/OIDC provider'iai išjungti;
 - [ ] Invite user ir magic-link template'ai patikrinti.
+
+### 7.12. Production SMTP pasirinkimai
+
+Supabase default SMTP paliekamas tik testams; production magic link, invite ir confirmation laiškams reikia Custom SMTP. Tiekėjas turi leisti naudoti atskirą siuntimo subdomeną su SPF, DKIM ir DMARC. [Supabase Custom SMTP gairės](https://supabase.com/docs/guides/auth/auth-smtp)
+
+| Variant | Pliusai | Minusai | Kaina / tinkamumas |
+|---|---|---|---|
+| **1. Resend — rekomenduojamas** | Paprasta DNS ir SMTP konfigūracija, aiškus transactional email fokusas, tinka Supabase Auth | Free planas turi 100 laiškų per dieną limitą; production reikės stebėti quota | Free: iki 3 000/mėn.; Pro: 50 000/mėn. už 20 USD. Šiam projektui pradžiai pakanka Free, jei laiškų nedaug. [Resend SMTP](https://resend.com/docs/send-with-smtp), [kainos](https://resend.com/pricing) |
+| **2. Postmark** | Labai stiprus transactional email fokusas, geri delivery įrankiai ir message streams | Brangesnis mažam projektui; Free planas tik 100 laiškų/mėn. | Basic nuo 15 USD/mėn. už 10 000 laiškų. [Postmark SMTP](https://postmarkapp.com/developer/user-guide/send-email-with-smtp), [kainos](https://postmarkapp.com/pricing) |
+| **3. Amazon SES** | Mažiausia kintama kaina didesnėms apimtims, AWS IAM ir regionų kontrolė | Daugiausia paruošimo: AWS paskyra, domain identity, SMTP credentials, sandbox/production approval ir regiono pasirinkimas | Geriausias didelėms apimtims arba jei jau naudojamas AWS; SMTP kredencialai yra atskiri nuo AWS access keys. [SES SMTP credentials](https://docs.aws.amazon.com/ses/latest/dg/smtp-credentials.html) |
+
+#### Rekomenduojamas sprendimas
+
+Pasirinkti **Resend** ir naudoti atskirą siuntimo subdomeną, pvz. `auth.<jūsų-domenas>`. DNS pusėje reikės SPF, DKIM ir DMARC; Resend SMTP naudoja `smtp.resend.com`, vartotoją `resend` ir API raktą kaip SMTP slaptažodį. STARTTLS rekomenduojamas per 587 prievadą. [Resend SMTP kredencialai](https://resend.com/docs/send-with-smtp)
+
+Supabase Dashboard’e po domeno patvirtinimo bus įvedami tik SMTP host, port, username, password, sender name ir sender email. SMTP slaptažodis į Git ar šį dokumentą nepatenka; jį laikome password manager’yje ir VPS secret saugykloje.
+
+Tiekėjas pasirinktas, DNS patvirtintas ir Supabase Custom SMTP išsaugotas. Production SMTP vartų likęs įrodymas yra realus invite / confirmation / magic-link testas su gavėjo pašto dėžute.
+
+### 7.13. Nemokamo siuntimo domeno pasirinkimas
+
+Resend reikalauja domeno, kurį valdome ir kuriame galime pridėti SPF bei DKIM DNS įrašus. [Resend domenų verifikacija](https://resend.com/docs/dashboard/domains/introduction)
+
+| Variant | Ar tinka production? | Pastaba |
+|---|---|---|
+| `aboutyou-private-catalog-web.pages.dev` | Ne | Tai bendras Cloudflare Pages subdomenas; DNS zonos ir domeno ownership Resend verifikacijai nekontroliuojame |
+| `resend.dev` | Ne | Resend leidžia juo siųsti tik testinius laiškus į savo Resend paskyros adresą. [Resend testavimo apribojimas](https://resend.com/docs/knowledge-base/403-error-resend-dev-domain) |
+| `*.eu.org` | Tik eksperimentui / staging | EU.org suteikia nemokamus subdomenus, tačiau nėra support/SLA ir tai nėra nuosavas registruotas domenas. Gali reikėti laukti delegavimo ir Resend gali vertinti reputaciją kaip shared domain. [EU.org](https://nic.eu.org/) |
+| Pigus nuosavas domenas | Taip — rekomenduojama | Vienkartinė metinė registracijos kaina suteikia pilną DNS ownership, stabilią siuntėjo reputaciją ir lengvą providerio keitimą |
+
+**Sprendimas:** nemokamą `EU.org` variantą galima naudoti tik staging bandymui. Production Auth laiškams reikia nuosavo domeno, pvz. `aboutyou.lt` arba kito savininko pasirinkto domeno, o siuntimui naudoti atskirą subdomeną `auth.<domenas>`.
+
+2026-07-15 kainų palyginimas pagal viešą Spaceship kainoraštį:
+
+| TLD | Pirma registracija | Renewal | Vertinimas |
+|---|---:|---:|---|
+| `.com` | apie 8,88 USD | apie 9,98 USD/metus | Rekomenduojamas: gera reputacija ir maža ilgalaikė kaina |
+| `.xyz` | apie 1,86 USD | apie 12,52 USD/metus | Atsarginis pigus variantas, bet silpnesnė reputacija |
+| `.online` | apie 0,98 USD | apie 21,38 USD/metus | Tik akcija; ilgalaikėje perspektyvoje brangesnis |
+| `.shop` | apie 0,70 USD | apie 31,05 USD/metus | Netinka vien SMTP domenui dėl brangaus renewal |
+
+Šaltinis: [Spaceship domain prices](https://www.spaceship.com/domains/). Galutinė kaina priklauso nuo konkretaus domeno availability, akcijos, mokesčių ir premium statuso. **Pasirinktas ir vartotojo nupirktas domenas:** `rinkissaupigiausia.online`. SMTP siuntimui bus naudojamas atskiras subdomenas `auth.rinkissaupigiausia.online`; pagrindinis domenas nėra naudojamas kaip aplikacijos Site URL. `.online` renewal kaina yra didesnė nei `.com`, todėl būtina įjungti auto-renew ir užfiksuoti renewal kainą registratoriaus paskyroje.
+
+#### Resend DNS progreso įrašas
+
+2026-07-15 Hostinger DNS zonoje pridėti tiksliai Resend pateikti įrašai:
+
+| Tipas | Name | Paskirtis | Būsena Resend |
+|---|---|---|---|
+| TXT | `resend._domainkey.auth` | DKIM | `Verified` |
+| TXT | `send.auth` | SPF | `Verified` |
+| MX (priority 10) | `send.auth` | SPF bounce serveris | `Verified` |
+
+TTL `14400` yra galiojantis, tačiau gali pailginti DNS sklaidą. Resend DKIM, SPF ir MX įrašai patikrinti ir rodo `Verified`. Receiving funkcija palikta išjungta, nes ji SMTP siuntimui nereikalinga.
+
+DMARC yra neprivalomas, bet production'ui rekomenduojamas pagal Resend pateiktą reikšmę (`TXT _dmarc`, `v=DMARC1; p=none;`). Jo nepridėjimas nestabdo DKIM/SPF verifikacijos.
+
+#### 2026-07-16 Custom SMTP ir recovery redirect testas
+
+Supabase Auth išsiuntė `Reset your password` laišką į testinę Gmail dėžutę. Resend **Emails → Sending** įraše laiško būsena yra `Delivered`, o laiškas realiai gautas Gmail Inbox. Tai patvirtina SMTP kredencialų, DNS autentifikacijos ir siuntimo domeno veikimą.
+
+`Reset password` nuoroda grąžino į `https://aboutyou-private-catalog-web.pages.dev/` su Supabase recovery fragmentu. Redirect transportas veikia, tačiau savitarnos recovery UI sąmoningai neįdiegiama, nes projektas yra invite-only. Tokeno URL į Git, dokumentus ar pokalbį nekeliame; savininkas password reset atlieka tik gavęs naudotojo kreipimąsi.
+
+0 fazės sprendimas: SMTP transportas ir reset laiško pristatymas patikrinti, tačiau `PASSWORD_RECOVERY` savitarnos srautas nebus diegiamas. Invite-only modelyje naudotojas dėl slaptažodžio atkūrimo kreipiasi į savininką, o savininkas reset atlieka per Supabase administravimo veiksmus ir atskirai patvirtina naują prisijungimą.
 
 ## 8. Sprendimai ir įėjimo duomenys, kurių reikia tęsimui
 
@@ -532,22 +615,22 @@ Supabase default SMTP skirtas bandymams ir turi gavėjų bei siuntimo limitus, t
 - [x] Sukurtas tik šiam R2 bucket apribotas API token būsimiems automatiniams backup; raktai išsaugoti password manager’yje ir VPS secret faile.
 - [x] Sukurtos ir patikrintos `daily/`, `weekly/`, `monthly/` retention taisyklės (7 / 28 / 90 dienų).
 - [x] Read-only DB diagnostika atlikta; produkciniai duomenys nekeisti.
-- [ ] Nurodytas saugus langas pilnam roles/schema/data dump.
-- [ ] Patvirtinta, kas gali peržiūrėti Auth / SMTP / redirect / OAuth konfigūraciją Dashboard'e.
+- [x] Baseline roles/schema/data dump atliktas nekeičiant source duomenų; final cutover dump langas bus tvirtinamas 4 fazės rehearsal metu.
+- [x] Patvirtinta, kas gali peržiūrėti Auth / SMTP / redirect / OAuth konfigūraciją Dashboard'e.
 
 Slaptų reikšmių į šį failą ar pokalbį pateikti nereikia.
 
 ## 9. 0 fazės stop / go vartai
 
-Kol kas statusas yra **STOP**. Į 1 fazę galima eiti tik kai:
+Statusas yra **GO į staging fazes**. Visi 0 fazės įėjimo vartai įvykdyti:
 
 - [x] užfiksuotos source versijos, extensions, roles, grants, cron ir migracijų ledger; rastos saugos rizikos perkeltos į privalomą auditą;
 - [x] užfiksuoti pagrindinių lentelių bei Storage objektų skaičiai ir dydžiai;
 - [x] sukurti roles, schema ir data dump;
 - [x] dump turi SHA-256 įrodymą ir šifruotą off-host R2 kopiją, patikrintą parsisiuntimu;
-- [ ] Auth / SMTP / redirect / OAuth konfigūracija inventorizuota be secret'ų;
-- [ ] sutarta, kad tikrasis atkuriamumo įrodymas bus 2 fazės rehearsal restore.
+- [x] Auth / SMTP / redirect / OAuth konfigūracija inventorizuota be secret'ų;
+- [x] 2 fazėje atliktas katalogo-only rehearsal restore; source Auth vartotojų nemigravimas yra patvirtintas invite-only sprendimas, o fizinė Storage parity lieka priešprodukcinis vartų darbas.
 
 ## 10. Kitas veiksmas
 
-Privatus `age` identity ir R2 API tokenas jau išsaugoti password manager’yje; R2 tokenas taip pat įdiegtas VPS secret faile. Liko be secret'ų inventorizuoti Supabase Auth, SMTP, redirect bei OAuth konfigūraciją ir atlikti saugų R2 connectivity testą iš VPS. Po šių 0 fazės vartų galima pradėti Contabo staging platformą; tikrasis atkuriamumo įrodymas bus 2 fazės rehearsal restore.
+Privatus `age` identity ir R2 API tokenas išsaugoti password manager’yje; R2 tokenas taip pat įdiegtas VPS secret faile. Auth, SMTP, redirect bei OAuth būsena inventorizuota, Resend DNS patvirtintas, reset-password laiškas pristatytas, o VPS R2 connectivity testas sėkmingas. Savitarnos recovery UI neplanuojama dėl invite-only politikos; reset procedūra yra savininko valdoma. Toliau vykdomi 3 fazės funkcijų, metadata, Storage parity ir atsparumo testai.

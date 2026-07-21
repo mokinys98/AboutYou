@@ -1,4 +1,4 @@
-name: Sync product metadata
+name: Sync product metadata (staging)
 
 on:
   workflow_dispatch:
@@ -6,29 +6,32 @@ on:
       max_products:
         description: Maximum products to process (use 50 for canary)
         required: false
-        default: "10000"
+        default: "50"
+        type: string
 
 concurrency:
-  # Serialize both workflows so ABOUT YOU is never crawled by two jobs at once.
-  group: catalog-sync
+  # Share the staging lock with catalog sync so the source is never crawled twice.
+  group: catalog-sync-staging
   cancel-in-progress: false
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     timeout-minutes: 75
-    environment: production-vps
+    environment: staging
     permissions:
       contents: read
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       SYNC_HEADLESS: "true"
-      METADATA_SYNC_MAX_PRODUCTS: ${{ inputs.max_products || '10000' }}
+      METADATA_SYNC_MAX_PRODUCTS: ${{ inputs.max_products || '50' }}
       METADATA_SYNC_CLAIM_SIZE: "25"
       METADATA_SYNC_CONCURRENCY: "3"
       METADATA_SYNC_DELAY_MS: "400"
       METADATA_SYNC_MAX_RUNTIME_MINUTES: "60"
+      METADATA_DEBUG_HTML_LIMIT: "20"
+      METADATA_DEBUG_RETENTION_DAYS: "14"
       METADATA_RAW_SAMPLE_LIMIT: "750"
       METADATA_RAW_RETENTION_DAYS: "30"
     steps:

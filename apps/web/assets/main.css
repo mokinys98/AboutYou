@@ -48,15 +48,30 @@ a {
     text-decoration: none
 }
 
-.site-header nav {
+.site-navigation {
     display: flex;
     align-items: center;
     gap: 28px;
     font-size: 13px
 }
 
-.site-header nav a {
+.site-navigation a {
     text-decoration: none
+}
+
+.menu-trigger,
+.mobile-menu-head {
+    display: none
+}
+
+.menu-close {
+    border: 0;
+    background: none;
+    color: inherit;
+    cursor: pointer;
+    font-size: 30px;
+    line-height: 1;
+    padding: 0 4px
 }
 
 .link-button,
@@ -1138,12 +1153,83 @@ td small {
         margin: 0 16px
     }
 
-    .site-header nav a {
-        display: none
+    .menu-trigger {
+        display: grid;
+        gap: 5px;
+        width: 42px;
+        height: 42px;
+        place-content: center;
+        border: 1px solid var(--ink);
+        background: #fff;
+        cursor: pointer;
+        z-index: 120
     }
 
-    .site-header nav {
-        gap: 10px
+    .menu-trigger span {
+        display: block;
+        width: 18px;
+        height: 1px;
+        background: var(--ink)
+    }
+
+    .site-navigation {
+        position: fixed;
+        inset: 0 0 0 auto;
+        z-index: 110;
+        display: flex;
+        align-items: stretch;
+        flex-direction: column;
+        gap: 0;
+        width: min(360px, 88vw);
+        height: 100dvh;
+        padding: 22px 24px;
+        background: #fff;
+        box-shadow: -18px 0 50px #0002;
+        transform: translateX(105%);
+        transition: transform .25s ease;
+        visibility: hidden;
+    }
+
+    .site-navigation.open {
+        transform: translateX(0);
+        visibility: visible
+    }
+
+    .site-navigation a,
+    .site-navigation .link-button {
+        display: block;
+        width: 100%;
+        padding: 18px 0;
+        border-bottom: 1px solid var(--line);
+        font-size: 16px;
+        text-align: left
+    }
+
+    .site-navigation .link-button {
+        margin-top: auto;
+        border-bottom: 0;
+        border-top: 1px solid var(--line);
+        padding-bottom: 4px
+    }
+
+    .mobile-menu-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 42px;
+        margin-bottom: 20px;
+        border-bottom: 1px solid var(--ink);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: .12em;
+        text-transform: uppercase
+    }
+
+    .menu-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        background: #0008
     }
 
     .catalog-page,
@@ -2102,6 +2188,10 @@ td small {
     z-index: 20
 }
 
+.filter-mobile-body {
+    display: contents
+}
+
 .filter-dropdown-row {
     display: flex;
     flex-wrap: wrap;
@@ -2379,6 +2469,11 @@ td small {
     display: none
 }
 
+.mobile-filter-toggles,
+.filter-mobile-footer {
+    display: none
+}
+
 .filter-strip .range-row input {
     min-width: 90px
 }
@@ -2424,19 +2519,21 @@ td small {
         display: none
     }
 
-    .filter-strip {
+    .catalog-page .filter-strip {
         position: fixed;
         inset: 0 0 0 auto;
-        width: min(390px, 92vw);
+        width: min(380px, calc(100vw - 20px));
+        box-sizing: border-box;
         max-height: none;
         margin: 0;
         background: #fff;
         z-index: 100;
-        padding: 20px 18px;
-        display: grid;
-        align-content: start;
-        gap: 12px;
-        overflow: auto;
+        padding: 0 18px;
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0;
+        overflow: hidden;
         transform: translateX(105%);
         transition: transform .25s
     }
@@ -2447,30 +2544,214 @@ td small {
 
     .filter-mobile-head {
         display: flex;
+        position: relative;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 18px
+        flex: 0 0 auto;
+        min-height: 62px;
+        margin: 0 -18px;
+        padding: 0 20px 0 20px;
+        border-bottom: 1px solid #d9d9d6;
+        font-size: 16px
+    }
+
+    .filter-mobile-title {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        line-height: 1
+    }
+
+    .filter-mobile-title small {
+        color: #777;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: .18em
+    }
+
+    .filter-mobile-title strong {
+        font-size: 18px
     }
 
     .filter-mobile-head .close {
+        position: absolute;
+        right: 20px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 40px;
+        height: 40px;
+        padding: 0;
+        color: #111;
         font-size: 28px;
-        border: 0;
-        background: none
+        line-height: 1;
+        border: 1px solid #111;
+        background: none;
+        cursor: pointer
     }
 
     .filter-popover {
-        margin-bottom: 8px
+        width: 100%;
+        margin: 0
     }
 
     .filter-dropdown-row {
         display: grid;
         gap: 0;
+        justify-items: start;
+        align-items: start;
         overflow: visible;
         padding-bottom: 0
     }
 
+    .catalog-page .filter-popover {
+        width: 100%;
+        max-width: none;
+    }
+
+    .mobile-filter-toggles {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        margin-bottom: 16px;
+    }
+
+    .mobile-filter-toggle-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        min-height: 74px;
+        padding: 13px 0;
+        border: 0;
+        border-bottom: 1px solid #d9d9d6;
+        background: transparent;
+        color: #111;
+        text-align: left;
+        cursor: pointer
+    }
+
+    .mobile-filter-toggle-row>span {
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+        min-width: 0
+    }
+
+    .mobile-filter-toggle-row strong {
+        font-size: 14px;
+        font-weight: 500
+    }
+
+    .mobile-filter-toggle-row small {
+        color: #777;
+        font-size: 11px
+    }
+
+    .mobile-toggle {
+        position: relative;
+        flex: 0 0 auto;
+        width: 40px;
+        height: 24px;
+        border-radius: 999px;
+        background: #d7d7d3;
+        transition: background .15s
+    }
+
+    .mobile-toggle b {
+        position: absolute;
+        top: 4px;
+        left: 4px;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #fff;
+        transition: transform .15s
+    }
+
+    .mobile-toggle.active {
+        background: #111
+    }
+
+    .mobile-toggle.active b {
+        transform: translateX(16px)
+    }
+
+    .filter-dropdown-row>.price-filter {
+        display: block
+    }
+
+    .filter-mobile-body {
+        display: flex;
+        flex: 1 1 auto;
+        min-height: 0;
+        flex-direction: column;
+        gap: 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scrollbar-width: thin;
+        padding: 0 0 18px;
+    }
+
     .filter-popover>summary {
-        padding: 14px 34px 14px 12px
+        display: flex;
+        width: 100%;
+        min-height: 57px;
+        box-sizing: border-box;
+        padding: 0 28px 0 0;
+        border: 0;
+        border-bottom: 1px solid #d9d9d6;
+        border-radius: 0;
+        color: #111;
+        font-size: 14px;
+        font-weight: 500
+    }
+
+    .filter-popover>summary.active {
+        border-color: #d9d9d6;
+        background: transparent;
+        color: #111
+    }
+
+    .filter-popover>summary .filter-count {
+        display: none
+    }
+
+    .filter-popover>summary .sale-dot {
+        width: 8px;
+        height: 8px;
+        margin-right: 12px
+    }
+
+    .filter-popover>summary:after {
+        right: 4px;
+        top: 50%;
+        margin: 0;
+        border: 0;
+        color: #111;
+        content: "›";
+        font-size: 24px;
+        font-weight: 400;
+        line-height: 1;
+        transform: translateY(-50%)
+    }
+
+    .filter-popover[open]>summary:after {
+        margin: 0;
+        transform: translateY(-50%) rotate(90deg)
+    }
+
+    .mobile-summary-check {
+        display: inline-grid;
+        place-items: center;
+        width: 20px;
+        height: 20px;
+        margin-left: auto;
+        margin-right: 22px;
+        border-radius: 50%;
+        background: #111;
+        color: #fff;
+        font-size: 13px;
+        line-height: 1
     }
 
     .filter-menu {
@@ -2493,25 +2774,49 @@ td small {
     .more-filters {
         justify-content: space-between;
         width: 100%;
+        min-height: 50px;
+        margin-top: 0;
+        padding: 0 8px;
         border-width: 0 0 1px;
-        border-color: var(--line)
+        border-color: var(--line);
+        font-size: 12px;
+        font-weight: 700
     }
 
     .quick-filter-row {
-        display: grid;
-        gap: 12px
+        display: none
     }
 
     .quick-filter-group {
-        align-items: flex-start
+        align-items: flex-start;
+        gap: 8px;
+        padding-bottom: 4px
     }
 
     .quick-filter-group>span {
-        width: 100%
+        width: 100%;
+        margin-bottom: 2px;
+        color: #777;
+        font-size: 11px;
+        font-weight: 700
+    }
+
+    .quick-filter-pill {
+        min-height: 36px;
+        padding: 0 12px;
+        gap: 7px;
+        border-color: #d6d6d6;
+        color: #333;
+        font-size: 12px;
+        font-weight: 700
     }
 
     .clear-filters {
         margin-left: 0
+    }
+
+    .active-filter-chips {
+        display: none
     }
 
     .drawer-backdrop {
@@ -2519,6 +2824,55 @@ td small {
         inset: 0;
         background: #0008;
         z-index: 90
+    }
+
+    .filter-mobile-footer {
+        position: relative;
+        display: block;
+        flex: 0 0 auto;
+        align-self: stretch;
+        width: auto;
+        margin: 0 -18px;
+        padding: 15px 18px 16px;
+        border-top: 1px solid #d9d9d6;
+        background: #fff;
+        z-index: 3
+    }
+
+    .filter-mobile-footer-meta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 13px;
+        color: #777;
+        font-size: 11px
+    }
+
+    .filter-mobile-footer-meta button {
+        padding: 0;
+        border: 0;
+        border-bottom: 1px solid #111;
+        background: transparent;
+        color: #111;
+        font: inherit;
+        cursor: pointer
+    }
+
+    .filter-mobile-apply {
+        position: static;
+        right: auto;
+        bottom: auto;
+        display: block;
+        width: 100%;
+        box-sizing: border-box;
+        min-height: 48px;
+        padding: 0 48px 0 12px;
+        border: 0;
+        background: #111;
+        color: #fff;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer
     }
 
     .product-grid,

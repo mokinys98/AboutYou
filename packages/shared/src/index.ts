@@ -108,6 +108,7 @@ export const CatalogFiltersSchema = z.object({
   priceMin: z.number().int().nonnegative().optional(),
   priceMax: z.number().int().nonnegative().optional(),
   discountMin: z.number().min(0).max(100).optional(),
+  lplProximityPct: z.number().int().min(0).max(15).optional(),
   belowObserved30d: z.boolean().default(false),
   newOnly: z.boolean().default(false),
   priceComparison: PriceComparisonSchema.default("observed"),

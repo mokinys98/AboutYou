@@ -65,7 +65,7 @@ export function canonicalAlertFilters(filters: CatalogAlertFilters): CatalogAler
 
 export function hasMeaningfulAlertFilters(filters: CatalogAlertFilters): boolean {
   return Boolean(filters.categoryPath || filters.isPremium || filters.excludeBasics || filters.excludeAccessories || filters.priceMin !== undefined ||
-    filters.priceMax !== undefined || filters.discountMin !== undefined || filters.belowObserved30d ||
+    filters.priceMax !== undefined || filters.discountMin !== undefined || filters.lplProximityPct !== undefined || filters.belowObserved30d ||
     filters.brands.length || filters.brandTiers.length || filters.sources.length || filters.categories.length ||
     filters.colors.length || filters.colorShades.length || filters.sizes.length || filters.otherSizes.length ||
     filters.materials.length || filters.patterns.length || filters.features.length || filters.styles.length || filters.productTypes.length);
@@ -126,6 +126,7 @@ export function notificationUrl(payload: TelegramNotification, webAppUrl: string
   if (filters.priceMin !== undefined) query.set("price_min", String(filters.priceMin / 100));
   if (filters.priceMax !== undefined) query.set("price_max", String(filters.priceMax / 100));
   if (filters.discountMin !== undefined) query.set("discount_min", String(filters.discountMin));
+  if (filters.lplProximityPct !== undefined) query.set("lpl_proximity_pct", String(filters.lplProximityPct));
   if (filters.belowObserved30d) query.set("below_observed_30d", "true");
   if (filters.priceComparison && filters.priceComparison !== "observed") query.set("price_comparison", filters.priceComparison);
   if (payload.catalogVersion !== undefined) query.set("catalog_version", String(payload.catalogVersion));

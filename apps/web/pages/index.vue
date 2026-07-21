@@ -12,7 +12,7 @@ let lastFacetsKey = "";
 let pendingFacets: { key: string; request: Promise<CatalogFacets | null> } | null = null;
 const facetsCacheTtlMs = 24 * 60 * 60 * 1000;
 const facetsCachePrefix = "catalog-facets:v1:";
-const filterKeys = ["brands", "brand_tiers", "categories", "category", "colors", "color_shades", "sources", "sizes", "other_sizes", "materials", "patterns", "features", "styles", "product_types", "premium", "exclude_basics", "exclude_accessories", "price_min", "price_max", "discount_min", "below_observed_30d", "price_comparison", "catalog_version", "sort"];
+const filterKeys = ["brands", "brand_tiers", "categories", "category", "colors", "color_shades", "sources", "sizes", "other_sizes", "materials", "patterns", "features", "styles", "product_types", "premium", "exclude_basics", "exclude_accessories", "price_min", "price_max", "discount_min", "lpl_proximity_pct", "below_observed_30d", "price_comparison", "catalog_version", "sort"];
 const filters = computed<Record<string, string>>(() => Object.fromEntries(filterKeys.flatMap((key) => typeof route.query[key] === "string" && route.query[key] ? [[key, route.query[key] as string]] : [])));
 const fallbackCategoryFacets = createFallbackCategoryFacets();
 const categoryFacets = computed(() => facets.value?.categories.length ? facets.value.categories : fallbackCategoryFacets);
@@ -187,7 +187,7 @@ watch(gridColumns, (value) => localStorage.setItem("catalog-grid-columns", Strin
           </div>
         </header>
         <div class="catalog-mobile-toolbar"><button class="filter-trigger" @click="filtersOpen = true">Filtrai</button><label>Rūšiuoti<select :value="filters.sort || 'newest'" @change="updateFilters({ ...filters, sort: ($event.target as HTMLSelectElement).value })"><option value="newest">Naujausi</option><option value="price_asc">Kaina ↑</option><option value="price_desc">Kaina ↓</option><option value="source_lpl_desc">Paskutinė mažiausia kaina: nuo didžiausios</option><option value="source_lpl_asc">Paskutinė mažiausia kaina: nuo mažiausios</option><option value="discount_desc">Nuolaida</option></select></label></div>
-        <CatalogFilters :model-value="filters" :facets="facets" :open="filtersOpen" @update:model-value="updateFilters" @update:open="filtersOpen = $event" />
+        <CatalogFilters :model-value="filters" :facets="facets" :total-count="totalCount" :open="filtersOpen" @update:model-value="updateFilters" @update:open="filtersOpen = $event" />
         <div class="catalog-alert-row"><FilterAlertDialog :filters="filters" :total-count="totalCount" :title="isNews ? 'Naujienos' : catalogTitle" /></div>
         <p v-if="error" class="error-state">{{ error }}</p>
         <div v-else-if="loading && !products.length" class="loading-grid" :style="{ '--catalog-columns': gridColumns }" role="status" aria-label="Kraunamos prekės"><div v-for="n in 8" :key="n" /></div>
