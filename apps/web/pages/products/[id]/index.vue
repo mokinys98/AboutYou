@@ -62,7 +62,17 @@ onMounted(async () => {
     <p v-if="error" class="error-state">{{ error }}</p>
     <template v-else-if="product">
       <section class="detail-grid">
-        <div class="detail-image"><img v-if="product.imageUrls[0]" :src="product.imageUrls[0]" :alt="product.name"></div>
+        <div
+          v-if="product.imageUrls.length"
+          class="detail-gallery"
+          :class="`detail-gallery-count-${Math.min(product.imageUrls.length, 7)}`"
+          aria-label="Produkto nuotraukos"
+        >
+          <div v-for="(imageUrl, index) in product.imageUrls" :key="`${imageUrl}-${index}`" class="detail-gallery-item">
+            <img :src="imageUrl" :alt="`${product.name} — nuotrauka ${index + 1}`" :loading="index === 0 ? 'eager' : 'lazy'">
+          </div>
+        </div>
+        <div v-else class="detail-gallery detail-gallery-empty"><div class="image-placeholder">Nuotraukos nėra</div></div>
         <div>
           <div class="detail-heading">
             <div>
