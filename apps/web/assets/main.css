@@ -540,7 +540,12 @@ a {
     color: #fff;
     padding: 5px 7px;
     font-size: 11px;
-    font-weight: 700
+    font-weight: 700;
+    transition: opacity .25s ease, visibility 0s linear 0s
+}
+
+.product-card-actions {
+    transition: opacity .25s ease, visibility 0s linear 0s
 }
 
 .product-card-carousel-active .discount-badge,
@@ -548,7 +553,7 @@ a {
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
-    transition: opacity .2s, visibility .2s
+    transition: opacity .25s ease, visibility 0s linear .25s
 }
 
 .brand-tier-ribbon {
