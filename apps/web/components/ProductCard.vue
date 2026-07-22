@@ -66,9 +66,11 @@ function stopCarousel() {
 
 function selectImage(direction: -1 | 1) {
   if (!supportsDesktopHover() || carouselImages.value.length < 2) return;
+  clearCarouselTimers();
+  carouselStarted.value = true;
   const last = carouselImages.value.length - 1;
   const next = desiredImageIndex.value + direction;
-  beginImageCycle(next < 0 ? last : next > last ? 0 : next);
+  desiredImageIndex.value = next < 0 ? last : next > last ? 0 : next;
 }
 
 function markImageLoaded(index: number) {
