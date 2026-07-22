@@ -99,7 +99,7 @@ function onAlertSaved(value: { id: string; isWatched: true }) {
 </script>
 
 <template>
-  <article class="product-card" @mouseenter="onImageEnter" @mouseleave="stopCarousel">
+  <article class="product-card" :class="{ 'product-card-carousel-active': carouselStarted }" @mouseenter="onImageEnter" @mouseleave="stopCarousel">
     <a :href="product.productUrl" class="product-card-target" target="_blank" rel="noopener noreferrer" :aria-label="`Atidaryti ${product.name} ABOUT YOU puslapyje`" />
     <div class="product-image-wrap">
       <template v-if="carouselImages[0]">

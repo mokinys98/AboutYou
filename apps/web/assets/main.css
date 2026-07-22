@@ -543,6 +543,14 @@ a {
     font-weight: 700
 }
 
+.product-card-carousel-active .discount-badge,
+.product-card-carousel-active .product-card-actions {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity .2s, visibility .2s
+}
+
 .brand-tier-ribbon {
     position: absolute;
     top: 12px;
