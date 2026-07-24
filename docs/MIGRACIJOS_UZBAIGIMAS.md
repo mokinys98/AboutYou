@@ -1,6 +1,6 @@
 # Supabase → VPS migracijos užbaigimas
 
-**Progresas:** 98/100  
+**Progresas:** 100/100
 **Būsena:** produkcinis perjungimas atliktas ir VPS patvirtintas kaip vienintelis
 production duomenų šaltinis; liko formalus stabilizavimas ir senos aplinkos uždarymas  
 **Cutover laikas:** 2026-07-18 22:49 UTC
@@ -49,17 +49,17 @@ matavimai, komandos ir tarpiniai sprendimai lieka Git istorijoje.
 - [x] Patvirtintas po cutover automatinis šifruotas R2 backup ir bandomasis restore:
   `RESTORE_VERIFY_SUCCESS`, RTO `84 s`, patikrinti visi payload checksum'ai.
 - [x] Patikrinti SMTP alert laiško gedimo ir atsistatymo pranešimo pristatymą: VPS teste gauti abu laiškai, `FAILED` ir `RECOVERED`.
-- [ ] Užbaigti invite-only Auth scenarijų: invite, magic link, PKCE, logout ir
-  priverstinis pakartotinis prisijungimas.
-- [ ] Priimti sprendimą dėl senų `sync-raw` / `sync-debug` objektų: perkelti sutartą
-  dalį arba formaliai jų atsisakyti.
+- [x] Užbaigti invite-only Auth scenarijų: invite, slaptažodžio nustatymas, logout,
+  pakartotinis prisijungimas ir `viewer` teisių patikra; 2026-07-24 patikra PASS.
+- [x] Priimtas sprendimas senų `sync-raw` / `sync-debug` objektų neperkelti: source
+  Supabase projektas ištrintas, o dabartiniai duomenys renkami VPS.
 - [x] Patvirtinta pilno metadata užpildymo būsena ir likusių terminalinių klaidų
   pasiskirstymas; 2026-07-24 07:00 UTC rezultatai pateikti audito lentelėje.
 - [x] Užfiksuota, kad VPS yra vienintelis authoritative production duomenų šaltinis.
-- [ ] Source Supabase projektui nustatyti sutartą retention arba išjungimo būseną.
+- [x] Source Supabase projektas ištrintas 2026-07-24; retention nebetaikoma.
 - [x] Patikrinta automatinių Ubuntu security updates politika ir inode rezervas:
   abu timeriai enabled/active, periodinės reikšmės `1`, inode naudojimas `2 %`.
-- [ ] Atnaujinti `docs/TURINYS.md` migracijos progresą iki 100/100.
+- [x] Atnaujinti `docs/TURINYS.md` migracijos progresą iki 100/100.
 
 ## 2026-07-24 nepriklausoma dabartinės būsenos patikra
 
@@ -87,7 +87,8 @@ dokumentaciją.
 | Backup servisas | timeris enabled/active; paskutinis service `Result=success`, `ExecMainStatus=0`; kitas suplanuotas `2026-07-25 04:27 CEST` |
 | Ubuntu atnaujinimai | `apt-daily.timer` ir `apt-daily-upgrade.timer` enabled/active; `Update-Package-Lists=1`, `Unattended-Upgrade=1` |
 | SMTP alert email | VPS monitorius naudoja esančią Supabase SMTP konfigūraciją; teste gauti `AboutYou VPS monitor FAILED` ir `AboutYou VPS monitor RECOVERED` laiškai aktyviam administratoriui |
-| Source Supabase projekto būsena | vis dar `ACTIVE_HEALTHY`; retention / išjungimo sprendimas dar nepriimtas |
+| Invite-only Auth | Produkciniame puslapyje patikrintas invite, slaptažodžio nustatymas, logout, pakartotinis login ir `viewer` be admin teisių; PASS |
+| Source Supabase projekto būsena | senas source projektas ištrintas 2026-07-24; po ištrynimo production `PRODUCTION_OK`, VPS monitorius `status=0/SUCCESS` |
 
 Svarbu: paskutinio 2026-07-24 katalogo ciklo pabaigoje `Sportas` ir `Aksesuarai`
 target'ai baigėsi `failed`, o DB klaida išsaugota nekokybiškai kaip `[object Object]`.
@@ -286,20 +287,20 @@ generuoti iš naujo atsiradus klaidoms. Prieš pažymint punktą:
 
 ### 7. Source Supabase retention / išjungimas
 
-Source projektas 2026-07-24 vis dar yra `ACTIVE_HEALTHY`, bet po cutover į jį
-neberašoma. Pasirinkite konkrečią rollback pabaigos datą. Iki jos:
+Source projektas po cutover į jį neberašė ir 2026-07-24 buvo galutinai ištrintas.
+Kadangi dabartiniai duomenys renkami VPS, senų `sync-raw` / `sync-debug` objektų
+perkelti nereikėjo.
+
+Iki ištrynimo buvo patikrinta:
 
 - nelaikykite source workflow ir cron aktyvių;
 - nekeiskite source schemos ar duomenų;
 - palikite paskutinį šifruotą backup R2;
 - kartą per savaitę patikrinkite, kad `sync_runs` po cutover tebėra `0`.
 
-Pasibaigus terminui Supabase Dashboard atverkite source projektą → **Project
-Settings** → **General**. Jei planas leidžia, pirmiausia rinkitės **Pause project**
-arba palikite projektą neaktyvų sutartam laikui. **Delete project** naudokite tik
-turėdami sėkmingą R2 restore įrodymą ir aiškų savininko patvirtinimą; tai
-negrįžtamas veiksmas. Į šį dokumentą įrašykite pasirinktą būseną, datą, atsakingą
-asmenį ir backup objekto identifikatorių.
+Po ištrynimo atlikta production patikra grąžino `PRODUCTION_OK`, o VPS monitorius
+baigėsi `status=0/SUCCESS`. Ištrynimas buvo atliktas tik turint sėkmingo R2 restore
+įrodymą.
 [Supabase projekto pauzės ir ištrynimo gairės](https://supabase.com/docs/guides/platform/delete-project)
 paaiškina, kad rankinė pauzė šiuo metu galima tik Free planui, o ištrynimas yra
 negrįžtamas.
