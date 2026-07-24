@@ -46,6 +46,22 @@ onMounted(async () => {
     return;
   }
 
+  // Invite links from GoTrue use an implicit-flow hash even though the app
+  // otherwise uses PKCE. Explicitly install that session before checking it.
+  const accessToken = hash.get("access_token");
+  const refreshToken = hash.get("refresh_token");
+  if (accessToken && refreshToken) {
+    const { error: sessionError } = await $supabase.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken
+    });
+    if (sessionError) {
+      error.value = "Kvietimo nuoroda nebegalioja arba jau buvo panaudota.";
+      status.value = "";
+      return;
+    }
+  }
+
   // Wait for detectSessionInUrl to finish exchanging the invite URL.
   const session = await waitForInviteSession();
   if (!session) {
