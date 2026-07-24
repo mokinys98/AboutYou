@@ -438,3 +438,7 @@ MVP laikomas baigtu, kai:
 Pirmai versijai naudoti vieną projekto valdomą „OpenAI API“ raktą. `gpt-5.4-nano` turi iš produkto nuotraukos ištraukti spalvinius požymius, o galutinį balą turi apskaičiuoti mūsų kodas. Tik neaiškius atvejus siųsti į `gpt-5.6-luna`.
 
 Nebandyti naudoti kiekvieno vartotojo ChatGPT Plus ar Pro limitų, nes jie nėra skirti išorinės aplikacijos API užklausoms. Taip pat pirmoje versijoje nerinkti vartotojų API raktų ir nekurti atskiros ChatGPT programėlės – abu variantai smarkiai didina sudėtingumą, bet neduoda naudos pagrindiniam katalogo scenarijui.
+
+## Dokumento uždarymas
+
+- [ ] Baigta – galima ištrinti

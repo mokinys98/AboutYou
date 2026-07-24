@@ -31,7 +31,8 @@ DISK_MAX_PERCENT=80
 BACKUP_MAX_AGE_SECONDS=129600
 SUPABASE_HEALTH_URL=https://supabase-staging.rinkissaupigiausia.online/auth/v1/.well-known/jwks.json
 API_HEALTH_URL=https://aboutyou-private-catalog-api-staging.aurimas-zvirb.workers.dev/health
-ALERT_WEBHOOK_URL=
+SMTP_CONFIG_FILE=/srv/supabase/docker/.env
+ALERT_EMAIL_SUBJECT_PREFIX=AboutYou VPS monitor
 MONITOR_ENV
   install -m 0600 -o root -g root "$config_tmp" "$config_file"
   rm -f -- "$config_tmp"
@@ -96,8 +97,8 @@ else
 fi
 
 systemctl list-timers aboutyou-vps-monitor.timer --no-pager
-if grep -q '^ALERT_WEBHOOK_URL=.' "$config_file"; then
-  echo "External alert webhook configured."
+if grep -q '^SMTP_CONFIG_FILE=.' "$config_file"; then
+  echo "SMTP alert delivery configured from $config_file."
 else
-  echo "Monitoring is active in systemd journal. Optional external delivery can be set in $config_file as ALERT_WEBHOOK_URL."
+  echo "Monitoring is active in systemd journal. Optional SMTP delivery can be set in $config_file."
 fi

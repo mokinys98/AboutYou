@@ -1,1 +1,0 @@
-GitHub Actions supports the workflow_dispatch trigger (see Events that trigger workflows on GitHub Docs), so if you manually trigger a workflow, it will be queued to run soon-ish. This means that you can use a third-party cron scheduling service like IFTTT, Google Cloud Scheduler, Jenkins, Cronhub, etc., to make a request to the GitHub API to trigger the workflow.

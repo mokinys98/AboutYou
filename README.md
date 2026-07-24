@@ -2,6 +2,11 @@
 
 Nuxt 3, Hono, Supabase ir Playwright monorepo, periodiškai surenkantis pasirinktų ABOUT YOU LT grupių produktus ir kainų istoriją.
 
+## Dokumentacija
+
+Aktyvių planų, techninių dokumentų ir jų progreso sąrašas:
+[docs/TURINYS.md](docs/TURINYS.md).
+
 ## Darbo vietos
 
 - `apps/web` – privatus Nuxt katalogas ir administravimo UI.
@@ -11,8 +16,8 @@ Nuxt 3, Hono, Supabase ir Playwright monorepo, periodiškai surenkantis pasirink
 - `packages/shared` – Zod schemos ir bendri tipai.
 - `supabase/migrations` – duomenų bazės schema, RPC ir RLS.
 
-Katalogo materialized read modelio dirty/cron architektūra, incidento metrikos ir
-operacinės procedūros aprašytos [docs/catalog-read-model-stabilization.md](docs/catalog-read-model-stabilization.md).
+Katalogo materialized read modelio dirty/cron architektūros būsena ir galimi tolesni
+darbai aprašyti [techninių darbų plane](docs/TECHNINIU_DARBU_PLANAS.md#3-katalogo-read-modelio-tolesnis-vystymas).
 
 `aboutyou-price-sort.user.js` veikia kaip diagnostikos įrankis naršyklėje, o jo tiesioginio ABOUT YOU produktų srauto kolektorius taip pat naudojamas `apps/sync`. Jei tiesioginis srautas pasikeičia, provideris automatiškai bando DOM slinkimo fallback ir nepilno rezultato nežymi sėkmingu.
 

@@ -21,7 +21,30 @@ DISK_MAX_PERCENT="${DISK_MAX_PERCENT:-80}"
 BACKUP_MAX_AGE_SECONDS="${BACKUP_MAX_AGE_SECONDS:-129600}"
 SUPABASE_HEALTH_URL="${SUPABASE_HEALTH_URL:-https://supabase-staging.rinkissaupigiausia.online/auth/v1/.well-known/jwks.json}"
 API_HEALTH_URL="${API_HEALTH_URL:-https://aboutyou-private-catalog-api-staging.aurimas-zvirb.workers.dev/health}"
-ALERT_WEBHOOK_URL="${ALERT_WEBHOOK_URL:-}"
+SMTP_CONFIG_FILE="${SMTP_CONFIG_FILE:-/srv/supabase/docker/.env}"
+ALERT_EMAIL_SUBJECT_PREFIX="${ALERT_EMAIL_SUBJECT_PREFIX:-AboutYou VPS monitor}"
+
+env_file_value() {
+  local key="$1"
+  local file="$2"
+  [ -r "$file" ] || return 0
+  awk -F= -v wanted="$key" '$1 == wanted {
+    value = substr($0, index($0, "=") + 1)
+    sub(/^[[:space:]]+/, "", value)
+    sub(/[[:space:]]+$/, "", value)
+    if (value ~ /^".*"$/ || value ~ /^\047.*\047$/) value = substr(value, 2, length(value) - 2)
+    print value
+    exit
+  }' "$file"
+}
+
+SMTP_HOST="${SMTP_HOST:-$(env_file_value SMTP_HOST "$SMTP_CONFIG_FILE")}"
+SMTP_PORT="${SMTP_PORT:-$(env_file_value SMTP_PORT "$SMTP_CONFIG_FILE")}"
+SMTP_USER="${SMTP_USER:-$(env_file_value SMTP_USER "$SMTP_CONFIG_FILE")}"
+SMTP_PASSWORD="${SMTP_PASSWORD:-$(env_file_value SMTP_PASS "$SMTP_CONFIG_FILE")}"
+SMTP_FROM="${SMTP_FROM:-$(env_file_value SMTP_ADMIN_EMAIL "$SMTP_CONFIG_FILE")}"
+SMTP_SENDER_NAME="${SMTP_SENDER_NAME:-$(env_file_value SMTP_SENDER_NAME "$SMTP_CONFIG_FILE")}"
+SMTP_PORT="${SMTP_PORT:-587}"
 
 install -d -m 0700 "$state_dir"
 
@@ -45,15 +68,38 @@ http_check() {
   rm -f -- "$body"
 }
 
-send_webhook() {
+send_alert_email() {
   local message="$1"
-  local escaped
-  [ -n "$ALERT_WEBHOOK_URL" ] || return 0
-  escaped="$(printf '%s' "$message" | sed 's/\\/\\\\/g; s/"/\\"/g')"
-  curl -fsS --max-time 20 \
-    -H 'Content-Type: application/json' \
-    --data "{\"text\":\"$escaped\",\"content\":\"$escaped\"}" \
-    "$ALERT_WEBHOOK_URL" >/dev/null || printf 'WARN alert webhook delivery failed\n' >&2
+  local recipients body netrc scheme subject to_name failed_count=0
+  local -a tls_args=()
+  if [ -z "$SMTP_HOST" ] || [ -z "$SMTP_USER" ] || [ -z "$SMTP_PASSWORD" ] || [ -z "$SMTP_FROM" ]; then
+    printf 'WARN SMTP alert delivery not configured\n' >&2
+    return 0
+  fi
+  recipients="$("${psql_cmd[@]}" -c "select email from public.team_members where role = 'admin' and active and position('@' in email) > 1 order by email;" 2>/dev/null || true)"
+  if [ -z "$recipients" ]; then
+    printf 'WARN no active admin recipients for SMTP alert\n' >&2
+    return 0
+  fi
+  body="$(mktemp)"
+  netrc="$(mktemp)"
+  chmod 600 "$netrc"
+  if [[ "$message" == *RECOVERED* ]]; then subject="$ALERT_EMAIL_SUBJECT_PREFIX RECOVERED"; else subject="$ALERT_EMAIL_SUBJECT_PREFIX FAILED"; fi
+  if [ "$SMTP_PORT" = "465" ]; then scheme="smtps"; else scheme="smtp"; tls_args+=(--ssl-reqd); fi
+  printf 'machine %s login %s password %s\n' "$SMTP_HOST" "$SMTP_USER" "$SMTP_PASSWORD" > "$netrc"
+  {
+    if [ -n "$SMTP_SENDER_NAME" ]; then printf 'From: %s <%s>\r\n' "$SMTP_SENDER_NAME" "$SMTP_FROM"; else printf 'From: %s\r\n' "$SMTP_FROM"; fi
+    printf 'To: undisclosed-recipients:;\r\nSubject: %s\r\nDate: %s\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n%s\r\n' "$subject" "$(date -R)" "$message"
+  } > "$body"
+  while IFS= read -r to_name; do
+    [ -n "$to_name" ] || continue
+    if ! curl -fsS --max-time 30 "${tls_args[@]}" --url "${scheme}://${SMTP_HOST}:${SMTP_PORT}" \
+      --netrc-file "$netrc" --mail-from "$SMTP_FROM" --mail-rcpt "$to_name" --upload-file "$body" >/dev/null; then
+      failed_count=$((failed_count + 1))
+    fi
+  done <<< "$recipients"
+  rm -f -- "$body" "$netrc"
+  if [ "$failed_count" -gt 0 ]; then printf 'WARN SMTP alert delivery failed for %s recipient(s)\n' "$failed_count" >&2; fi
 }
 
 info "host=$(hostname) at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -133,12 +179,12 @@ if [ "${#failures[@]}" -gt 0 ]; then
   printf 'failed\n' > "$state_file"
   summary="AboutYou VPS monitor FAILED on $(hostname): $(IFS='; '; echo "${failures[*]}")"
   printf '%s\n' "$summary" >&2
-  if [ "$previous_status" != "failed" ]; then send_webhook "$summary"; fi
+  if [ "$previous_status" != "failed" ]; then send_alert_email "$summary"; fi
   exit 1
 fi
 
 printf 'ok\n' > "$state_file"
 if [ "$previous_status" = "failed" ]; then
-  send_webhook "AboutYou VPS monitor RECOVERED on $(hostname)"
+  send_alert_email "AboutYou VPS monitor RECOVERED on $(hostname)"
 fi
 printf 'SUMMARY all monitoring checks passed\n'
