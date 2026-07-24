@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { Session } from "@supabase/supabase-js";
 const password = ref("");
 const repeatedPassword = ref("");
 const ready = ref(false);
@@ -6,6 +7,35 @@ const pending = ref(false);
 const error = ref("");
 const status = ref("Tikrinama kvietimo nuoroda…");
 const { $supabase } = useNuxtApp();
+
+async function waitForInviteSession() {
+  const current = await $supabase.auth.getSession();
+  if (current.data.session) return current.data.session;
+
+  return await new Promise((resolve) => {
+    let settled = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let subscription: { unsubscribe: () => void } | null = null;
+    const finish = (session: Session | null) => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      subscription?.unsubscribe();
+      resolve(session);
+    };
+    const result = $supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_IN" || event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED") finish(session);
+    });
+    subscription = result.data.subscription;
+    if (settled) subscription.unsubscribe();
+    if (!settled) {
+      timeout = setTimeout(async () => {
+        const fallback = await $supabase.auth.getSession();
+        finish(fallback.data.session);
+      }, 10000);
+    }
+  });
+}
 
 onMounted(async () => {
   const url = new URL(location.href);
@@ -16,9 +46,9 @@ onMounted(async () => {
     return;
   }
 
-  // detectSessionInUrl in the Supabase client handles the PKCE code once.
-  const { data } = await $supabase.auth.getSession();
-  if (!data.session) {
+  // Wait for detectSessionInUrl to finish exchanging the invite URL.
+  const session = await waitForInviteSession();
+  if (!session) {
     error.value = "Kvietimo nuoroda nebegalioja arba jau buvo panaudota.";
     status.value = "";
     return;
