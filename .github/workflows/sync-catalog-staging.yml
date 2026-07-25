@@ -8,6 +8,11 @@ on:
         required: false
         default: "50"
         type: string
+      target_label:
+        description: Optional target label for a focused diagnostic run
+        required: false
+        default: ""
+        type: string
 
 concurrency:
   group: catalog-sync-staging
@@ -25,6 +30,7 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       SYNC_HEADLESS: "true"
       SYNC_MAX_PRODUCTS: ${{ inputs.max_products || '50' }}
+      SYNC_TARGET_LABEL: ${{ inputs.target_label || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -35,7 +41,15 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Mark sync start
         run: echo "SYNC_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
-      - run: npm run sync
+      - name: Run catalog sync
+        run: npm run sync 2>&1 | tee sync-diagnostics.log
+      - name: Upload sync diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalog-sync-staging-diagnostics-${{ github.run_number }}
+          path: sync-diagnostics.log
+          retention-days: 14
       - name: Verify staging sync and read-model refresh
         env:
           VERIFY_REFRESH_TIMEOUT_MINUTES: "15"

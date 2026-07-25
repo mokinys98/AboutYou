@@ -4,11 +4,15 @@ import { z } from "zod";
 import { AboutYouRateLimitError, collectAboutYouTarget } from "@catalog/aboutyou-provider";
 import { normalizeCategoryPath } from "@catalog/shared";
 import { inferFallbackCategoryPath, resolveFallbackCategory } from "./category-classifier";
+import { saveCatalogBatchResilient, type CatalogBatchFailureEvent, type CatalogBatchRejected } from "./catalog-batches";
+import { formatSyncError } from "./sync-errors";
+import { selectSyncTargets } from "./target-selection";
 
 const EnvSchema = z.object({
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(20),
   SYNC_MAX_PRODUCTS: z.coerce.number().int().min(1).max(50_000).default(10_000),
+  SYNC_TARGET_LABEL: z.string().default(""),
   SYNC_HEADLESS: z.string().default("true").transform((value) => value !== "false")
 });
 
@@ -26,14 +30,16 @@ const { data: targets, error: targetsError } = await withHeartbeat("Gaunamas sin
   .order("requested_at", { ascending: false, nullsFirst: false })
   .order("priority", { ascending: true }));
 if (targetsError) throw targetsError;
-log(`Rasta aktyvių grupių: ${targets?.length ?? 0}.`);
+const selectedTargets = selectSyncTargets(targets ?? [], env.SYNC_TARGET_LABEL);
+if (env.SYNC_TARGET_LABEL && selectedTargets.length === 0) throw new Error(`Nerastas aktyvus sync target: ${env.SYNC_TARGET_LABEL}`);
+log(`Rasta aktyvių grupių: ${selectedTargets.length}.`);
 
 const browser = await withHeartbeat("Paleidžiama Chromium naršyklė", () => chromium.launch({ headless: env.SYNC_HEADLESS }));
 let failed = false;
 try {
-  for (const [index, target] of (targets ?? []).entries()) {
+  for (const [index, target] of selectedTargets.entries()) {
     const targetStartedAt = Date.now();
-    log(`[${index + 1}/${targets?.length ?? 0}] Pradedama grupė „${target.label}“ (${target.url}).`);
+    log(`[${index + 1}/${selectedTargets.length}] Pradedama grupė „${target.label}“ (${target.url}).`);
     const context = await browser.newContext({ locale: "lt-LT", timezoneId: "Europe/Vilnius" });
     const page = await context.newPage();
     const { data: run, error: runError } = await db.from("sync_runs")
@@ -43,6 +49,7 @@ try {
 
     let pages = 0;
     let productCount = 0;
+    let rejectedProducts: CatalogBatchRejected[] = [];
     try {
       const result = await withHeartbeat(`„${target.label}“: renkami produktai`, () => retry(
         () => collectAboutYouTarget(page, target.url, {
@@ -87,23 +94,49 @@ try {
         };
       });
       log(`„${target.label}“: surinkta ${products.length} produktų iš ${pages} psl.; pradedamas saugojimas.`);
-      for (const batch of chunks(products, 200)) {
-        const { data: saved, error } = await db.rpc("record_catalog_batch", {
-          p_source_id: target.source_id,
-          p_target_id: target.id,
-          p_run_id: run.id,
-          p_products: batch
+      for (const [batchIndex, batch] of chunks(products, 200).entries()) {
+        const result = await saveCatalogBatchResilient({
+          items: batch,
+          save: async (items) => {
+            const { data: saved, error } = await db.rpc("record_catalog_batch", {
+              p_source_id: target.source_id,
+              p_target_id: target.id,
+              p_run_id: run.id,
+              p_products: items
+            });
+            if (error) throw error;
+            return Number(saved ?? items.length);
+          },
+          onFailure: (event: CatalogBatchFailureEvent) => {
+            console.error(JSON.stringify({
+              event: "catalog_batch_failed",
+              target: target.label,
+              run_id: run.id,
+              batch_index: batchIndex,
+              ...event
+            }));
+          }
         });
-        if (error) throw error;
-        productCount += Number(saved ?? batch.length);
+        productCount += result.saved;
+        rejectedProducts = [...rejectedProducts, ...result.rejected];
         log(`„${target.label}“: išsaugota ${productCount}/${products.length} produktų.`);
       }
+      const finalStatus = rejectedProducts.length ? "partial" : "success";
+      const finalError = rejectedProducts.length
+        ? JSON.stringify({ rejected_products: rejectedProducts.slice(0, 50) }).slice(0, 2_000)
+        : null;
       const { error: finishError } = await db.rpc("finish_sync_run", {
-        p_run_id: run.id, p_status: "success", p_pages_count: pages,
-        p_products_count: productCount, p_error: null
+        p_run_id: run.id, p_status: finalStatus, p_pages_count: pages,
+        p_products_count: productCount, p_error: finalError
       });
       if (finishError) throw finishError;
-      log(`„${target.label}“ baigta sėkmingai: ${productCount} produktų, ${pages} psl., ${formatDuration(Date.now() - targetStartedAt)}.`);
+      if (rejectedProducts.length) {
+        failed = true;
+        console.error(JSON.stringify({ event: "catalog_target_partial", target: target.label, rejected_products: rejectedProducts }));
+        log(`„${target.label}“ baigta dalinai: ${productCount}/${products.length} produktų, ${rejectedProducts.length} atmesta.`);
+      } else {
+        log(`„${target.label}“ baigta sėkmingai: ${productCount} produktų, ${pages} psl., ${formatDuration(Date.now() - targetStartedAt)}.`);
+      }
     } catch (error) {
       failed = true;
       const message = safeError(error);
@@ -121,7 +154,7 @@ try {
   if (refreshRequestError) {
     console.error(JSON.stringify({
       event: "catalog_read_model_refresh_request_failed",
-      error: refreshRequestError.message
+      error: formatSyncError(refreshRequestError)
     }));
   } else {
     console.log(JSON.stringify({
@@ -183,6 +216,5 @@ function chunks<T>(items: T[], size: number): T[][] {
 }
 
 function safeError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.replace(/(?:bearer|authorization|cookie|token)[^,}\n]*/gi, "[redacted]").slice(0, 2_000);
+  return formatSyncError(error);
 }

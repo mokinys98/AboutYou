@@ -2,6 +2,12 @@ name: Sync catalog
 
 on:
   workflow_dispatch:
+    inputs:
+      target_label:
+        description: Optional target label for a focused diagnostic run
+        required: false
+        default: ""
+        type: string
 
 concurrency:
   group: catalog-sync
@@ -19,6 +25,7 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       SYNC_HEADLESS: "true"
       SYNC_MAX_PRODUCTS: "15000"
+      SYNC_TARGET_LABEL: ${{ inputs.target_label || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -27,4 +34,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: npm run sync
+      - name: Run catalog sync
+        run: npm run sync 2>&1 | tee sync-diagnostics.log
+      - name: Upload sync diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalog-sync-diagnostics-${{ github.run_number }}
+          path: sync-diagnostics.log
+          retention-days: 14

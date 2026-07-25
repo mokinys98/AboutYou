@@ -19,6 +19,7 @@ fi
 
 DISK_MAX_PERCENT="${DISK_MAX_PERCENT:-80}"
 BACKUP_MAX_AGE_SECONDS="${BACKUP_MAX_AGE_SECONDS:-129600}"
+READ_MODEL_PENDING_MAX_AGE_SECONDS="${READ_MODEL_PENDING_MAX_AGE_SECONDS:-900}"
 SUPABASE_HEALTH_URL="${SUPABASE_HEALTH_URL:-https://supabase-staging.rinkissaupigiausia.online/auth/v1/.well-known/jwks.json}"
 API_HEALTH_URL="${API_HEALTH_URL:-https://aboutyou-private-catalog-api-staging.aurimas-zvirb.workers.dev/health}"
 SMTP_CONFIG_FILE="${SMTP_CONFIG_FILE:-/srv/supabase/docker/.env}"
@@ -120,10 +121,16 @@ containers=(
   supabase-rest supabase-storage supabase-edge-functions supabase-imgproxy
   supabase-pooler realtime-dev.supabase-realtime
 )
+backup_active=0
+if systemctl is-active --quiet aboutyou-supabase-backup.service; then backup_active=1; fi
 for container in "${containers[@]}"; do
-  state="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container" 2>/dev/null || true)"
-  if [ "$state" = "healthy" ] || [ "$state" = "running" ]; then
-    pass "$container $state"
+  state="$(docker inspect --format '{{if .State}}{{.State.Paused}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}{{else}}false|missing{{end}}' "$container" 2>/dev/null || true)"
+  paused="${state%%|*}"
+  health="${state#*|}"
+  if [ "$container" = "supabase-storage" ] && [ "$paused" = "true" ] && [ "$backup_active" -eq 1 ]; then
+    pass "$container paused during active backup"
+  elif [ "$health" = "healthy" ] || [ "$health" = "running" ]; then
+    pass "$container $health"
   else
     fail "$container ${state:-missing}"
   fi
@@ -160,12 +167,15 @@ else
 fi
 
 psql_cmd=(docker exec supabase-db psql -v ON_ERROR_STOP=1 -At -U postgres -d postgres)
-refresh="$("${psql_cmd[@]}" -c "select requested_version||'|'||completed_version||'|'||last_status||'|'||coalesce(last_error,'') from public.catalog_read_model_refresh_state;" 2>/dev/null || true)"
+refresh="$("${psql_cmd[@]}" -c "select requested_version||'|'||completed_version||'|'||last_status||'|'||replace(coalesce(last_error,''),'|','/')||'|'||coalesce(extract(epoch from (now() - requested_at))::bigint,-1) from public.catalog_read_model_refresh_state;" 2>/dev/null || true)"
 info "refresh_state=${refresh:-missing}"
-if printf '%s' "$refresh" | awk -F'|' 'NF >= 4 && $1 == $2 && ($3 == "refreshed" || $3 == "clean") && $4 == "" {ok=1} END {exit !ok}'; then
+if printf '%s' "$refresh" | awk -F'|' -v max_age="$READ_MODEL_PENDING_MAX_AGE_SECONDS" '
+  NF >= 5 && $1 == $2 && ($3 == "refreshed" || $3 == "clean") && $4 == "" {ok=1}
+  NF >= 5 && $1 != $2 && $3 == "pending" && $5 >= 0 && $5 <= max_age {ok=1}
+  END {exit !ok}'; then
   pass "read model refresh current"
 else
-  fail "read model refresh stale or failed"
+  fail "read model refresh stale or failed (pending grace ${READ_MODEL_PENDING_MAX_AGE_SECONDS}s)"
 fi
 
 cron_count="$("${psql_cmd[@]}" -c "select count(*) from cron.job where active and jobname like 'catalog-read-model-refresh%';" 2>/dev/null || true)"
