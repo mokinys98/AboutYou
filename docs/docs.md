@@ -68,3 +68,28 @@ bash scripts/migration/vps-monitor-logic.test.sh
 - [ ] VPS’e paleisti `bash -n` (ši Windows aplinka neturi WSL distribucijos).
 - [ ] VPS monitorius atnaujintas.
 - [ ] Pirmo naujo sync rezultatas užfiksuotas.
+
+## Priminimas po rollout
+
+**Patikrinti po 1–2 dienų (2026-07-26–2026-07-27):**
+
+- [ ] Ar per automatinius sync `Sportas` baigėsi `success`, o ne `[object Object]`.
+- [ ] Jei yra klaida, užfiksuoti tikslų `code`, `message`, `details`, `hint` arba atmesto produkto `externalId`.
+- [ ] Patikrinti, kad `aboutyou-vps-monitor.timer` aktyvus ir nėra nepagrįstų `FAILED` laiškų.
+- [ ] Patikrinti, kad read-model `pending` per įprastą refresh ciklą nesukelia aliarmo.
+- [ ] Po backup’o patikrinti, kad `supabase-storage paused` nesukėlė `Storage FAILED` laiško.
+- [ ] Įrašyti faktinį rezultatą į šio dokumento vykdymo žurnalą.
+
+Patikros komandos VPS’e:
+
+```bash
+sudo journalctl -u aboutyou-vps-monitor.service --since "2 days ago" --no-pager -o short-iso
+sudo systemctl is-active aboutyou-vps-monitor.timer
+sudo docker exec -i supabase-db psql -X -U postgres -d postgres -P pager=off -c "
+select started_at at time zone 'Europe/Vilnius' as started_lt,
+       status, pages_count, products_count, error
+from public.sync_runs
+where target_id = (select id from public.sync_targets where label = 'Sportas')
+order by started_at desc limit 3;
+"
+```
