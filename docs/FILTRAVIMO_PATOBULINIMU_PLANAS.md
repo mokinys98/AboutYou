@@ -148,7 +148,9 @@ DB našumo testo pakaitalas.
 #### Šios pataisos priėmimo patikra
 
 - [x] Lokaliai paruošti kategorijos kontekstą naudojantį RPC ir exact-filter cache.
-- [x] Lokaliai grąžinti dydžių kiekius į DB kontraktą, TypeScript tipą ir UI.
+- [x] Lokaliai grąžinti kontekstinius dydžių kiekius į DB kontraktą ir UI;
+  `CatalogSizeFacet.count` paliktas neprivalomas, nes nepakeistas globalus statinis
+  payload istoriniuose VPS įrašuose kiekio neturi.
 - [x] Sumažinti browser facetų cache TTL ir pakeisti jo versijos prefiksą.
 - [x] Pridėti statinį migracijos regresinį testą, kad `p_filters` nebūtų vėl
   ignoruojamas.
@@ -160,6 +162,65 @@ DB našumo testo pakaitalas.
 - [ ] Išmatuoti pirmos neužkešuotos kategorijos užklausos ir pakartotinio cache hit
   p50/p95; jei pirmas skaičiavimas per lėtas, pridėti populiariausių kategorijų
   prewarm, negrįžtant prie globalaus sąrašo.
+
+VPS adresas: `169.58.26.120`, SSH naudotojas: `deploy`, PuTTY privataus rakto
+failas: `C:\Users\Auris\Documents\contabo.ppk`, patvirtintas ED25519 host rakto
+fingerprint: `SHA256:U5Km9Q2qF4HFi5E5Wiu6R8c1ZfWes6xHXnSXp/xN36Q`.
+
+VPS patikroje aptiktas dar vienas migracijų neatitikimas: statinio dydžių builderio
+ir refresherio savininkas yra `supabase_admin`, o kontekstinio cache funkcijų –
+`postgres`; `postgres` negali `SET ROLE supabase_admin`. Migracija pataisyta taip,
+kad nekeistų `supabase_admin` valdomo globalaus builderio ir nereikalautų plėsti DB
+teisių. Kategorijų dydžiai bei jų `count` kuriami atskirai, `postgres` valdomoje
+kontekstinėje funkcijoje.
+
+Pirmiausia įkelti passphrase apsaugotą `.ppk` į Pageant. Atsidariusiame lange
+įvesti rakto passphrase:
+
+```powershell
+Start-Process -FilePath "C:\Program Files\PuTTY\pageant.exe" `
+  -ArgumentList '"C:\Users\Auris\Documents\contabo.ppk"'
+```
+
+Tada patikrinti neinteraktyvų prisijungimą, nesiunčiant migracijos:
+
+```powershell
+& "C:\Program Files\PuTTY\plink.exe" `
+  -batch `
+  -agent `
+  -hostkey "SHA256:U5Km9Q2qF4HFi5E5Wiu6R8c1ZfWes6xHXnSXp/xN36Q" `
+  deploy@169.58.26.120 "whoami"
+```
+
+Kadangi `deploy` naudotojo `sudo` prašo slaptažodžio, SQL negalima pipe'inti per
+SSH stdin. Gavus atsakymą `deploy`, pirmiausia migracijos failą nukopijuoti į VPS:
+
+```powershell
+& "C:\Program Files\PuTTY\pscp.exe" `
+  -agent `
+  -hostkey "SHA256:U5Km9Q2qF4HFi5E5Wiu6R8c1ZfWes6xHXnSXp/xN36Q" `
+  ".\supabase\migrations\202607310001_restore_contextual_size_facets.sql" `
+  deploy@169.58.26.120:/tmp/202607310001_restore_contextual_size_facets.sql
+```
+
+Tada atidaryti interaktyvią VPS sesiją:
+
+```powershell
+& "C:\Program Files\PuTTY\plink.exe" `
+  -agent `
+  -hostkey "SHA256:U5Km9Q2qF4HFi5E5Wiu6R8c1ZfWes6xHXnSXp/xN36Q" `
+  deploy@169.58.26.120
+```
+
+VPS terminale paleisti migraciją, įvesti `deploy` naudotojo sudo slaptažodį ir tik
+po sėkmingo `psql` užbaigimo pašalinti laikiną failą:
+
+```bash
+sudo docker exec -i supabase-db psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres \
+  < /tmp/202607310001_restore_contextual_size_facets.sql
+rm -f /tmp/202607310001_restore_contextual_size_facets.sql
+exit
+```
 
 ### Privalomi pataisymai prieš pakartotinį priėmimą
 

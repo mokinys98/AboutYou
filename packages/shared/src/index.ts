@@ -355,7 +355,7 @@ export interface CatalogSizeFacet {
   domainLabel: string;
   valueKey: string;
   sortOrder: number;
-  count: number;
+  count?: number;
 }
 
 export interface CatalogCategoryFacet {

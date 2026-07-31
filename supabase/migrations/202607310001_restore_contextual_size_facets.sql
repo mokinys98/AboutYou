@@ -3,36 +3,10 @@
 -- implementation ignored p_filters and therefore showed every catalog size on
 -- category pages such as vyrams>drabužiai>džinsai.
 
-create or replace function public.catalog_build_static_size_facets()
-returns jsonb
-language sql stable security definer
-set search_path = public, pg_temp as $$
-  with grouped as (
-    select
-      sf.domain_key,
-      max(sf.domain_label) as domain_label,
-      sf.value_key,
-      max(sf.display_label) as display_label,
-      sf.token,
-      min(sf.sort_order) as sort_order,
-      count(distinct sf.product_id) as product_count
-    from public.catalog_size_facets_read_effective sf
-    group by sf.domain_key, sf.value_key, sf.token
-  )
-  select coalesce(jsonb_agg(jsonb_build_object(
-    'value', grouped.token,
-    'label', grouped.display_label,
-    'domainKey', grouped.domain_key,
-    'domainLabel', grouped.domain_label,
-    'valueKey', grouped.value_key,
-    'sortOrder', grouped.sort_order,
-    'count', grouped.product_count
-  ) order by grouped.domain_key, grouped.sort_order, grouped.display_label), '[]'::jsonb)
-  from grouped;
-$$;
-
-revoke all on function public.catalog_build_static_size_facets()
-  from public, anon, authenticated;
+-- Do not replace catalog_build_static_size_facets() here. On existing Supabase
+-- installations it can be owned by supabase_admin while the contextual cache
+-- functions are owned by postgres. The unfiltered catalog can keep using that
+-- existing global dictionary; only filtered contexts need precise counts.
 
 create or replace function public.catalog_build_contextual_size_facets(
   p_filters jsonb
@@ -257,8 +231,9 @@ $$;
 revoke all on function public.rebuild_catalog_items_read_internal()
   from public, anon, authenticated, service_role;
 
--- Force all browsers to miss the previous static-size payload after deployment.
+-- Force all browsers to miss payloads created by the previous implementation.
+-- The global size dictionary did not change, so refreshing the supabase_admin-
+-- owned static cache is neither necessary nor permitted for the postgres role.
 delete from public.catalog_facets_cache;
-select public.refresh_catalog_static_size_facets_cache();
 
 notify pgrst, 'reload schema';

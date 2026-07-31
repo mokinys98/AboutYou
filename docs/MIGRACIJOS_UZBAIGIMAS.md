@@ -4,6 +4,7 @@
 **Būsena:** produkcinis perjungimas atliktas ir VPS patvirtintas kaip vienintelis
 production duomenų šaltinis; liko formalus stabilizavimas ir senos aplinkos uždarymas  
 **Cutover laikas:** 2026-07-18 22:49 UTC
+**VPS IP:** `169.58.26.120`
 
 Šiame dokumente sujungta ankstesnė `migration/` fazių dokumentacija. Detalūs istoriniai
 matavimai, komandos ir tarpiniai sprendimai lieka Git istorijoje.
@@ -188,7 +189,11 @@ sudo find /srv/supabase/backups/encrypted -maxdepth 1 -type f \
 Pilnam bandymui iš Windows repo nukopijuokite jau paruoštą verifikavimo skriptą:
 
 ```powershell
-scp .\scripts\migration\verify-vps-backup-restore.sh deploy@<VPS_IP>:/tmp/
+& "C:\Program Files\PuTTY\pscp.exe" `
+  -i "C:\Users\Auris\Documents\contabo.ppk" `
+  -hostkey "SHA256:U5Km9Q2qF4HFi5E5Wiu6R8c1ZfWes6xHXnSXp/xN36Q" `
+  .\scripts\migration\verify-vps-backup-restore.sh `
+  deploy@169.58.26.120:/tmp/
 ```
 
 Tada VPS:

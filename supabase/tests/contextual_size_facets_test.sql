@@ -84,6 +84,22 @@ returns jsonb language sql stable as $$
   )
 $$;
 
+-- Production already has this function from the static-size migration. Keep
+-- the fixture definition owner-neutral because the contextual migration must
+-- not replace a function that may be owned by supabase_admin.
+create function public.catalog_build_static_size_facets()
+returns jsonb language sql stable as $$
+  select coalesce(jsonb_agg(jsonb_build_object(
+    'value', sf.token,
+    'label', sf.display_label,
+    'domainKey', sf.domain_key,
+    'domainLabel', sf.domain_label,
+    'valueKey', sf.value_key,
+    'sortOrder', sf.sort_order
+  ) order by sf.domain_key, sf.sort_order, sf.display_label), '[]'::jsonb)
+  from public.catalog_size_facets_read_effective sf
+$$;
+
 create function public.refresh_catalog_static_size_facets_cache()
 returns void language plpgsql as $$
 begin
