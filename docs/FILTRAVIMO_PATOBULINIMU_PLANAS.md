@@ -1,7 +1,7 @@
 # Katalogo filtravimo patobulinimų planas
 
-**Bendras progresas:** 34/100 (kontekstinio cache pataisa paruošta lokaliai, VPS dar nepatikrinta)
-**Būsena:** `5cf9817` nepriimtas, tačiau po audito pridėta nauja kategorijos ir viso filtro kontekstą naudojanti dydžių cache migracija; kelių filtrų UX bei likę normalizavimo darbai dar neįgyvendinti
+**Bendras progresas:** 34/100 (kontekstinio cache pataisa pritaikyta ir patikrinta VPS; likę normalizavimo bei UX blokatoriai)
+**Būsena:** `5cf9817` nepriimtas, tačiau kategorijos ir viso filtro kontekstą naudojanti dydžių cache pataisa jau veikia VPS; kelių filtrų UX, alertų predikatų suvienodinimas ir likę normalizavimo darbai dar neįgyvendinti
 **Prioritetas:** aukštas, nes dabartinis elgesys lėtina kasdienę produktų paiešką
 
 ## 2026-07-31 commit `5cf9817` atitikties auditas
@@ -156,9 +156,19 @@ DB našumo testo pakaitalas.
   ignoruojamas.
 - [x] Pritaikyti migraciją izoliuotoje PostgreSQL 17 DB ir elgsenos testu
   patikrinti kategorijos izoliaciją, kiekį bei cache hit įrašą.
-- [ ] Naudotojui pritaikyti `202607310001_restore_contextual_size_facets.sql` VPS.
-- [ ] VPS paleisti džinsų kategorijos RPC patikrą ir įsitikinti, kad nėra globalių
-  aksesuarų grupių.
+- [x] Naudotojas pritaikė `202607310001_restore_contextual_size_facets.sql` VPS;
+  migracija baigėsi be klaidų, pašalinti 7 seni facetų cache įrašai.
+- [x] VPS džinsų kategorijos RPC patikra rado 1594 kategorijos produktus ir grąžino
+  114 dydžių reikšmių; visų jų `domainKey` yra tik `trousers`, globalių aksesuarų,
+  krepšių, diržų ar apyrankių grupių negrąžinta.
+- [x] Po dydžių migracijos aptiktas kitas neatitikimas: legacy `catalog_facets()`
+  pilną kategorijos kelią lygina tik su `catalog_items_read.categories`, todėl
+  prekės ženklų, spalvų, medžiagų ir kiti facetai kategorijoje ištuštėja.
+  `202607310002_restore_contextual_non_size_facets.sql` išlaiko
+  tikslų cache/dydžių kelią, o legacy facetų skaičiavimui prideda canonical
+  kategorijos pavadinimą; naudotojas ją sėkmingai pritaikė VPS (`DELETE 19`).
+- [ ] Naršyklėje patvirtinti, kad po `202607310002` kategorijoje vėl rodomi ir
+  pritaikomi prekės ženklo, spalvos, medžiagos bei kiti ne dydžių filtrai.
 - [ ] Išmatuoti pirmos neužkešuotos kategorijos užklausos ir pakartotinio cache hit
   p50/p95; jei pirmas skaičiavimas per lėtas, pridėti populiariausių kategorijų
   prewarm, negrįžtant prie globalaus sąrašo.
@@ -242,8 +252,9 @@ exit
   `router.replace`/istorijos strategiją, debounce ir užklausų atšaukimą arba seką.
 - [ ] Pridėti DB/RPC integracinius, Vue komponento, alertų ir E2E testus pagal
   šiame dokumente išvardytus scenarijus.
-- [ ] Tik po vietinių testų pateikti naudotojui tikslias VPS migravimo, snapshot
-  audito ir rollback komandas; vykdymą bei rezultatus turi patvirtinti naudotojas.
+- [x] Po vietinių testų pateiktos tikslios VPS migravimo komandos; migracijos
+  vykdymą ir kategorinio RPC rezultatą patvirtino naudotojas. Bendras snapshot bei
+  rollback scenarijus lieka reikalingas būsimoms platesnėms migracijoms.
 
 ## Tikslas
 
@@ -736,9 +747,10 @@ būsenų.
   neįgyvendintos pilnai.
 - [ ] **DALINAI:** DB/read modelio migracijos ir indeksai pridėti, bet galutinė
   migracija panaikina kontekstinius dydžių kiekius ir palieka pasenusį facetų cache.
-- [ ] **DALINAI:** nauja lokali migracija grąžina kontekstinį `count`, o
-  TypeScript tipas vėl jo reikalauja, tačiau VPS dar nepatikrinta ir katalogo bei
-  alertų predikatai tebėra išsiskyrę.
+- [x] Nauja migracija grąžina kontekstinį `count`; VPS patikroje visi 114 džinsų
+  dydžių priklausė tik `trousers` domenui. TypeScript `count` neprivalomas tik dėl
+  istorinio globalaus statinio payload suderinamumo.
+- [ ] Katalogo ir alertų dydžių predikatai tebėra išsiskyrę.
 - [ ] **DALINAI:** dydžiai rodomi grupėmis, bet nėra pilno dviejų kolonų vaizdo,
   kiekių ir visų grupių pateikimo garantijos.
 - [ ] **DALINAI:** legacy reikšmės priimamos, bet nėra tikro katalogo ir alertų

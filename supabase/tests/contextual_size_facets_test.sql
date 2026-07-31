@@ -54,6 +54,11 @@ create table public.catalog_facets_cache (
   created_at timestamptz not null default now()
 );
 
+create table public.categories (
+  path text primary key,
+  name text not null
+);
+
 create materialized view public.catalog_items_read as
 select 1::bigint as id with no data;
 create unique index catalog_items_read_test_idx
@@ -80,7 +85,11 @@ returns jsonb language sql stable as $$
   select jsonb_build_object(
     'sizes', '[]'::jsonb,
     'otherSizes', '[]'::jsonb,
-    'brands', '[]'::jsonb
+    'brands', case
+      when jsonb_array_length(coalesce(p_filters->'categories', '[]'::jsonb)) >= 2
+      then jsonb_build_array(jsonb_build_object('value', 'Jeans Brand', 'count', 1))
+      else '[]'::jsonb
+    end
   )
 $$;
 
@@ -112,6 +121,7 @@ end
 $$;
 
 \ir ../migrations/202607310001_restore_contextual_size_facets.sql
+\ir ../migrations/202607310002_restore_contextual_non_size_facets.sql
 
 insert into public.catalog_items_read_with_lpl(
   id, brand, category_paths, categories, category_names, color_family,
@@ -121,6 +131,11 @@ insert into public.catalog_items_read_with_lpl(
     array['Džinsai'], 'blue', 'blue', 'aboutyou', 50),
   (2, 'Bag Brand', array['vyrams>aksesuarai>krepšiai'], array['Krepšiai'],
     array['Krepšiai'], 'black', 'black', 'aboutyou', 40);
+
+insert into public.categories(path, name)
+select category_paths[1], categories[1]
+from public.catalog_items_read_with_lpl
+where id = 1;
 
 insert into public.catalog_size_facets_read_effective(
   product_id, domain_key, domain_label, value_key, display_label, token, sort_order
@@ -148,6 +163,10 @@ begin
 
   if result->'sizes'->0->>'value' <> 'trousers:w32-l32' then
     raise exception 'Wrong contextual size payload: %', result->'sizes';
+  end if;
+
+  if result->'brands'->0->>'value' <> 'Jeans Brand' then
+    raise exception 'Non-size facets did not receive the canonical category name: %', result->'brands';
   end if;
 
   if (result->'sizes'->0->>'count')::integer <> 1 then

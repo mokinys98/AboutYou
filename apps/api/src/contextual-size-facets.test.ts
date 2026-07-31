@@ -8,6 +8,10 @@ const migration = readFileSync(fileURLToPath(new URL(
   "../../../supabase/migrations/202607310001_restore_contextual_size_facets.sql",
   import.meta.url
 )), "utf8");
+const nonSizeMigration = readFileSync(fileURLToPath(new URL(
+  "../../../supabase/migrations/202607310002_restore_contextual_non_size_facets.sql",
+  import.meta.url
+)), "utf8");
 
 describe("contextual size facet migration", () => {
   it("filters size membership by the requested category and other active filters", () => {
@@ -27,5 +31,13 @@ describe("contextual size facet migration", () => {
   it("invalidates per-filter payloads when catalog membership changes", () => {
     expect(migration).toContain("delete from public.catalog_facets_cache;");
     expect(migration).toContain("perform public.invalidate_catalog_facets_cache();");
+  });
+
+  it("expands a category path for legacy non-size facet matching", () => {
+    expect(nonSizeMigration).toContain("join public.categories category");
+    expect(nonSizeMigration).toContain("facet_filters := jsonb_set");
+    expect(nonSizeMigration).toContain("public.catalog_facets(facet_filters)");
+    expect(nonSizeMigration).toContain("public.catalog_grouped_size_facets(cache_filters)");
+    expect(nonSizeMigration).toContain("where filters = cache_filters");
   });
 });
