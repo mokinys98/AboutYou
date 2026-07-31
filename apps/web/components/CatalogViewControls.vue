@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { catalogSortOptions } from "../utils/catalogSort";
+
 const props = defineProps<{ gridColumns: 3 | 4; sort: string }>();
 const emit = defineEmits<{
   "update:gridColumns": [value: 3 | 4];
@@ -7,15 +9,7 @@ const emit = defineEmits<{
 
 const root = ref<HTMLElement | null>(null);
 const activeMenu = ref<"view" | "sort" | null>(null);
-const sortOptions = [
-  { value: "newest", label: "Naujausi" },
-  { value: "price_asc", label: "Kaina: nuo mažiausios" },
-  { value: "price_desc", label: "Kaina: nuo didžiausios" },
-  { value: "source_lpl_desc", label: "Paskutinė mažiausia kaina: nuo didžiausios" },
-  { value: "source_lpl_asc", label: "Paskutinė mažiausia kaina: nuo mažiausios" },
-  { value: "discount_desc", label: "Didžiausia nuolaida" }
-];
-const currentSort = computed(() => sortOptions.find((option) => option.value === props.sort)?.label ?? "Naujausi");
+const currentSort = computed(() => catalogSortOptions.find((option) => option.value === props.sort)?.label ?? "Naujausi");
 
 function toggle(menu: "view" | "sort") {
   activeMenu.value = activeMenu.value === menu ? null : menu;
@@ -70,7 +64,7 @@ onUnmounted(() => {
       </button>
       <div v-if="activeMenu === 'sort'" class="catalog-control-menu sort-menu" role="menu">
         <p class="catalog-control-title">Rūšiuoti pagal</p>
-        <button v-for="option in sortOptions" :key="option.value" type="button" role="menuitemradio" :aria-checked="sort === option.value || (!sort && option.value === 'newest')" :class="{ selected: sort === option.value || (!sort && option.value === 'newest') }" @click="selectSort(option.value)">
+        <button v-for="option in catalogSortOptions" :key="option.value" type="button" role="menuitemradio" :aria-checked="sort === option.value || (!sort && option.value === 'newest')" :class="{ selected: sort === option.value || (!sort && option.value === 'newest') }" @click="selectSort(option.value)">
           <span>{{ option.label }}</span>
           <svg v-if="sort === option.value || (!sort && option.value === 'newest')" class="check-icon" aria-hidden="true" viewBox="0 0 16 16"><path d="m2 8 4 4 8-9" /></svg>
         </button>

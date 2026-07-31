@@ -3232,6 +3232,15 @@ td small {
 .debug-heading h1 { margin: 8px 0; font-size: clamp(32px, 5vw, 58px) }
 .debug-heading .primary { text-decoration: none; white-space: nowrap }
 .debug-section { border-top: 1px solid var(--ink); margin-top: 50px; padding-top: 22px }
+.debug-override-form { display: grid; gap: 14px; max-width: 640px }
+.debug-override-form label { display: grid; gap: 6px; font-weight: 600 }
+.debug-override-form select, .debug-override-form textarea { border: 1px solid var(--line); background: var(--paper); color: var(--ink); padding: 10px 12px; font: inherit }
+.debug-override-form textarea { min-height: 80px; resize: vertical }
+.debug-override-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px }
+.debug-size-overrides { display: grid; gap: 12px; border: 1px solid var(--line); padding: 14px }
+.debug-size-overrides h3 { margin: 0 }
+.debug-size-override-row { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px }
+.debug-size-override-row label { font-size: 13px }
 .debug-section pre { background: #171717; color: #e8e8e8; padding: 20px; overflow: auto; max-height: 650px; font-size: 12px; line-height: 1.55 }
 .debug-images { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px }
 .debug-images a { min-width: 0; text-decoration: none }

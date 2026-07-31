@@ -12,6 +12,7 @@ import {
 } from "./metadata-diagnostics";
 import { archiveRawPayload, cleanupRawArtifacts } from "./metadata-artifacts";
 import { classifyMetadataExtraction } from "./metadata-policy";
+import { withRetry } from "./sync-retry";
 
 const EnvSchema = z.object({
   SUPABASE_URL: z.string().url(),
@@ -67,10 +68,9 @@ try {
   log("metadata_diagnostics_cleanup_failed", { error: safeErrorCode(error) });
 }
 try {
-  const { data: sampleCount, error: refreshError } = await db.rpc("refresh_product_raw_sample_members", {
+  const sampleCount = await withSupabaseRetry("refresh_product_raw_sample_members", () => db.rpc("refresh_product_raw_sample_members", {
     p_limit: env.METADATA_RAW_SAMPLE_LIMIT
-  });
-  if (refreshError) throw refreshError;
+  }));
   const deleted = await cleanupRawArtifacts(db, env.METADATA_RAW_RETENTION_DAYS);
   log("metadata_raw_sample_refreshed", { sample_count: sampleCount, deleted_artifacts: deleted });
 } catch (error) {
@@ -94,18 +94,16 @@ try {
   const context = await browser.newContext({ locale: "lt-LT", timezoneId: "Europe/Vilnius" });
   while (!rateLimited && counters.claimed < env.METADATA_SYNC_MAX_PRODUCTS && Date.now() < deadline) {
     const remaining = env.METADATA_SYNC_MAX_PRODUCTS - counters.claimed;
-    const { data, error } = await db.rpc("claim_product_detail_batch", {
+    const data = await withSupabaseRetry("claim_product_detail_batch", () => db.rpc("claim_product_detail_batch", {
       p_parser_version: PRODUCT_DETAIL_PARSER_VERSION,
       p_limit: Math.min(env.METADATA_SYNC_CLAIM_SIZE, remaining),
       p_lease_minutes: 20
-    });
-    if (error) throw error;
+    }));
     const claims = (data ?? []) as Claim[];
     if (!claims.length) break;
     counters.claimed += claims.length;
-    const { data: sampleRows, error: sampleError } = await db.from("product_raw_sample_members")
-      .select("product_id").in("product_id", claims.map((claim) => claim.id));
-    if (sampleError) throw sampleError;
+    const sampleRows = await withSupabaseRetry("product_raw_sample_members", () => db.from("product_raw_sample_members")
+      .select("product_id").in("product_id", claims.map((claim) => claim.id)));
     const sampleIds = new Set((sampleRows ?? []).map((row) => row.product_id as string));
 
     await runPool(claims, env.METADATA_SYNC_CONCURRENCY, async (claim) => {
@@ -221,14 +219,34 @@ try {
       } catch (error) {
         counters.retryable += 1;
         const code = safeErrorCode(error);
-        await recordDiagnostic(claim, code, { httpStatus, contentType, finalUrl, responseHtml });
-        await fail(claim, "retryable", code, httpStatus);
+        try {
+          await recordDiagnostic(claim, code, { httpStatus, contentType, finalUrl, responseHtml });
+        } catch (diagnosticError) {
+          log("metadata_diagnostic_record_failed", {
+            external_id: claim.external_id,
+            error: safeErrorCode(diagnosticError)
+          });
+        }
+        try {
+          await fail(claim, "retryable", code, httpStatus);
+        } catch (failError) {
+          log("metadata_product_failure_record_failed", {
+            external_id: claim.external_id,
+            error: safeErrorCode(failError)
+          });
+        }
       }
     });
 
     if (rateLimited) {
       const leaseToken = claims[0]?.lease_token;
-      if (leaseToken) await db.rpc("release_product_detail_claim", { p_lease_token: leaseToken });
+      if (leaseToken) {
+        try {
+          await withSupabaseRetry("release_product_detail_claim", () => db.rpc("release_product_detail_claim", { p_lease_token: leaseToken }));
+        } catch (error) {
+          log("metadata_claim_release_failed", { error: safeErrorCode(error) });
+        }
+      }
     }
     log("metadata_sync_checkpoint", counters);
   }
@@ -237,24 +255,23 @@ try {
 }
 
 if (counters.complete > 0) {
-  const { data: refreshVersion, error: refreshRequestError } = await db.rpc("request_catalog_items_read_refresh");
-  if (refreshRequestError) {
-    log("catalog_read_model_refresh_request_failed", {
-      products_updated: counters.complete,
-      error: refreshRequestError.message
-    });
-  } else {
+  try {
+    const refreshVersion = await withSupabaseRetry("request_catalog_items_read_refresh", () => db.rpc("request_catalog_items_read_refresh"));
     log("catalog_read_model_refresh_requested", {
       products_updated: counters.complete,
       requested_version: refreshVersion
     });
+  } catch (refreshRequestError) {
+    log("catalog_read_model_refresh_request_failed", {
+      products_updated: counters.complete,
+      error: safeErrorCode(refreshRequestError)
+    });
   }
 }
 
-const { data: coverage, error: coverageError } = await db.rpc("product_detail_sync_summary", {
+const coverage = await withSupabaseRetry("product_detail_sync_summary", () => db.rpc("product_detail_sync_summary", {
   p_parser_version: PRODUCT_DETAIL_PARSER_VERSION
-});
-if (coverageError) throw coverageError;
+}));
 log("metadata_sync_finished", {
   ...counters,
   parser_version: PRODUCT_DETAIL_PARSER_VERSION,
@@ -371,6 +388,26 @@ function safeErrorCode(error: unknown): string {
   const value = error instanceof Error ? error.message : String(error);
   return `request_failed:${value}`.replace(/\s+/g, " ").slice(0, 200);
 }
+type SupabaseResult<T> = { data: T; error: unknown | null };
+
+async function withSupabaseRetry<T>(
+  operationName: string,
+  operation: () => PromiseLike<SupabaseResult<T>>
+): Promise<T> {
+  return withRetry(operationName, async () => {
+    const result = await operation();
+    if (result.error) throw result.error;
+    return result.data;
+  }, {
+    onRetry: ({ attempt, delayMs, error }) => log("metadata_supabase_retry", {
+      operation: operationName,
+      attempt,
+      delay_ms: delayMs,
+      error
+    })
+  });
+}
+
 function log(event: string, values: Record<string, unknown>): void {
   console.log(JSON.stringify({ event, at: new Date().toISOString(), ...values }));
 }
@@ -379,19 +416,20 @@ async function logBlockedSchemaSummary(stage: "before_sync" | "after_sync"): Pro
   const pageSize = 1_000;
   const rows: BlockedSchemaRow[] = [];
   for (let from = 0; ; from += pageSize) {
-    const { data, error } = await db.from("product_detail_sync")
-      .select("last_error_code,products!inner(external_id,name,product_url,active)")
-      .eq("status", "blocked_schema")
-      .eq("parser_version", PRODUCT_DETAIL_PARSER_VERSION)
-      .eq("products.active", true)
-      .order("product_id")
-      .range(from, from + pageSize - 1);
-    if (error) {
-      log("metadata_blocked_schema_summary_failed", { stage, error: error.message });
+    try {
+      const data = await withSupabaseRetry("product_detail_sync_blocked_summary", () => db.from("product_detail_sync")
+        .select("last_error_code,products!inner(external_id,name,product_url,active)")
+        .eq("status", "blocked_schema")
+        .eq("parser_version", PRODUCT_DETAIL_PARSER_VERSION)
+        .eq("products.active", true)
+        .order("product_id")
+        .range(from, from + pageSize - 1));
+      rows.push(...(data as unknown as BlockedSchemaRow[]));
+      if ((data?.length ?? 0) < pageSize) break;
+    } catch (error) {
+      log("metadata_blocked_schema_summary_failed", { stage, error: safeErrorCode(error) });
       return;
     }
-    rows.push(...(data as unknown as BlockedSchemaRow[]));
-    if ((data?.length ?? 0) < pageSize) break;
   }
   log("metadata_blocked_schema_summary", {
     stage,

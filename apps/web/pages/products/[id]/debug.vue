@@ -7,6 +7,39 @@ const response = ref<ProductDebugResponse | null>(null);
 const error = ref("");
 const search = ref("");
 const copied = ref(false);
+const overrideSaving = ref(false);
+const overrideMessage = ref("");
+const overrideDomains = [
+  ["clothing", "Drabužiai"], ["shirts", "Marškiniai"], ["trousers", "Kelnės ir džinsai"],
+  ["suitwear", "Kostiumai ir švarkai"], ["underwear", "Apatiniai"], ["swimwear", "Maudymosi drabužiai"],
+  ["socks", "Kojinės"], ["shoes", "Batai"], ["belts", "Diržai"], ["headwear", "Kepurės ir skrybėlės"],
+  ["gloves", "Pirštinės"], ["eyewear", "Akiniai"], ["rings", "Žiedai"], ["bracelets", "Apyrankės"],
+  ["bags", "Krepšiai ir kuprinės"], ["wallets", "Piniginės ir kosmetinės"],
+  ["accessories", "Kiti aksesuarai"], ["other", "Kita"]
+] as const;
+const overrideDraft = reactive({ sizeDomain: "other", excludeFromSizeFilter: false, note: "" });
+const sizeValueDrafts = reactive<Record<string, { label: string; sizeGroup: string }>>({});
+
+function sizeOptionKey(option: { label: string; group: string | null }) {
+  return `${option.label}${option.group ? ` / ${option.group}` : ""}`;
+}
+
+function initializeSizeValueDrafts() {
+  if (!response.value) return;
+  for (const option of response.value.detail.sizeOptions) {
+    const key = sizeOptionKey(option);
+    const saved = response.value.classificationOverride?.sizeValueOverrides[key];
+    sizeValueDrafts[key] = saved ? { ...saved } : { label: option.label, sizeGroup: option.group ?? "" };
+  }
+}
+
+function getSizeValueDraft(key: string) {
+  return sizeValueDrafts[key] ?? (sizeValueDrafts[key] = { label: key, sizeGroup: "" });
+}
+
+function signalFacetCacheInvalidation() {
+  if (import.meta.client) localStorage.setItem("catalog-facets:invalidate", String(Date.now()));
+}
 
 const json = computed(() => response.value?.raw ? JSON.stringify(response.value.raw.payload, null, 2) : "");
 const visibleJson = computed(() => {
@@ -48,9 +81,42 @@ async function copyJson() {
   window.setTimeout(() => { copied.value = false; }, 1500);
 }
 
+async function saveClassificationOverride() {
+  if (!response.value) return;
+  overrideSaving.value = true;
+  overrideMessage.value = "";
+  try {
+    const saved = await api<typeof response.value.classificationOverride>(`/v1/products/${route.params.id}/debug/classification`, {
+      method: "PUT", body: { ...overrideDraft, sizeValueOverrides: sizeValueDrafts }
+    });
+    response.value.classificationOverride = saved;
+    signalFacetCacheInvalidation();
+    overrideMessage.value = "Override išsaugotas.";
+  } catch (cause: any) {
+    overrideMessage.value = cause?.data?.error ?? "Override išsaugoti nepavyko.";
+  } finally { overrideSaving.value = false; }
+}
+async function clearClassificationOverride() {
+  if (!response.value) return;
+  overrideSaving.value = true;
+  try {
+    await api(`/v1/products/${route.params.id}/debug/classification`, { method: "DELETE" });
+    response.value.classificationOverride = null;
+    signalFacetCacheInvalidation();
+    Object.assign(overrideDraft, { sizeDomain: "other", excludeFromSizeFilter: false, note: "" });
+    for (const key of Object.keys(sizeValueDrafts)) delete sizeValueDrafts[key];
+    initializeSizeValueDrafts();
+    overrideMessage.value = "Override pašalintas.";
+  } catch (cause: any) {
+    overrideMessage.value = cause?.data?.error ?? "Override pašalinti nepavyko.";
+  } finally { overrideSaving.value = false; }
+}
+
 onMounted(async () => {
   try {
     response.value = await api<ProductDebugResponse>(`/v1/products/${route.params.id}/debug`);
+    if (response.value.classificationOverride) Object.assign(overrideDraft, response.value.classificationOverride);
+    initializeSizeValueDrafts();
   } catch (cause: any) {
     const status = cause?.statusCode ?? cause?.status;
     error.value = status === 403 ? "Produkto debug duomenys prieinami tik administratoriams."
@@ -76,6 +142,30 @@ onMounted(async () => {
         <dl class="debug-fields">
           <div v-for="([label, values]) in filterFields" :key="label"><dt>{{ label }}</dt><dd><span v-if="values.length">{{ values.join(", ") }}</span><em v-else>nėra</em></dd></div>
         </dl>
+      </section>
+
+      <section class="debug-section">
+        <h2>Rankinė dydžio klasifikacija</h2>
+        <p class="detail-sync-state">Šis override saugomas atskirai nuo ABOUT YOU sync duomenų ir po kito sync neišnyks.</p>
+        <div class="debug-override-form">
+          <label>Prekės dydžio grupė
+            <select v-model="overrideDraft.sizeDomain">
+              <option v-for="[value, label] in overrideDomains" :key="value" :value="value">{{ label }}</option>
+            </select>
+          </label>
+          <div v-if="response.detail.sizeOptions.length" class="debug-size-overrides">
+            <h3>Dydžių kategorijos ir antra dimensija</h3>
+            <p class="detail-sync-state">Čia gali pakeisti konkretaus dydžio rodymą ir jo antrą grupę. Pavyzdžiui, palikti <code>M</code> bei <code>L</code>, bet pašalinti neteisingą telefono klasifikaciją.</p>
+            <div v-for="option in response.detail.sizeOptions" :key="sizeOptionKey(option)" class="debug-size-override-row">
+              <strong>Šaltinis: {{ sizeOptionKey(option) }}</strong>
+              <label>Dydžio kategorija / reikšmė<input v-model="getSizeValueDraft(sizeOptionKey(option)).label" maxlength="100"></label>
+              <label>Dydžio grupė / antra dimensija<input v-model="getSizeValueDraft(sizeOptionKey(option)).sizeGroup" maxlength="100" placeholder="Nebūtina"></label>
+            </div>
+          </div>
+          <label class="check"><input v-model="overrideDraft.excludeFromSizeFilter" type="checkbox"> Neįtraukti į dydžių filtrą</label>
+          <label>Pastaba<textarea v-model="overrideDraft.note" maxlength="500" placeholder="Kodėl pakeista klasifikacija?"></textarea></label>
+          <div class="debug-override-actions"><button class="primary" type="button" :disabled="overrideSaving" @click="saveClassificationOverride">{{ overrideSaving ? "Saugoma…" : "Išsaugoti override" }}</button><button v-if="response.classificationOverride" class="secondary" type="button" :disabled="overrideSaving" @click="clearClassificationOverride">Pašalinti override</button><span v-if="overrideMessage">{{ overrideMessage }}</span></div>
+        </div>
       </section>
 
       <section class="debug-section">

@@ -1,8 +1,14 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { describe, expect, it, vi } from "vitest";
-import { EXCLUDED_BASICS_CATEGORIES, allowedCorsOrigin, app, catalogCacheUrl, catalogCursorFilter, counted, dispatchGitHubWorkflow, downloadRawArtifact, inspectProductDebugPayload, inviteErrorResponse, loadAdminDashboard, mapProductDebug, mapProductDetail, newestCatalogCutoff, normalizeBrandKey, parseFilters, postgresArrayLiteral, priceComparisonColumn, sortDefinition, supabaseOrigin, teamMemberStatus, workflowForCron } from "./index";
+import { EXCLUDED_BASICS_CATEGORIES, allowedCorsOrigin, app, catalogCacheUrl, catalogCursorFilter, counted, dispatchGitHubWorkflow, downloadRawArtifact, inspectProductDebugPayload, inviteErrorResponse, loadAdminDashboard, mapProductDebug, mapProductDetail, newestCatalogCutoff, normalizeBrandKey, parseFilters, postgresArrayLiteral, priceComparisonColumn, sortDefinition, splitSizeFilters, supabaseOrigin, teamMemberStatus, workflowForCron } from "./index";
 
 describe("catalog API", () => {
+  it("accepts grouped size tokens while preserving legacy size values", () => {
+    expect(splitSizeFilters(["shoes:42", "socks:39-42", "42"])).toEqual({
+      grouped: ["shoes:42", "socks:39-42"],
+      legacy: ["42"]
+    });
+  });
   it("exposes an unauthenticated health check", async () => {
     const response = await app.request("/health", {}, {
       SUPABASE_URL: "https://example.supabase.co",
@@ -257,7 +263,8 @@ describe("catalog API", () => {
     });
     expect(withRaw.raw).toEqual(expect.objectContaining({ payload: { imagesSection: { images: [] } }, parserVersion: 2 }));
     expect(withRaw.rawAvailable).toBe(true);
-    expect(mapProductDebug(product, null, [], [], [], null).rawAvailable).toBe(false);
+      expect(mapProductDebug(product, null, [], [], [], null).rawAvailable).toBe(false);
+      expect(mapProductDebug(product, null, [], [], [], null).classificationOverride).toBeNull();
     expect(mapProductDebug(product, null, [], [], [], null).raw).toBeNull();
   });
 

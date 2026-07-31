@@ -57,7 +57,7 @@ export function classifySyncError(error: unknown): "retryable" | "deterministic"
   if (normalized.code && RETRYABLE_SQLSTATE.test(normalized.code)) return "retryable";
   if (normalized.code && DETERMINISTIC_SQLSTATE.test(normalized.code)) return "deterministic";
   if (normalized.status !== null && RETRYABLE_HTTP.has(normalized.status)) return "retryable";
-  if (/fetch failed|network|temporar|timeout|gateway|connection reset|connection refused/i.test(normalized.message)) return "retryable";
+  if (/fetch failed|network|temporar|timeout|gateway|connection reset|econnreset|etimedout|eai_again|connection refused/i.test(normalized.message)) return "retryable";
   return "unknown";
 }
 

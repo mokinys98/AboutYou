@@ -292,6 +292,12 @@ export type ProductDetailResponse = z.infer<typeof ProductDetailResponseSchema>;
 
 export const ProductDebugResponseSchema = z.object({
   product: CatalogItemSchema,
+  classificationOverride: z.object({
+    sizeDomain: z.string(),
+    excludeFromSizeFilter: z.boolean(),
+    sizeValueOverrides: z.record(z.string(), z.object({ label: z.string(), sizeGroup: z.string() })).default({}),
+    note: z.string()
+  }).nullable(),
   detail: ProductDetailSchema,
   rawAvailable: z.boolean(),
   source: z.object({
@@ -331,7 +337,7 @@ export interface CatalogFacets {
   colors: Array<{ value: ColorFamily; count: number }>;
   colorShades: Array<{ value: ColorShade; count: number }>;
   sources: Array<{ value: string; count: number }>;
-  sizes: Array<{ value: string; count: number }>;
+  sizes: CatalogSizeFacet[];
   otherSizes: Array<{ value: string; count: number }>;
   materials: Array<{ value: string; count: number }>;
   patterns: Array<{ value: string; count: number }>;
@@ -340,6 +346,16 @@ export interface CatalogFacets {
   productTypes: Array<{ value: string; count: number }>;
   premium: { count: number };
   price: { min: number; max: number };
+}
+
+export interface CatalogSizeFacet {
+  value: string;
+  label: string;
+  domainKey: string;
+  domainLabel: string;
+  valueKey: string;
+  sortOrder: number;
+  count?: number;
 }
 
 export interface CatalogCategoryFacet {

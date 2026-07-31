@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { brandTierLabels, colorShadeLabels, type BrandTier, type CatalogFacets, type ColorShade } from "@catalog/shared";
 
-type FacetItem = { value: string; count: number; label?: string };
+type FacetItem = { value: string; count?: number; label?: string; domainKey?: string; domainLabel?: string; valueKey?: string; sortOrder?: number };
 type FilterGroup = { key: string; label: string; items: FacetItem[] };
 
 const props = defineProps<{ facets: CatalogFacets | null; modelValue: Record<string, string>; open: boolean; totalCount?: number }>();
@@ -20,7 +20,6 @@ const groups = computed<FilterGroup[]>(() => [
   { key: "color_shades", label: "Spalva", items: (props.facets?.colorShades ?? []).map((item) => ({ ...item, label: colorShadeLabels[item.value] })) },
   { key: "brands", label: "Prekės ženklas", items: props.facets?.brands ?? [] },
   { key: "brand_tiers", label: "Brando lygis", items: (props.facets?.brandTiers ?? []).map((item) => ({ ...item, label: `${item.value} · ${brandTierLabels[item.value as BrandTier]}` })) },
-  { key: "other_sizes", label: "Kiti dydžiai", items: props.facets?.otherSizes ?? [] },
   { key: "materials", label: "Medžiaga", items: props.facets?.materials ?? [] },
   { key: "patterns", label: "Raštas", items: props.facets?.patterns ?? [] },
   { key: "features", label: "Prekės savybės", items: props.facets?.features ?? [] },
@@ -49,6 +48,19 @@ const filteredItems = (group: FilterGroup) => {
   const query = (searches[group.key] || "").trim().toLocaleLowerCase("lt");
   if (!query) return group.items.slice(0, 80);
   return group.items.filter((item) => (item.label || item.value).toLocaleLowerCase("lt").includes(query)).slice(0, 80);
+};
+const groupedSizeItems = (items: FacetItem[]) => {
+  const filtered = filteredItems({ key: "sizes", label: "Dydis", items });
+  return filtered.reduce<Array<{ key: string; label: string; items: FacetItem[] }>>((groups, item) => {
+    const key = item.domainKey || "other";
+    let group = groups.find((candidate) => candidate.key === key);
+    if (!group) {
+      group = { key, label: item.domainLabel || "Kita", items: [] };
+      groups.push(group);
+    }
+    group.items.push(item);
+    return groups;
+  }, []);
 };
 
 const apply = () => emit("update:modelValue", Object.fromEntries(Object.entries(local).filter(([, value]) => value !== "")));
@@ -104,7 +116,7 @@ const activeChips = computed(() => {
   for (const group of groups.value) {
     for (const value of (local[group.key] || "").split(",").filter(Boolean)) {
       const item = group.items.find((candidate) => candidate.value === value);
-      chips.push({ key: group.key, value, label: item?.label || value });
+      chips.push({ key: group.key, value, label: group.key === "sizes" && item?.domainLabel ? `${item.domainLabel} · ${item.label || value}` : (item?.label || value) });
     }
   }
   if (local.discount_min) chips.push({ key: "discount_min", label: `Išpardavimas nuo ${local.discount_min} %` });
@@ -198,13 +210,26 @@ onUnmounted(() => {
         <details class="filter-popover" :class="{ 'filter-popover-align-left': group.key === 'features', 'material-filter': group.key === 'materials' }" :open="activeFilter === group.key">
           <summary :class="{ active: activeCount(group.key) }" @click.prevent="toggleFilter(group.key)">{{ group.label }} <span v-if="activeCount(group.key)" class="filter-count">{{ activeCount(group.key) }}</span><span v-if="activeCount(group.key)" class="mobile-summary-check">✓</span></summary>
           <div class="filter-menu">
-            <label v-if="group.items.length > 12" class="filter-search"><span class="sr-only">Ieškoti</span><input v-model="searches[group.key]" type="search" :placeholder="`Ieškoti: ${group.label.toLocaleLowerCase('lt')}`"></label>
-            <label v-for="item in filteredItems(group)" :key="item.value" class="check">
-              <input type="checkbox" :checked="selected(group.key, item.value)" @change="toggle(group.key, item.value)">
-              <i v-if="group.key === 'color_shades'" class="swatch" :style="swatchStyle(item.value)" />
-              <span>{{ item.label || item.value }}</span><small>{{ item.count }}</small>
-            </label>
-            <p v-if="!filteredItems(group).length" class="filter-empty">Atitikmenų nėra</p>
+            <template v-if="group.key === 'sizes'">
+              <label v-if="group.items.length > 12" class="filter-search"><span class="sr-only">Ieškoti</span><input v-model="searches[group.key]" type="search" placeholder="Ieškoti: dydžio"></label>
+              <section v-for="sizeGroup in groupedSizeItems(group.items)" :key="sizeGroup.key" class="size-domain-group">
+                <h4>{{ sizeGroup.label }}</h4>
+                <label v-for="item in sizeGroup.items" :key="item.value" class="check">
+                  <input type="checkbox" :checked="selected(group.key, item.value)" @change="toggle(group.key, item.value)">
+                  <span>{{ item.label || item.value }}</span>
+                </label>
+              </section>
+              <p v-if="!groupedSizeItems(group.items).length" class="filter-empty">Atitikmenų nėra</p>
+            </template>
+            <template v-else>
+              <label v-if="group.items.length > 12" class="filter-search"><span class="sr-only">Ieškoti</span><input v-model="searches[group.key]" type="search" :placeholder="`Ieškoti: ${group.label.toLocaleLowerCase('lt')}`"></label>
+              <label v-for="item in filteredItems(group)" :key="item.value" class="check">
+                <input type="checkbox" :checked="selected(group.key, item.value)" @change="toggle(group.key, item.value)">
+                <i v-if="group.key === 'color_shades'" class="swatch" :style="swatchStyle(item.value)" />
+                <span>{{ item.label || item.value }}</span><small v-if="item.count !== undefined">{{ item.count }}</small>
+              </label>
+              <p v-if="!filteredItems(group).length" class="filter-empty">Atitikmenų nėra</p>
+            </template>
           </div>
         </details>
       </template>

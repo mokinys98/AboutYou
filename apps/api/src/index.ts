@@ -457,7 +457,16 @@ app.get("/v1/catalog", async (c) => {
   if (filters.colorShades.length) query = query.in("color_shade", filters.colorShades);
   if (filters.categoryPath) query = query.overlaps("category_paths", [filters.categoryPath]);
   else if (filters.categories.length) query = query.overlaps("categories", filters.categories);
-  if (filters.sizes.length) query = query.overlaps("sizes", filters.sizes);
+  if (filters.sizes.length) {
+    const { grouped: groupedSizes, legacy: legacySizes } = splitSizeFilters(filters.sizes);
+    if (groupedSizes.length && legacySizes.length) {
+      query = query.or(`size_tokens.ov.${postgresArrayLiteral(groupedSizes)},sizes.ov.${postgresArrayLiteral(legacySizes)}`);
+    } else if (groupedSizes.length) {
+      query = query.overlaps("size_tokens", groupedSizes);
+    } else {
+      query = query.overlaps("sizes", legacySizes);
+    }
+  }
   if (filters.otherSizes.length) query = query.overlaps("other_sizes", filters.otherSizes);
   if (filters.materials.length) query = query.overlaps("materials", filters.materials);
   if (filters.patterns.length) query = query.overlaps("patterns", filters.patterns);
@@ -509,13 +518,6 @@ app.get("/v1/catalog", async (c) => {
 app.get("/v1/catalog/facets", async (c) => {
   const parsed = parseFilters(c.req.query());
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
-  const cacheUrl = new URL(c.req.url);
-  cacheUrl.hostname = "facet-cache.internal";
-  cacheUrl.searchParams.sort();
-  const cacheKey = new Request(cacheUrl, { method: "GET" });
-  const edgeCache = getEdgeCache();
-  const cached = await edgeCache.match(cacheKey);
-  if (cached) return cached;
   const { sort: _sort, cursor: _cursor, limit: _limit, ...facetFilters } = parsed.data;
   const effectiveFacetFilters = {
     ...facetFilters,
@@ -527,7 +529,6 @@ app.get("/v1/catalog/facets", async (c) => {
     return c.json({ error: error.message }, 500);
   }
   const body = JSON.stringify(data ?? {});
-  c.executionCtx.waitUntil(edgeCache.put(cacheKey, new Response(body, { headers: { "content-type": "application/json", "cache-control": "max-age=300" } })));
   return new Response(body, { headers: { "content-type": "application/json", "cache-control": "private, max-age=0" } });
 });
 
@@ -573,6 +574,7 @@ app.get("/v1/products/:id/debug", requireAdmin, async (c) => {
     { data: detailSections, error: detailSectionsError },
     { data: colorOptions, error: colorOptionsError },
     { data: sizeOptions, error: sizeOptionsError },
+    { data: classificationOverride, error: classificationOverrideError },
     { data: artifact, error: artifactError }
   ] = await Promise.all([
     c.get("db").from("catalog_items").select("*").eq("id", id.data).maybeSingle(),
@@ -580,17 +582,50 @@ app.get("/v1/products/:id/debug", requireAdmin, async (c) => {
     c.get("db").from("product_detail_sections").select("section_key,source_label,status,items,position").eq("product_id", id.data).order("position"),
     c.get("db").from("product_color_options").select("external_id,label,url,selected,position").eq("product_id", id.data).order("position"),
     c.get("db").from("product_size_options").select("external_id,label,size_group,selected,selectable,availability,position").eq("product_id", id.data).order("position"),
+    c.get("db").from("catalog_size_classification_overrides").select("size_domain,exclude_from_size_filter,size_value_overrides,note").eq("product_id", id.data).maybeSingle(),
     c.get("db").from("product_sync_artifacts")
       .select("storage_path,payload_hash,created_at,source_endpoint,parser_version")
       .eq("product_id", id.data).eq("upload_status", "ready")
       .in("artifact_kind", ["success_sample", "blocked_schema"])
       .order("created_at", { ascending: false }).limit(1).maybeSingle()
   ]);
-  const queryError = error ?? detailSyncError ?? detailSectionsError ?? colorOptionsError ?? sizeOptionsError ?? artifactError;
+  const queryError = error ?? detailSyncError ?? detailSectionsError ?? colorOptionsError ?? sizeOptionsError ?? classificationOverrideError ?? artifactError;
   if (queryError) return c.json({ error: queryError.message }, 500);
   if (!product) return c.json({ error: "Produktas nerastas" }, 404);
   const raw = artifact ? await downloadRawArtifact(c.get("db"), artifact) : null;
-  return c.json(mapProductDebug(product, detailSync, detailSections ?? [], colorOptions ?? [], sizeOptions ?? [], raw));
+  return c.json(mapProductDebug(product, detailSync, detailSections ?? [], colorOptions ?? [], sizeOptions ?? [], raw, classificationOverride));
+});
+
+const SizeClassificationOverrideInput = z.object({
+  sizeDomain: z.enum(["clothing", "shirts", "trousers", "suitwear", "underwear", "swimwear", "socks", "shoes", "belts", "headwear", "gloves", "eyewear", "rings", "bracelets", "bags", "wallets", "accessories", "other"]),
+  excludeFromSizeFilter: z.boolean().default(false),
+  sizeValueOverrides: z.record(z.string().max(300), z.object({ label: z.string().trim().min(1).max(100), sizeGroup: z.string().trim().max(100) })).default({}),
+  note: z.string().trim().max(500).default("")
+});
+
+app.put("/v1/products/:id/debug/classification", requireAdmin, async (c) => {
+  const id = z.string().uuid().safeParse(c.req.param("id"));
+  if (!id.success) return c.json({ error: "Neteisingas produkto ID" }, 400);
+  const input = SizeClassificationOverrideInput.safeParse(await c.req.json().catch(() => null));
+  if (!input.success) return c.json({ error: input.error.flatten() }, 400);
+  const { data, error } = await c.get("db").from("catalog_size_classification_overrides")
+    .upsert({ product_id: id.data, size_domain: input.data.sizeDomain, exclude_from_size_filter: input.data.excludeFromSizeFilter, size_value_overrides: input.data.sizeValueOverrides, note: input.data.note, updated_at: new Date().toISOString() })
+    .select("size_domain,exclude_from_size_filter,size_value_overrides,note")
+    .single();
+  if (error) return c.json({ error: error.message }, 500);
+  const cacheError = (await c.get("db").rpc("invalidate_catalog_facets_cache")).error;
+  if (cacheError) return c.json({ error: cacheError.message }, 500);
+  return c.json({ sizeDomain: data.size_domain, excludeFromSizeFilter: data.exclude_from_size_filter, sizeValueOverrides: data.size_value_overrides ?? {}, note: data.note });
+});
+
+app.delete("/v1/products/:id/debug/classification", requireAdmin, async (c) => {
+  const id = z.string().uuid().safeParse(c.req.param("id"));
+  if (!id.success) return c.json({ error: "Neteisingas produkto ID" }, 400);
+  const { error } = await c.get("db").from("catalog_size_classification_overrides").delete().eq("product_id", id.data);
+  if (error) return c.json({ error: error.message }, 500);
+  const cacheError = (await c.get("db").rpc("invalidate_catalog_facets_cache")).error;
+  if (cacheError) return c.json({ error: cacheError.message }, 500);
+  return c.json({ deleted: true });
 });
 
 app.get("/v1/watchlist", async (c) => {
@@ -850,6 +885,13 @@ export function postgresArrayLiteral(values: readonly string[]): string {
   return `{${values.map((value) => `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`).join(",")}}`;
 }
 
+export function splitSizeFilters(values: readonly string[]) {
+  return {
+    grouped: values.filter((value) => value.includes(":")),
+    legacy: values.filter((value) => !value.includes(":"))
+  };
+}
+
 export function catalogCacheUrl(requestUrl: string, userId: string): URL {
   const url = new URL(requestUrl);
   url.hostname = "catalog-cache.internal";
@@ -902,11 +944,18 @@ export function mapProductDebug(
   sections: Array<Record<string, any>>,
   colorOptions: Array<Record<string, any>>,
   sizeOptions: Array<Record<string, any>>,
-  raw: Record<string, any> | null
+  raw: Record<string, any> | null,
+  classificationOverride: Record<string, any> | null = null
 ) {
   const mappedProduct = mapCatalogItem(product);
   return {
     product: mappedProduct,
+    classificationOverride: classificationOverride ? {
+      sizeDomain: classificationOverride.size_domain,
+      excludeFromSizeFilter: Boolean(classificationOverride.exclude_from_size_filter),
+      sizeValueOverrides: classificationOverride.size_value_overrides ?? {},
+      note: classificationOverride.note ?? ""
+    } : null,
     detail: mapProductDetail(sync, sections, colorOptions, sizeOptions),
     source: inspectProductDebugPayload(raw?.payload, mappedProduct.imageUrls),
     rawAvailable: Boolean(raw),

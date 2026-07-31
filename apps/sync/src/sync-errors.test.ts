@@ -20,5 +20,7 @@ describe("sync error normalization", () => {
     expect(classifySyncError({ code: "57014", message: "timeout" })).toBe("retryable");
     expect(classifySyncError({ code: "23505", message: "duplicate" })).toBe("deterministic");
     expect(classifySyncError({ status: 503, message: "gateway" })).toBe("retryable");
+    expect(classifySyncError(new TypeError("fetch failed"))).toBe("retryable");
+    expect(classifySyncError(new Error("read ECONNRESET"))).toBe("retryable");
   });
 });

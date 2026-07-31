@@ -25,7 +25,9 @@ Atlikus punktą, `[ ]` pakeisti į `[x]`.
 - [ ] Lokaliai pridėti `OPENAI_API_KEY` tik į nekomituojamą `.env`.
 - [ ] Produkcijoje raktą pridėti kaip „Cloudflare Worker“ secret, o ne paprastą `vars` reikšmę.
 - [ ] Pridėti `OPENAI_VISION_MODEL`, pradžioje nustatant `gpt-5.4-nano`.
+- [ ] Pridėti `OPENAI_VISION_INTERMEDIATE_MODEL`, pradžioje nustatant `gpt-5.4-mini`.
 - [ ] Pridėti `OPENAI_VISION_FALLBACK_MODEL`, pradžioje nustatant `gpt-5.6-luna`.
+- [ ] Testams numatyti `gpt-4.1-nano` ir `gpt-4.1-mini` kaip pigesnius tos pačios OpenAI šeimos kandidatus.
 - [ ] Numatyti bendrą ir vienam vartotojui taikomą užklausų limitą.
 
 ### 2 etapas – duomenų bazės schema
@@ -54,7 +56,9 @@ Atlikus punktą, `[ ]` pakeisti į `[x]`.
 - [ ] Kviesti „Responses API“ tik iš backend arba sinchronizavimo proceso.
 - [ ] Reikalauti griežto struktūrizuoto JSON atsakymo.
 - [ ] Pirminei analizei naudoti `gpt-5.4-nano` be papildomo reasoning.
-- [ ] Jei pasitikėjimas žemas, prekė daugiaspalvė ar raštuota, pakartoti su `gpt-5.6-luna`.
+- [ ] Su kontroliniu rinkiniu patikrinti, ar pigesnio `gpt-4.1-nano` tikslumo pakanka; jei ne, palyginti `gpt-4.1-mini`.
+- [ ] Jei pagrindinio modelio pasitikėjimas žemas, prekė daugiaspalvė ar raštuota, pirmiausia pakartoti su `gpt-5.4-mini`.
+- [ ] Į `gpt-5.6-luna` siųsti tik tuos atvejus, kurių patikimai neišsprendė pigesni modeliai.
 - [ ] Patikrinti atsakymą Zod schema ir atmesti netaisyklingus rezultatus.
 - [ ] Analizę išsaugoti pagal produkto ir nuotraukos fingerprint, kad ji nebūtų kartojama.
 - [ ] Įdiegti timeout, iki 2 pakartojimų ir eksponentinį laukimą laikinoms klaidoms.
@@ -206,6 +210,16 @@ Pagrindinis modelis: `gpt-5.4-nano`.
 
 Jis priima tekstą ir vaizdą, palaiko struktūrizuotą išvestį ir yra skirtas klasifikavimui, požymių ištraukimui bei reitingavimui. Tai atitinka užduotį, jeigu modelis nekuria galutinio subjektyvaus balo, o tik grąžina standartizuotus vaizdo požymius.
 
+### Toje pačioje OpenAI šeimoje
+
+- **`gpt-4.1-nano`** – dar pigesnis už `gpt-5.4-nano`, taip pat priima vaizdą ir tinka klasifikavimui bei požymių išgavimui, kai reasoning nereikalingas. Jį verta įtraukti į kontrolinio rinkinio testus kaip pigiausią kandidatą.
+- **`gpt-4.1-mini`** – naudoti, jei `gpt-4.1-nano` tikslumo pritrūktų, bet dar nenorima pereiti tiesiai prie brangesnio `gpt-5.6-luna`.
+- **`gpt-5.4-mini`** – tarpinė grandis tarp pagrindinio `gpt-5.4-nano` ir numatyto galutinio fallback `gpt-5.6-luna`.
+
+Galutinį pagrindinį modelį reikia pasirinkti pagal kontrolinio rinkinio tikslumo, kainos ir trukmės matavimus. Praktinė kandidatų seka testams: `gpt-4.1-nano` → `gpt-4.1-mini` → `gpt-5.4-nano`. Produkcijoje nebūtina kviesti visų trijų modelių iš eilės – pasirenkamas pigiausias modelis, pasiekiantis sutartą tikslumo ribą.
+
+Tarpinė eskalacija neaiškiems atvejams: `gpt-5.4-mini`.
+
 Fallback modelis: `gpt-5.6-luna`.
 
 Jį naudoti tik tada, kai:
@@ -218,7 +232,10 @@ Jį naudoti tik tada, kai:
 
 Nereikia naudoti brangiausio modelio kiekvienai prekei. Oficialūs modelių aprašymai:
 
+- [`gpt-4.1-nano`](https://developers.openai.com/api/docs/models/gpt-4.1-nano)
+- [`gpt-4.1-mini`](https://developers.openai.com/api/docs/models/gpt-4.1-mini)
 - [`gpt-5.4-nano`](https://developers.openai.com/api/docs/models/gpt-5.4-nano)
+- [`gpt-5.4-mini`](https://developers.openai.com/api/docs/models/gpt-5.4-mini)
 - [`gpt-5.6-luna`](https://developers.openai.com/api/docs/models/gpt-5.6-luna)
 
 ## 4. Kodėl AI neturėtų tiesiogiai sugalvoti galutinio balo
@@ -412,8 +429,9 @@ Vertinti:
 - ar teisinga temperatūra;
 - ar teisingas šviesumas ir kontrastas;
 - ar rezultatas stabilus pakartojus;
-- ar `gpt-5.4-nano` pakanka;
-- kiek atvejų iš tiesų reikia siųsti į fallback modelį;
+- kuris iš `gpt-4.1-nano`, `gpt-4.1-mini` ir `gpt-5.4-nano` yra pigiausias modelis, pasiekiantis sutartą tikslumo ribą;
+- kiek atvejų pakanka siųsti į `gpt-5.4-mini`;
+- kiek atvejų iš tiesų reikia siųsti į galutinį fallback modelį `gpt-5.6-luna`;
 - kiek kainuoja vienas produktas ir visas katalogas.
 
 Modelį keisti tik remiantis šiais matavimais, o ne vien subjektyviu vienos nuotraukos įspūdžiu.
@@ -435,7 +453,7 @@ MVP laikomas baigtu, kai:
 
 ## 13. Galutinė rekomendacija
 
-Pirmai versijai naudoti vieną projekto valdomą „OpenAI API“ raktą. `gpt-5.4-nano` turi iš produkto nuotraukos ištraukti spalvinius požymius, o galutinį balą turi apskaičiuoti mūsų kodas. Tik neaiškius atvejus siųsti į `gpt-5.6-luna`.
+Pirmai versijai naudoti vieną projekto valdomą „OpenAI API“ raktą. Su kontroliniu rinkiniu palyginti `gpt-4.1-nano`, `gpt-4.1-mini` ir `gpt-5.4-nano`, tada pagrindiniu pasirinkti pigiausią modelį, pasiekiantį sutartą tikslumo ribą. Modelis turi iš produkto nuotraukos ištraukti spalvinius požymius, o galutinį balą turi apskaičiuoti mūsų kodas. Neaiškius atvejus pirmiausia siųsti į `gpt-5.4-mini`, o `gpt-5.6-luna` naudoti tik kaip galutinį fallback.
 
 Nebandyti naudoti kiekvieno vartotojo ChatGPT Plus ar Pro limitų, nes jie nėra skirti išorinės aplikacijos API užklausoms. Taip pat pirmoje versijoje nerinkti vartotojų API raktų ir nekurti atskiros ChatGPT programėlės – abu variantai smarkiai didina sudėtingumą, bet neduoda naudos pagrindiniam katalogo scenarijui.
 

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { catalogSortOptions } from "~/utils/catalogSort";
+
 import { buildCategoryTree, clothingCategoryTree, type CatalogCategoryFacet, type CatalogFacets, type CatalogResponse } from "@catalog/shared";
 definePageMeta({ alias: ["/naujienos"] });
 const route = useRoute(); const router = useRouter(); const api = useApi();
@@ -11,7 +13,7 @@ const expandedRootPath = ref<string | null>(null);
 let lastFacetsKey = "";
 let pendingFacets: { key: string; request: Promise<CatalogFacets | null> } | null = null;
 const facetsCacheTtlMs = 24 * 60 * 60 * 1000;
-const facetsCachePrefix = "catalog-facets:v1:";
+const facetsCachePrefix = "catalog-facets:v2:";
 const filterKeys = ["brands", "brand_tiers", "categories", "category", "colors", "color_shades", "sources", "sizes", "other_sizes", "materials", "patterns", "features", "styles", "product_types", "premium", "exclude_basics", "exclude_accessories", "price_min", "price_max", "discount_min", "lpl_proximity_pct", "below_observed_30d", "price_comparison", "catalog_version", "sort"];
 const filters = computed<Record<string, string>>(() => Object.fromEntries(filterKeys.flatMap((key) => typeof route.query[key] === "string" && route.query[key] ? [[key, route.query[key] as string]] : [])));
 const fallbackCategoryFacets = createFallbackCategoryFacets();
@@ -98,6 +100,18 @@ function storeCachedFacets(key: string, value: CatalogFacets) {
     // Ignore storage quota/privacy mode failures; the API response is still rendered.
   }
 }
+function clearStoredFacetCache() {
+  if (!import.meta.client) return;
+  for (const key of Object.keys(localStorage)) if (key.startsWith(facetsCachePrefix)) localStorage.removeItem(key);
+  lastFacetsKey = "";
+  facets.value = null;
+}
+function handleFacetCacheInvalidation() {
+  if (!import.meta.client || !localStorage.getItem("catalog-facets:invalidate")) return;
+  localStorage.removeItem("catalog-facets:invalidate");
+  clearStoredFacetCache();
+  void loadFacets(filters.value, { force: true });
+}
 async function load(reset = true) {
   loading.value = true; error.value = "";
   try {
@@ -161,6 +175,8 @@ onMounted(() => {
   void Promise.all([loadFacets(filters.value), load()]);
 });
 onMounted(() => {
+  handleFacetCacheInvalidation();
+  window.addEventListener("storage", (event) => { if (event.key === "catalog-facets:invalidate") handleFacetCacheInvalidation(); });
   const saved = Number(localStorage.getItem("catalog-grid-columns"));
   if (saved === 3 || saved === 4) gridColumns.value = saved;
 });
@@ -186,7 +202,7 @@ watch(gridColumns, (value) => localStorage.setItem("catalog-grid-columns", Strin
             <CatalogViewControls :grid-columns="gridColumns" :sort="filters.sort || 'newest'" @update:grid-columns="gridColumns = $event" @update:sort="updateFilters({ ...filters, sort: $event })" />
           </div>
         </header>
-        <div class="catalog-mobile-toolbar"><button class="filter-trigger" @click="filtersOpen = true">Filtrai</button><label>Rūšiuoti<select :value="filters.sort || 'newest'" @change="updateFilters({ ...filters, sort: ($event.target as HTMLSelectElement).value })"><option value="newest">Naujausi</option><option value="price_asc">Kaina ↑</option><option value="price_desc">Kaina ↓</option><option value="source_lpl_desc">Paskutinė mažiausia kaina: nuo didžiausios</option><option value="source_lpl_asc">Paskutinė mažiausia kaina: nuo mažiausios</option><option value="discount_desc">Nuolaida</option></select></label></div>
+        <div class="catalog-mobile-toolbar"><button class="filter-trigger" @click="filtersOpen = true">Filtrai</button><label>Rūšiuoti<select :value="filters.sort || 'newest'" @change="updateFilters({ ...filters, sort: ($event.target as HTMLSelectElement).value })"><option v-for="option in catalogSortOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select></label></div>
         <CatalogFilters :model-value="filters" :facets="facets" :total-count="totalCount" :open="filtersOpen" @update:model-value="updateFilters" @update:open="filtersOpen = $event" />
         <div class="catalog-alert-row"><FilterAlertDialog :filters="filters" :total-count="totalCount" :title="isNews ? 'Naujienos' : catalogTitle" /></div>
         <p v-if="error" class="error-state">{{ error }}</p>

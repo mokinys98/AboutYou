@@ -15,6 +15,7 @@ Progresas yra praktinis įvertis nuo `0/100` iki `100/100`:
 
 | Dokumentas | Paskirtis | Progresas |
 |---|---|---:|
+| [Katalogo filtravimo patobulinimai](FILTRAVIMO_PATOBULINIMU_PLANAS.md) | LPL rikiavimo tvarka, realiais VPS duomenimis paremtas dydžių grupavimas ir kelių filtrų pasirinkimas neperkraunant aktyvaus sąrašo. | **10/100** |
 | [Dirbtinio intelekto integravimas](DIRBTINIO_INTELEKTO_INTEGRAVIMAS_I_PROJEKTA.md) | Produkto vaizdo analizė, vartotojo spalvų profilis ir deterministinis tinkamumo balas. Darbas dar nepradėtas. | **0/100** |
 | [Telegram alertų publikavimo planas](TELEGRAM_ALERTU_PLANAS.md) | Kode įgyvendinto publikacijos versijavimo rollout, produkcinės patikros ir būsimi alertų scenarijai. | **57/100** |
 | [Supabase → VPS migracijos užbaigimas](MIGRACIJOS_UZBAIGIMAS.md) | Jau atliktos migracijos santrauka, likę stabilizavimo darbai ir rollback procedūra. | **100/100** |
