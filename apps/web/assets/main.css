@@ -2625,6 +2625,11 @@ td small {
     cursor: pointer
 }
 
+.filter-apply:disabled {
+    cursor: default;
+    opacity: .45
+}
+
 .filter-empty {
     color: #777;
     font-size: 12px;
@@ -2635,6 +2640,42 @@ td small {
 
 .filter-mobile-head {
     display: none
+}
+
+.filter-draft-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    width: 100%;
+    padding-top: 10px;
+    border-top: 1px solid var(--line)
+}
+
+.filter-draft-actions span {
+    margin-right: auto;
+    color: #666;
+    font-size: 12px
+}
+
+.filter-draft-cancel,
+.filter-draft-apply {
+    border: 1px solid #111;
+    padding: 9px 14px;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer
+}
+
+.filter-draft-cancel {
+    background: #fff;
+    color: #111
+}
+
+.filter-draft-apply {
+    background: #111;
+    color: #fff
 }
 
 .mobile-filter-toggles,
@@ -2667,6 +2708,10 @@ td small {
 }
 
 @media(max-width:760px) {
+    .filter-draft-actions {
+        display: none
+    }
+
     .catalog-title-row h1 {
         font-size: 21px
     }

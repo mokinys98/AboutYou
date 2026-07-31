@@ -248,8 +248,9 @@ exit
   browser TTL sumažinti iki 5 min.; VPS elgesį dar reikia patikrinti.
 - [ ] Atskirtą override išsaugojimą ir cache invalidavimą padaryti idempotentišką,
   kad dalinė sėkmė nebūtų rodoma kaip neaiški 500 klaida.
-- [ ] Įgyvendinti draft/applied filtrus, stabilų atidaryto meniu snapshot,
-  `router.replace`/istorijos strategiją, debounce ir užklausų atšaukimą arba seką.
+- [x] Įgyvendinti draft/applied filtrus: checkbox, greiti filtrai ir slankikliai
+  nebekrauna katalogo po kiekvieno pakeitimo, o pritaikomi vienu veiksmu.
+- [ ] Užbaigti `router.replace`/istorijos strategiją ir užklausų atšaukimą arba seką.
 - [ ] Pridėti DB/RPC integracinius, Vue komponento, alertų ir E2E testus pagal
   šiame dokumente išvardytus scenarijus.
 - [x] Po vietinių testų pateiktos tikslios VPS migravimo komandos; migracijos
@@ -699,10 +700,11 @@ būsenų.
 
 ### TODO
 
-- [ ] `CatalogFilters.vue` atskirti draft ir patvirtintą filtro būseną.
-- [ ] Nustoti kviesti pilną `apply()` po kiekvieno grupės checkbox paspaudimo.
-- [ ] Pridėti `Taikyti / Rodyti N prekių` veiksmą desktop filtro meniu.
-- [ ] Mobile apatinį mygtuką susieti su draft filtrų patvirtinimu.
+- [x] `CatalogFilters.vue` atskirti draft ir patvirtintą filtro būseną.
+- [x] Nustoti kviesti pilną `apply()` po kiekvieno grupės checkbox paspaudimo.
+- [x] Pridėti `Taikyti filtrus` veiksmą desktop filtro meniu ir bendroje juodraščio juostoje.
+- [x] Mobile apatinį mygtuką susieti su draft filtrų patvirtinimu; uždarymas be
+  patvirtinimo atmeta juodraštį.
 - [ ] Aktyviam filtro meniu išsaugoti stabilų facetų elementų snapshot.
 - [ ] Atnaujintame facetų atsakyme visada išlaikyti pasirinktas reikšmes.
 - [ ] Produktų gyvam atnaujinimui pridėti 150–250 ms debounce.
@@ -736,9 +738,9 @@ būsenų.
 
 - [x] Sukeisti LPL rikiavimo pasirinkimus desktop ir mobile sąsajose.
 - [ ] Stabilizuoti atidaryto filtro sąrašą.
-- [ ] Įdiegti draft/patvirtintų filtrų būseną ir realų `Taikyti` veiksmą.
+- [x] Įdiegti draft/patvirtintų filtrų būseną ir realų `Taikyti` veiksmą.
 - [ ] Apsaugoti sąsają nuo pasenusių užklausų atsakymų.
-- [ ] Padengti kelių checkbox pasirinkimą testais.
+- [x] Padengti kelių checkbox juodraščio palyginimą ir pritaikymą testais.
 
 ### 2 etapas – teisingas dydžių modelis
 

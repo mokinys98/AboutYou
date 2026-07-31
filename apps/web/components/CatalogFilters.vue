@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { brandTierLabels, colorShadeLabels, type BrandTier, type CatalogFacets, type ColorShade } from "@catalog/shared";
+import { catalogFiltersEqual, compactCatalogFilters } from "~/utils/catalogFilterDraft";
 
 type FacetItem = { value: string; count?: number; label?: string; domainKey?: string; domainLabel?: string; valueKey?: string; sortOrder?: number };
 type FilterGroup = { key: string; label: string; items: FacetItem[] };
@@ -10,10 +11,16 @@ const local = reactive<Record<string, string>>({ ...props.modelValue });
 const activeFilter = ref<string | null>(null);
 const searches = reactive<Record<string, string>>({});
 
-watch(() => props.modelValue, (value) => {
+const replaceLocal = (value: Record<string, string>) => {
   for (const key of Object.keys(local)) delete local[key];
   Object.assign(local, value);
+};
+
+watch(() => props.modelValue, (value) => {
+  replaceLocal(value);
 }, { deep: true });
+
+const hasPendingChanges = computed(() => !catalogFiltersEqual(local, props.modelValue));
 
 const groups = computed<FilterGroup[]>(() => [
   { key: "sizes", label: "Dydis", items: props.facets?.sizes ?? [] },
@@ -63,13 +70,26 @@ const groupedSizeItems = (items: FacetItem[]) => {
   }, []);
 };
 
-const apply = () => emit("update:modelValue", Object.fromEntries(Object.entries(local).filter(([, value]) => value !== "")));
+const apply = () => {
+  if (!hasPendingChanges.value) return;
+  emit("update:modelValue", compactCatalogFilters(local));
+};
+const resetDraft = () => replaceLocal(props.modelValue);
+const closeDrawer = () => {
+  resetDraft();
+  activeFilter.value = null;
+  emit("update:open", false);
+};
+const applyAndClose = () => {
+  apply();
+  activeFilter.value = null;
+  emit("update:open", false);
+};
 const toggle = (key: string, value: string) => {
   const values = new Set((local[key] || "").split(",").filter(Boolean));
   values.has(value) ? values.delete(value) : values.add(value);
   local[key] = Array.from(values).join(",");
   activeFilter.value = key;
-  apply();
 };
 const toggleBelowLpl = () => {
   if (belowLpl.value) {
@@ -79,19 +99,15 @@ const toggleBelowLpl = () => {
     local.below_observed_30d = "true";
     local.price_comparison = "source_lpl";
   }
-  apply();
 };
 const togglePremium = () => {
   local.premium = premiumOnly.value ? "" : "true";
-  apply();
 };
 const toggleExcludeBasics = () => {
   local.exclude_basics = excludeBasics.value ? "" : "true";
-  apply();
 };
 const toggleExcludeAccessories = () => {
   local.exclude_accessories = excludeAccessories.value ? "" : "true";
-  apply();
 };
 const clear = () => {
   const sort = local.sort;
@@ -99,7 +115,6 @@ const clear = () => {
   for (const key of Object.keys(local)) delete local[key];
   if (sort) local.sort = sort;
   if (category) local.category = category;
-  apply();
 };
 const removeFilter = (key: string, value?: string) => {
   if (value) {
@@ -109,7 +124,6 @@ const removeFilter = (key: string, value?: string) => {
     if (key === "price") { local.price_min = ""; local.price_max = ""; }
     if (key === "below_observed_30d") local.price_comparison = "";
   }
-  apply();
 };
 const activeChips = computed(() => {
   const chips: Array<{ key: string; value?: string; label: string }> = [];
@@ -147,7 +161,7 @@ const onDocumentPointerDown = (event: PointerEvent) => {
 };
 const onDocumentKeyDown = (event: KeyboardEvent) => {
   if (event.key === "Escape") {
-    if (props.open) emit("update:open", false);
+    if (props.open) closeDrawer();
     activeFilter.value = null;
   }
 };
@@ -162,11 +176,11 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div v-if="open" class="drawer-backdrop" @click.self="emit('update:open', false)" />
+  <div v-if="open" class="drawer-backdrop" @click.self="closeDrawer" />
   <section class="filter-strip" :class="{ open }" aria-label="Katalogo filtrai">
     <div class="filter-mobile-head">
       <div class="filter-mobile-title"><small>KATALOGAS</small><strong>Filtrai</strong></div>
-      <button class="close" type="button" aria-label="Uždaryti filtrus" @click="emit('update:open', false)">×</button>
+      <button class="close" type="button" aria-label="Uždaryti filtrus" @click="closeDrawer">×</button>
     </div>
 
     <div class="filter-mobile-body">
@@ -187,22 +201,22 @@ onUnmounted(() => {
       </div>
       <details class="filter-popover price-filter" :open="activeFilter === 'price'">
         <summary :class="{ active: local.price_min || local.price_max }" @click.prevent="toggleFilter('price')">Kaina <span v-if="local.price_min || local.price_max" class="filter-count">1</span></summary>
-        <div class="filter-menu"><div class="range-row"><label>Nuo<input v-model="local.price_min" inputmode="decimal" placeholder="0 €"></label><label>Iki<input v-model="local.price_max" inputmode="decimal" placeholder="500 €"></label></div><button class="filter-apply" type="button" @click="apply(); activeFilter = null">Taikyti</button></div>
+        <div class="filter-menu"><div class="range-row"><label>Nuo<input v-model="local.price_min" inputmode="decimal" placeholder="0 €"></label><label>Iki<input v-model="local.price_max" inputmode="decimal" placeholder="500 €"></label></div><button class="filter-apply" type="button" :disabled="!hasPendingChanges" @click="apply(); activeFilter = null">Taikyti filtrus</button></div>
       </details>
 
       <details class="filter-popover discount-filter" :open="activeFilter === 'discount'">
         <summary :class="{ active: local.discount_min || (local.lpl_proximity_pct !== undefined && local.lpl_proximity_pct !== '') || belowLpl }" @click.prevent="toggleFilter('discount')"><span class="sale-dot" aria-hidden="true" />Išpardavimas <span v-if="local.discount_min" class="filter-count">nuo {{ local.discount_min }} %</span><span v-if="local.lpl_proximity_pct !== undefined && local.lpl_proximity_pct !== ''" class="filter-count">arti LPL +{{ local.lpl_proximity_pct }} %</span><span v-if="belowLpl" class="filter-count">&lt; LPL</span><span v-if="local.discount_min || (local.lpl_proximity_pct !== undefined && local.lpl_proximity_pct !== '') || belowLpl" class="mobile-summary-check">✓</span></summary>
         <div class="filter-menu">
           <div class="discount-value"><span>Minimali nuolaida nuo LPL</span><strong>{{ saleDiscount }} %</strong></div>
-          <input v-model.number="saleDiscount" class="discount-range" type="range" min="0" max="70" step="10" aria-label="Minimali nuolaida procentais" @change="apply">
+          <input v-model.number="saleDiscount" class="discount-range" type="range" min="0" max="70" step="10" aria-label="Minimali nuolaida procentais">
           <div class="discount-scale" aria-hidden="true"><span v-for="value in [0, 10, 20, 30, 40, 50, 60, 70]" :key="value">{{ value }}</span></div>
           <div class="discount-value lpl-proximity-value"><span>Kaina arti LPL, iki</span><strong>{{ lplProximity }} %</strong></div>
-          <input v-model.number="lplProximity" class="discount-range" type="range" min="0" max="15" step="1" aria-label="Didžiausias kainos skirtumas nuo LPL procentais" @change="apply">
+          <input v-model.number="lplProximity" class="discount-range" type="range" min="0" max="15" step="1" aria-label="Didžiausias kainos skirtumas nuo LPL procentais">
           <div class="discount-scale lpl-proximity-scale" aria-hidden="true"><span v-for="value in [0, 5, 10, 15]" :key="value">{{ value }}</span></div>
           <button class="filter-switch" :class="{ active: belowLpl }" type="button" role="switch" :aria-checked="belowLpl" @click="toggleBelowLpl">
             <span><strong>Rodyti kainą &lt; LPL</strong><small>Įtraukia tik prekes, kurių mūsų kaina mažesnė už LPL.</small></span><i aria-hidden="true" />
           </button>
-          <button class="filter-apply" type="button" @click="apply(); activeFilter = null">Taikyti</button>
+          <button class="filter-apply" type="button" :disabled="!hasPendingChanges" @click="apply(); activeFilter = null">Taikyti filtrus</button>
         </div>
       </details>
 
@@ -230,6 +244,7 @@ onUnmounted(() => {
               </label>
               <p v-if="!filteredItems(group).length" class="filter-empty">Atitikmenų nėra</p>
             </template>
+            <button class="filter-apply" type="button" :disabled="!hasPendingChanges" @click="apply(); activeFilter = null">Taikyti filtrus</button>
           </div>
         </details>
       </template>
@@ -258,10 +273,15 @@ onUnmounted(() => {
     <div v-if="activeChips.length" class="active-filter-chips" aria-label="Aktyvūs filtrai">
       <button v-for="chip in activeChips" :key="`${chip.key}-${chip.value || ''}`" type="button" @click="removeFilter(chip.key, chip.value)">{{ chip.label }} <span aria-hidden="true">×</span></button>
     </div>
+    <div v-if="hasPendingChanges" class="filter-draft-actions" role="status">
+      <span>Pakeitimai dar nepritaikyti</span>
+      <button type="button" class="filter-draft-cancel" @click="resetDraft">Atšaukti</button>
+      <button type="button" class="filter-draft-apply" @click="apply">Taikyti filtrus</button>
+    </div>
     </div>
     <div class="filter-mobile-footer">
       <div class="filter-mobile-footer-meta"><span>Pasirinkta: {{ activeChips.length }}</span><button type="button" @click="clear">Išvalyti viską</button></div>
-      <button class="filter-mobile-apply" type="button" @click="emit('update:open', false)">Rodyti {{ formattedTotalCount }} prekes</button>
+      <button class="filter-mobile-apply" type="button" @click="applyAndClose">{{ hasPendingChanges ? "Taikyti filtrus" : `Rodyti ${formattedTotalCount} prekes` }}</button>
     </div>
   </section>
 </template>
