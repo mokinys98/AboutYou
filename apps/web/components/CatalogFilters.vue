@@ -216,7 +216,7 @@ onUnmounted(() => {
                 <h4>{{ sizeGroup.label }}</h4>
                 <label v-for="item in sizeGroup.items" :key="item.value" class="check">
                   <input type="checkbox" :checked="selected(group.key, item.value)" @change="toggle(group.key, item.value)">
-                  <span>{{ item.label || item.value }}</span>
+                  <span>{{ item.label || item.value }}</span><small v-if="item.count !== undefined">{{ item.count }}</small>
                 </label>
               </section>
               <p v-if="!groupedSizeItems(group.items).length" class="filter-empty">Atitikmenų nėra</p>

@@ -12,8 +12,10 @@ const gridColumns = ref<3 | 4>(3);
 const expandedRootPath = ref<string | null>(null);
 let lastFacetsKey = "";
 let pendingFacets: { key: string; request: Promise<CatalogFacets | null> } | null = null;
-const facetsCacheTtlMs = 24 * 60 * 60 * 1000;
-const facetsCachePrefix = "catalog-facets:v2:";
+// The database caches each exact filter context. Keep the browser cache short so
+// a catalog refresh or a classification override cannot remain stale all day.
+const facetsCacheTtlMs = 5 * 60 * 1000;
+const facetsCachePrefix = "catalog-facets:v3:";
 const filterKeys = ["brands", "brand_tiers", "categories", "category", "colors", "color_shades", "sources", "sizes", "other_sizes", "materials", "patterns", "features", "styles", "product_types", "premium", "exclude_basics", "exclude_accessories", "price_min", "price_max", "discount_min", "lpl_proximity_pct", "below_observed_30d", "price_comparison", "catalog_version", "sort"];
 const filters = computed<Record<string, string>>(() => Object.fromEntries(filterKeys.flatMap((key) => typeof route.query[key] === "string" && route.query[key] ? [[key, route.query[key] as string]] : [])));
 const fallbackCategoryFacets = createFallbackCategoryFacets();

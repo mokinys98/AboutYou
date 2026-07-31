@@ -1,8 +1,188 @@
 # Katalogo filtravimo patobulinimų planas
 
-**Bendras progresas:** 35/100  
-**Būsena:** įgyvendintas LPL rikiavimo variantų pakeitimas, dydžių grupavimo kodas paruoštas migracijai ir patikrai su realiu katalogo snapshot  
+**Bendras progresas:** 34/100 (kontekstinio cache pataisa paruošta lokaliai, VPS dar nepatikrinta)
+**Būsena:** `5cf9817` nepriimtas, tačiau po audito pridėta nauja kategorijos ir viso filtro kontekstą naudojanti dydžių cache migracija; kelių filtrų UX bei likę normalizavimo darbai dar neįgyvendinti
 **Prioritetas:** aukštas, nes dabartinis elgesys lėtina kasdienę produktų paiešką
+
+## 2026-07-31 commit `5cf9817` atitikties auditas
+
+Audituotas paskutinis commit `5cf9817fcda93b9b76b3962b07707a9ec3baa7d9`
+(`feat: Implement size classification and caching improvements`). Vertintas commit diff,
+galutinė migracijų būsena, API, web ir vietiniai testai. VPS Supabase nebuvo
+jungiamasi, todėl migracijų pritaikymas ir realių duomenų rezultatas šiame audite
+laikomi **nepatikrintais**, o ne įvykdytais.
+
+Žymėjimas šiame skyriuje:
+
+- **BLOKUOJA** – pažeidžia priėmimo kriterijų arba gali pateikti neteisingą rezultatą;
+- **DALINAI** – kodo dalis yra, bet visas plano punktas neįgyvendintas;
+- **NEPATIKRINTA** – nėra DB, integracinio, komponento ar E2E įrodymo.
+
+### Kritiniai neatitikimai
+
+1. **BLOKUOJA – dydžių facetas nebėra kontekstinis.** Galutinė
+   `202607300009_cache_static_size_facets.sql` funkcija
+   `catalog_grouped_size_facets(p_filters)` parametro `p_filters` nenaudoja ir
+   visoms užklausoms grąžina tą patį statinį dydžių sąrašą. Pasirinkus brandą,
+   kategoriją, kainą ar kitą filtrą dydžių sąrašas bei jo prieinamumas nebeatspindi
+   likusio katalogo. Tai tiesiogiai prieštarauja tikslui išsaugoti facetų
+   kontekstualumą.
+2. **BLOKUOJA – pašalinti dydžių kiekiai.** Statinio dydžių cache payload neturi
+   `count`, `CatalogSizeFacet.count` pakeistas į neprivalomą, o dydžių UI kiekio
+   apskritai nerodo. Plano reikalavimas pateikti `Dydis · kiekis` ir tikslius
+   kiekius neįvykdytas.
+3. **BLOKUOJA – `otherSizes` priverstinai ištuštinamas.** `catalog_facets_cached()`
+   kiekviename atsakyme nustato `otherSizes=[]`, o `CatalogFilters.vue` pašalino
+   atskirą „Kiti dydžiai“ grupę. Be to, `catalog_size_facets_read` ima
+   `sizes + other_sizes` tik tada, kai produktas neturi nė vieno
+   `product_size_options` įrašo. Produktas, turintis dydžio pasirinkimų ir papildomų
+   `other_sizes`, gali tas papildomas reikšmes prarasti UI. Tai pažeidžia kriterijų,
+   kad nežinomos reikšmės neprarandamos.
+4. **BLOKUOJA – dešimtainis kablelis sugadina filtro tokeną.** Plane numatyta
+   `42,5` normalizuoti, bet `catalog_size_value_key()` kablelio nekeičia. Frontend
+   kelias reikšmes saugo kableliais, o API `parseFilters()` taip pat skaido per
+   kablelį, todėl `shoes:42,5` tampa dviem filtrais (`shoes:42` ir `5`).
+5. **BLOKUOJA – alertai naudoja kitą klasifikaciją nei katalogas.**
+   `catalog_item_matches()` grupuotą dydį tikrina baziniame
+   `catalog_size_facets_read`, o katalogas naudoja
+   `catalog_size_facets_read_effective`. Todėl produkto domeno override,
+   konkrečios reikšmės override ir `exclude_from_size_filter` gali veikti kataloge,
+   bet neveikti išsaugoto filtro alerte.
+6. **BLOKUOJA – facetų cache po katalogo refresh paliekamas pasenęs.** Galutinis
+   `rebuild_catalog_items_read_internal()` nebeišvalo `catalog_facets_cache` ir
+   neperskaičiuoja brandų, kategorijų, medžiagų bei jų kiekių; jis tik pakeičia
+   statinį `sizes` lauką jau esamuose payload. `catalog_facets_cached()` neturi TTL,
+   todėl kartą sukurtas kontekstinis įrašas gali likti pasenęs neribotai.
+7. **BLOKUOJA – 3 skyriaus UX faktiškai nepakeistas.** Checkbox `toggle()` vis dar
+   iškart kviečia `apply()`, `updateFilters()` naudoja `router.push`, o
+   `route.query` watcher kiekvieną kartą paleidžia produktų ir priverstinę facetų
+   užklausą. Mobile „Rodyti N prekes“ tik uždaro drawer ir nėra draft filtrų
+   patvirtinimas. Nėra debounce, stabilaus aktyvaus meniu snapshot ar pasenusių
+   atsakymų apsaugos.
+8. **BLOKUOJA – užklausų lenktynės liko.** `load()` neturi sekos numerio ar
+   `AbortController`, todėl senesnė produktų užklausa gali perrašyti naujesnės
+   rezultatą. `loadFacets()` taip pat pritaiko rezultatą nepatikrinusi, ar tai vis
+   dar naujausias filtro raktas.
+
+### Daliniai ir klaidingai užbaigtais pažymėti punktai
+
+- **DALINAI – dydžių grupavimo UI.** Rodomos grupių sekcijos, bet ne planuotas
+  desktop dviejų kolonų vaizdas; dydžių kiekiai nerodomi. Prieš grupuojant taikomas
+  bendras `slice(0, 80)`, todėl ilgame sąraše vėlesnės grupės gali visai nepatekti į
+  UI. Paieška tikrina etiketę, bet ne `domainLabel`.
+- **DALINAI – klasifikavimo strategija.** `catalog_size_domain()` sujungia visas
+  kategorijas ir produkto pavadinimą į vieną tekstą bei taiko regex eiliškumą.
+  Nėra plane numatytos „giliausia kategorija → produkto tipas → dimensijos tipas →
+  formatas“ prioritetų grandinės; funkcija net nepriima `product_types`.
+- **DALINAI – normalizavimas.** „Vienas dydis“, `Onesize`, `OneSize`, `1SIZE` ir
+  `NS` gauna vienodą rikiavimo vietą, bet lieka skirtingi `value_key`. `W × L`
+  suklijuojamas į tekstinį raktą, tačiau nesaugomas struktūriškai. Dešimtainis
+  kablelis nenormalizuojamas.
+- **DALINAI – rikiavimas.** Yra alpha dydžių ir pirmo skaičiaus `sort_order`, bet
+  nėra pilno `W × L` rikiavimo pagal liemenį, tada ilgį, bei nėra EU/UK/US sistemos
+  semantikos.
+- **DALINAI – rankiniai override'ai.** Lentelė ir admin UI yra, bet alertų
+  predikatas jų nenaudoja. API pirmiausia išsaugo pakeitimą, tada invaliduoja
+  cache; invalidavimo klaidos atveju grąžina 500, nors override jau gali būti
+  įrašytas. Kitų naudotojų 24 val. browser `localStorage` cache neturi serverinio
+  versijos signalo, o katalogo edge cache gali iki 5 min. rodyti seną rezultatą.
+- **DALINAI – seno URL suderinamumas.** API skiria reikšmes vien pagal dvitaškio
+  buvimą. Nėra domenų whitelist ar pilnos tokeno gramatikos validacijos, nėra
+  realios katalogo užklausos testo ir nėra alertų regresinio testo.
+- **NEPATIKRINTA – cron.** Migracijos tik atnaujina / aktyvuoja jau egzistuojantį
+  `catalog-read-model-refresh` įrašą. Jei tokio `cron.job` nėra, naujas job
+  nesukuriamas. Commit žinutės teiginys „Established a cron job“ neįrodytas.
+- **NEPATIKRINTA – realus VPS rezultatas.** Nėra šiame audite leistinos nuotolinės
+  patikros, migracijų preflight rezultato, snapshot audito, RPC p50/p95 ar
+  nežinomų grupių dalies po pakeitimo.
+
+### Patikrinta lokaliai
+
+- Pradinio audito metu `npm run test`: **105/105 testų praėjo**; po kontekstinio
+  cache pataisos: **108/108 testų praėjo**.
+- `npm run typecheck`: workspace tipų patikros praėjo; Wrangler papildomai pranešė,
+  kad sandbox aplinkoje negalėjo įrašyti savo log failo už workspace ribų.
+- `npm run build`: API Worker dry-run ir production Nuxt build praėjo.
+- Pridėtas izoliuotas PostgreSQL 17 kategorijos cache testas, tačiau dar nėra VPS
+  snapshot, Vue komponento, alertų override ar E2E patikros.
+
+### Sprendimas po audito
+
+Commit laikomas **daliniu prototipu**, o ne užbaigtu 2 etapu. Prieš taikant į
+produkciją pirmiausia reikia atkurti kontekstinius dydžių kiekius, sutvarkyti
+`otherSizes` nepraradimą ir dešimtainius tokenus, suvienodinti katalogo bei alertų
+predikatą, grąžinti teisingą cache invalidavimą ir tik tada vykdyti VPS snapshot
+bei našumo patikrą.
+
+### 2026-07-31 kontekstinio cache perprojektavimas
+
+Po realaus džinsų kategorijos pavyzdžio pridėta migracija
+`202607310001_restore_contextual_size_facets.sql`. Ji pakeičia klaidingą
+„vienas globalus dydžių sąrašas visiems puslapiams“ modelį:
+
+- katalogo šaknyje be filtrų leidžiama naudoti vieną statinį dydžių žodyną;
+- kategorijos ar bet kurio kito filtro atveju `catalog_grouped_size_facets()`
+  atrenka tik tuos produktus, kurie atitinka kategoriją, brandą, spalvą, kainą,
+  medžiagą ir kitus aktyvius ne dydžio filtrus;
+- dydžių sąrašas sudaromas tik iš atrinktų produktų, todėl
+  `vyrams>drabužiai>džinsai` puslapyje negali atsirasti krepšių, diržų ar apyrankių
+  grupė, jei toje kategorijoje nėra taip suklasifikuoto produkto;
+- kiekvienas dydis vėl turi kontekstinį `count`, o UI jį rodo;
+- visas facetų atsakymas saugomas `catalog_facets_cache` pagal tikslų normalizuotą
+  filtro JSON. Pirma konkrečios kategorijos užklausa skaičiuoja, pakartotinės skaito
+  jos cache;
+- po read modelio refresh arba rankinio klasifikacijos override visi filtro cache
+  įrašai išvalomi, todėl sena globali narystė negali likti kategorijos payload;
+- browser cache versija pakeista į `v3`, o TTL sumažintas nuo 24 val. iki 5 min.,
+  kad DB pakeitimas naudotojui neužstrigtų visai parai.
+
+Lokaliai pridėtas migracijos kontrakto testas tikrina, kad kategorija ir kiti
+filtrai realiai naudojami SQL, grąžinamas `count`, naudojamas exact cache raktas ir
+refresh išvalo pasenusius įrašus. Papildomas
+`supabase/tests/contextual_size_facets_test.sql` testas sėkmingai paleistas
+izoliuotoje PostgreSQL 17 DB: įdėjus vieną džinsų ir vieną krepšio produktą,
+džinsų kategorijos atsakymas grąžino tik `trousers:w32-l32`, `count=1`, negrąžino
+`bags:one-size` ir sukūrė tikslų kategorijos cache įrašą. Tai dar nėra realios VPS
+DB našumo testo pakaitalas.
+
+#### Šios pataisos priėmimo patikra
+
+- [x] Lokaliai paruošti kategorijos kontekstą naudojantį RPC ir exact-filter cache.
+- [x] Lokaliai grąžinti dydžių kiekius į DB kontraktą, TypeScript tipą ir UI.
+- [x] Sumažinti browser facetų cache TTL ir pakeisti jo versijos prefiksą.
+- [x] Pridėti statinį migracijos regresinį testą, kad `p_filters` nebūtų vėl
+  ignoruojamas.
+- [x] Pritaikyti migraciją izoliuotoje PostgreSQL 17 DB ir elgsenos testu
+  patikrinti kategorijos izoliaciją, kiekį bei cache hit įrašą.
+- [ ] Naudotojui pritaikyti `202607310001_restore_contextual_size_facets.sql` VPS.
+- [ ] VPS paleisti džinsų kategorijos RPC patikrą ir įsitikinti, kad nėra globalių
+  aksesuarų grupių.
+- [ ] Išmatuoti pirmos neužkešuotos kategorijos užklausos ir pakartotinio cache hit
+  p50/p95; jei pirmas skaičiavimas per lėtas, pridėti populiariausių kategorijų
+  prewarm, negrįžtant prie globalaus sąrašo.
+
+### Privalomi pataisymai prieš pakartotinį priėmimą
+
+- [x] **LOKALIAI:** grąžinti `p_filters` naudojimą dydžių facete ir kiekvienam
+  dydžiui pateikti kontekstinį `count`.
+- [x] **LOKALIAI:** naudoti statinį žodyną tik nefiltruotai šakniai, o kategorijai
+  ir kitiems filtrams skaičiuoti dinaminę narystę bei kiekius.
+- [ ] Užtikrinti, kad `other_sizes` reikšmės neprarandamos, ir pridėti produktų su
+  `product_size_options` bei `other_sizes` regresinį testą.
+- [ ] Įvesti nedviprasmį URL kodavimą arba tokeno formatą, kuris palaiko `42,5`,
+  bei validuoti domeną ir `value_key` atskirai.
+- [ ] `catalog_item_matches()` perkelti į tą patį effective dydžių modelį, kurį
+  naudoja katalogas; padengti produkto, reikšmės ir exclude override alertų testais.
+- [x] **LOKALIAI:** po read modelio refresh išvalyti visus facetų cache įrašus, o
+  browser TTL sumažinti iki 5 min.; VPS elgesį dar reikia patikrinti.
+- [ ] Atskirtą override išsaugojimą ir cache invalidavimą padaryti idempotentišką,
+  kad dalinė sėkmė nebūtų rodoma kaip neaiški 500 klaida.
+- [ ] Įgyvendinti draft/applied filtrus, stabilų atidaryto meniu snapshot,
+  `router.replace`/istorijos strategiją, debounce ir užklausų atšaukimą arba seką.
+- [ ] Pridėti DB/RPC integracinius, Vue komponento, alertų ir E2E testus pagal
+  šiame dokumente išvardytus scenarijus.
+- [ ] Tik po vietinių testų pateikti naudotojui tikslias VPS migravimo, snapshot
+  audito ir rollback komandas; vykdymą bei rezultatus turi patvirtinti naudotojas.
 
 ## Tikslas
 
@@ -71,7 +251,7 @@ išsaugotos nuorodos ar alertų filtrai.
 
 ## 2. Dydžio filtro grupavimas
 
-### Įgyvendintas pirmas etapas
+### Commit'e įdiegta dalis (po audito nepriimta)
 
 - Naujas filtro tokenas yra `domain:value_key`, pavyzdžiui,
   `shoes:42` arba `socks:39-42`.
@@ -79,17 +259,20 @@ išsaugotos nuorodos ar alertų filtrai.
   įvestis ir toliau naudoja seną negrupuotą paiešką.
 - Dydžio facetai grupuojami pagal kategorijos kelią ir produkto pavadinimą;
   `product_size_options.size_group` naudojamas tik antrajai dimensijai.
-- Neatpažinti dydžiai rodomi grupėje `Kita`, o ne paslepiami.
+- Neatpažinti dydžiai numatyti grupėje `Kita`, tačiau `otherSizes` sujungimo ir
+  ištuštinimo logika gali dalį reikšmių prarasti.
 - Automatinė klasifikacija nėra vienintelis autoritetas: rankiniai produkto
   override'ai saugomi atskiroje lentelėje ir nėra perrašomi sync metu.
 - Supabase funkcija `catalog_size_classification_audit()` pateikia `Kita`
   reikšmių ir produktų skaičių. Tai kontrolinis sąrašas, iš kurio naujos
   klasifikavimo taisyklės turi būti perkeliamos į `catalog_size_domain()`.
 
-Migracija faile `supabase/migrations/202607290001_group_catalog_size_facets.sql`
-dar turi būti pritaikyta tiksliniam VPS ir po jos atliktas realaus katalogo
-snapshot patikrinimas. Šiame etape `Kita` yra sąmoningas laikinas audito
-rezultatas, o ne galutinė produkto grupė.
+Commit pridėjo migracijų grandinę nuo
+`202607290001_group_catalog_size_facets.sql` iki
+`202607300009_cache_static_size_facets.sql`. Tikslinės VPS būsenos šiame audite
+tikrinti neleidžiama, todėl nėra patvirtinta nei kad visa grandinė pritaikyta, nei
+kad galutinė schema ir cache veikia su realiu katalogo snapshot. `Kita` turi likti
+audito eile, o ne galutine produkto grupe.
 
 ### Problema
 
@@ -331,23 +514,27 @@ reiškia antrą dydžio dimensiją, o ne produkto domeną.
 - [ ] Priimti sprendimą dėl fizinio `size_group` pervadinimo į
   `second_dimension` arba aiškaus alias read modelyje.
 - [ ] Susitarti dėl URL/API formato ir seno `sizes` formato suderinamumo.
-- [x] Sukurti normalizuotą katalogo dydžių read modelį arba pagalbinę lentelę.
-- [x] Įtraukti `domainKey`, `domainLabel`, `value`, `label`, `count` ir
-  `sortOrder` į facetų atsakymą bei `CatalogFacets` tipą.
-- [x] Katalogo filtravimą pakeisti iš paprasto etiketės sutapimo į
-  `size_domain + value_key` sutapimą.
+- [ ] **DALINAI:** sukurtas katalogo dydžių read modelis, bet neužbaigtas
+  normalizavimas (`42,5`, vieno dydžio sinonimai, struktūrinis `W × L`) ir
+  `otherSizes` nepraradimas.
+- [ ] **DALINAI:** `domainKey`, `domainLabel`, `value`, `label` bei `sortOrder`
+  įtraukti, bet galutinis statinis payload nebeturi `count`, o tipe jis padarytas
+  neprivalomas.
+- [ ] **DALINAI:** katalogo API naudoja `size_domain + value_key`, bet alertų
+  `catalog_item_matches()` vis dar tikrina bazinį, override'ų nepaisantį modelį.
 - [ ] `CatalogFilters.vue` desktop variante sukurti dviejų kolonų dydžių vaizdą.
-- [ ] Mobile variante dydžius rodyti sekcijomis pagal grupę.
+- [ ] **DALINAI:** mobile variante yra grupių sekcijos, tačiau naudojamas bendras
+  pirmų 80 reikšmių limitas, nėra kiekių ir nėra atskiro mobile elgesio testo.
 - [ ] Bendrinius `S–XXL` rodyti grupėje `Drabužiai`, jei nėra tikslesnės šaltinio
   grupės.
 - [ ] Pridėti atskirą `Kojinės` grupę ir padengti dažniausius realius intervalus.
 - [ ] Normalizuoti penkis aptiktus „vieno dydžio“ sinonimus.
 - [ ] Dimensinius dydžius `W × L` saugoti struktūriškai ir rikiuoti pagal liemenį,
   tada pagal ilgį.
-- [ ] Įtraukti pasirinktus dydžius į aktyvius chips su grupe, pavyzdžiui,
-  `Batai · EU 42` arba `Kojinės · 39–42`.
-- [x] Pridėti prasmingą dydžių rikiavimą: XXS, XS, S, M, L, XL, XXL; skaitines
-  sekas rikiuoti skaitmeniškai.
+- [ ] **DALINAI:** aktyvus dydžio chip rodo grupę tik tada, kai tokenas dar yra
+  dabartiniame faceto payload; kitu atveju rodomas techninis tokenas.
+- [ ] **DALINAI:** alpha dydžiai ir pirmas skaičius rikiuojami, bet `W × L`,
+  dešimtainiai dydžiai bei matavimo sistemos pagal planą nesurikiuotos.
 - [ ] Pridėti DB/API testus, įrodančius, kad `Batai · 42` negrąžina
   `Švarkai · 42`.
 - [ ] Pridėti DB/API testus, įrodančius, kad `Kojinės · 39–42` negrąžina kitos
@@ -358,7 +545,9 @@ reiškia antrą dydžio dimensiją, o ne produkto domeną.
   snapshot ir susidaryti `Kita` reikšmių klasifikavimo eilę.
 - [ ] Perkelti pasikartojančias `Kita` reikšmes į konkrečius domenus, papildant
   `catalog_size_domain()` taisykles, ir pakartoti auditą.
-- [x] Pridėti produkto ir konkrečių dydžių klasifikacijos override sluoksnį, kuris išlieka po sync ir valdomas produkto Debug puslapyje.
+- [ ] **DALINAI:** pridėtas produkto ir konkrečių dydžių override sluoksnis bei
+  Debug UI, bet jo nepaiso alertai, o cache invalidavimo klaida gali būti grąžinta
+  jau po sėkmingo DB įrašo.
 - [ ] Atskiriems suderinamumo modeliams nuspręsti, ar juos ateityje rodyti
   atskirame `Suderinamumas` facete, o ne dydžių filtre.
 
@@ -473,7 +662,7 @@ būsenų.
 
 ### 1 etapas – greitos ir saugios UX pataisos
 
-- [ ] Sukeisti LPL rikiavimo pasirinkimus desktop ir mobile sąsajose.
+- [x] Sukeisti LPL rikiavimo pasirinkimus desktop ir mobile sąsajose.
 - [ ] Stabilizuoti atidaryto filtro sąrašą.
 - [ ] Įdiegti draft/patvirtintų filtrų būseną ir realų `Taikyti` veiksmą.
 - [ ] Apsaugoti sąsają nuo pasenusių užklausų atsakymų.
@@ -482,11 +671,17 @@ būsenų.
 ### 2 etapas – teisingas dydžių modelis
 
 - [x] Atlikti pradinį realių dydžių, kategorijų ir `size_group` auditą VPS.
-- [x] Patvirtinti grupių žodyną ir normalizavimo taisykles.
-- [x] Pridėti DB/read modelio migraciją bei indeksus.
-- [x] Atnaujinti facetų RPC, API ir bendrus TypeScript tipus.
-- [x] Įdiegti dviejų kolonų / grupuotą dydžių UI.
-- [x] Išlaikyti senų URL suderinamumą ir atlikti regresinius testus.
+- [ ] **DALINAI:** grupių žodynas įrašytas, bet normalizavimo taisyklės
+  neįgyvendintos pilnai.
+- [ ] **DALINAI:** DB/read modelio migracijos ir indeksai pridėti, bet galutinė
+  migracija panaikina kontekstinius dydžių kiekius ir palieka pasenusį facetų cache.
+- [ ] **DALINAI:** nauja lokali migracija grąžina kontekstinį `count`, o
+  TypeScript tipas vėl jo reikalauja, tačiau VPS dar nepatikrinta ir katalogo bei
+  alertų predikatai tebėra išsiskyrę.
+- [ ] **DALINAI:** dydžiai rodomi grupėmis, bet nėra pilno dviejų kolonų vaizdo,
+  kiekių ir visų grupių pateikimo garantijos.
+- [ ] **DALINAI:** legacy reikšmės priimamos, bet nėra tikro katalogo ir alertų
+  regresinių testų; dvitaškis bei dešimtainis kablelis apdorojami nesaugiai.
 - [ ] Pritaikyti migraciją tiksliniam VPS ir atlikti `Kita` klasifikacijos auditą.
 
 ### 3 etapas – kokybės ir našumo patikra
