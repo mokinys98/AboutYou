@@ -871,7 +871,6 @@ export async function collectAboutYouTarget(
   try {
     return await collectFromDirectStream(page, maxProducts, options);
   } catch (error) {
-    options.onProgress?.({ products: 0, expectedTotal: null, pages: 0, mode: "scroll-fallback" });
     console.warn(`[aboutyou-provider] Tiesioginis srautas nepavyko, naudojamas DOM fallback: ${safeError(error)}`);
     const fallbackResponse = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60_000 });
     await assertAboutYouPageAvailable(page, fallbackResponse);
@@ -1019,7 +1018,10 @@ async function collectFromDirectStream(
 
   const collection = page.evaluate(async (limit) => {
     const api = (window as unknown as {
-      __ABOUTYOU_CATALOG_COLLECTOR__: { collect: (target: number) => Promise<BrowserCollection> };
+      __ABOUTYOU_CATALOG_COLLECTOR__: {
+        collect: (target: number) => Promise<BrowserCollection>;
+        stop: () => void;
+      };
     }).__ABOUTYOU_CATALOG_COLLECTOR__;
     return api.collect(limit);
   }, maxProducts);
@@ -1048,7 +1050,15 @@ async function collectFromDirectStream(
     result = await Promise.race([
       collection,
       new Promise<never>((_, reject) => {
-        timeout = setTimeout(() => reject(new Error(`Produktų rinkimas viršijo ${Math.round(timeoutMs / 1_000)} s timeout'ą.`)), timeoutMs);
+        timeout = setTimeout(() => {
+          void page.evaluate(() => {
+            const api = (window as unknown as {
+              __ABOUTYOU_CATALOG_COLLECTOR__?: { stop: () => void };
+            }).__ABOUTYOU_CATALOG_COLLECTOR__;
+            api?.stop();
+          }).catch(() => undefined);
+          reject(new Error(`Produktų rinkimas viršijo ${Math.round(timeoutMs / 1_000)} s timeout'ą.`));
+        }, timeoutMs);
         timeout.unref();
       })
     ]);

@@ -30,6 +30,7 @@
   const PRODUCT_STREAM_PAGE_PATH = `${PRODUCT_STREAM_SERVICE}/${PRODUCT_STREAM_PAGE_METHOD}`;
   const CATEGORY_STREAM_MODULE_FALLBACK = "https://assets.aboutstatic.com/assets/service.grpc-DpEGTlTl.js";
   const DIRECT_ALL_MAX_PAGES = 200;
+  const DIRECT_REQUEST_TIMEOUT_MS = 30_000;
   const STATE = {
     products: new Map(),
     cards: [],
@@ -49,7 +50,9 @@
       moduleUrl: "",
       modulePromise: null,
       learnedRequest: null,
+      requestController: null,
       directError: "",
+      fallbackComplete: false,
       pages: 0,
     },
     staticConfig: null,
@@ -265,7 +268,10 @@
     STATE.stream.moduleUrl = "";
     STATE.stream.modulePromise = null;
     STATE.stream.learnedRequest = null;
+    STATE.stream.requestController?.abort();
+    STATE.stream.requestController = null;
     STATE.stream.directError = "";
+    STATE.stream.fallbackComplete = false;
     STATE.stream.pages = 0;
 
     for (const badge of document.querySelectorAll(".ay-lpl-badge")) {
@@ -754,6 +760,7 @@
       updateStatus(`Direct nepavyko, jungiamas scroll fallback...`);
       await sleep(400);
       if (!STATE.stopLoading) await loadProductsByScroll(targetCount);
+      STATE.stream.fallbackComplete = !STATE.stopLoading && STATE.products.size > 0;
     }
 
     const wasStopped = STATE.stopLoading;
@@ -786,15 +793,21 @@
       pages: STATE.stream.pages,
       loading: STATE.loadingAll,
       mode: STATE.stream.directError ? "scroll-fallback" : "direct-stream",
-      complete: Number.isFinite(targetTotal)
-        ? STATE.products.size >= targetTotal || !STATE.stream.nextState
-        : !STATE.stream.nextState,
+      complete: STATE.stream.directError
+        ? STATE.stream.fallbackComplete && (!Number.isFinite(targetTotal) || STATE.products.size >= targetTotal)
+        : Number.isFinite(targetTotal)
+          ? STATE.products.size >= targetTotal || !STATE.stream.nextState
+          : !STATE.stream.nextState,
       error: STATE.stream.directError || null,
     };
   }
 
   window.__ABOUTYOU_CATALOG_COLLECTOR__ = {
     snapshot: collectionSnapshot,
+    stop() {
+      STATE.stopLoading = true;
+      STATE.stream.requestController?.abort();
+    },
     async collect(targetCount) {
       STATE.collectionTarget = targetCount;
       await loadProducts(targetCount);
@@ -847,13 +860,13 @@
     if (!indexScript) return CATEGORY_STREAM_MODULE_FALLBACK;
 
     try {
-      const code = await fetch(indexScript, { credentials: "omit" }).then((response) => response.text());
+      const code = await fetchWithTimeout(indexScript, { credentials: "omit" }).then((response) => response.text());
       const match = code.match(/import\("\.\/(service\.grpc-[^"]+\.js)"\)[\s\S]{0,260}?CategoryStreamService_GetProductStreamPageV2/);
       if (match) return new URL(match[1], indexScript).href;
       const categoryMatch = code.match(/assets\/CategoryLegacy\.eager-[^"]+\.js/);
       if (categoryMatch) {
         const categoryUrl = new URL(categoryMatch[0].replace(/^assets\//, ""), indexScript).href;
-        const categoryCode = await fetch(categoryUrl, { credentials: "omit" }).then((response) => response.text());
+        const categoryCode = await fetchWithTimeout(categoryUrl, { credentials: "omit" }).then((response) => response.text());
         const serviceMatch = categoryCode.match(/import\("\.\/(service\.grpc-[^"]+\.js)"\)[\s\S]{0,320}?CategoryStreamService_GetProductStreamPageV2/);
         if (serviceMatch) return new URL(serviceMatch[1], categoryUrl).href;
       }
@@ -873,7 +886,7 @@
     const writer = ProtoWriter.create();
     descriptor.encodeRequest(writer, requestPayload);
     const requestBytes = writer.finish();
-    const response = await fetch(resolveGrpcUrl(descriptor), {
+    const response = await fetchWithTimeout(resolveGrpcUrl(descriptor), {
       method: "POST",
       credentials: STATE.stream.learnedRequest?.credentials || "include",
       mode: STATE.stream.learnedRequest?.mode || "cors",
@@ -892,6 +905,18 @@
       throw new Error(`Tadarida ${descriptor.methodName} atsakymas tuscias.`);
     }
     return descriptor.decodeResponse(new ProtoReader(messageBytes), messageBytes.length);
+  }
+
+  async function fetchWithTimeout(input, init = {}) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), DIRECT_REQUEST_TIMEOUT_MS);
+    STATE.stream.requestController = controller;
+    try {
+      return await fetch(input, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timeout);
+      if (STATE.stream.requestController === controller) STATE.stream.requestController = null;
+    }
   }
 
   function resolveGrpcUrl(descriptor) {

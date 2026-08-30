@@ -1,4 +1,4 @@
-import { chromium } from "playwright";
+import { chromium, type BrowserContext } from "playwright";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { AboutYouRateLimitError, collectAboutYouTarget } from "@catalog/aboutyou-provider";
@@ -40,8 +40,7 @@ try {
   for (const [index, target] of selectedTargets.entries()) {
     const targetStartedAt = Date.now();
     log(`[${index + 1}/${selectedTargets.length}] Pradedama grupė „${target.label}“ (${target.url}).`);
-    const context = await browser.newContext({ locale: "lt-LT", timezoneId: "Europe/Vilnius" });
-    const page = await context.newPage();
+    const collectionSession: { context: BrowserContext | null } = { context: null };
     const { data: run, error: runError } = await db.from("sync_runs")
       .insert({ target_id: target.id, status: "running" }).select("id").single();
     if (runError || !run) throw runError ?? new Error("Nepavyko sukurti sync_run");
@@ -52,12 +51,17 @@ try {
     let rejectedProducts: CatalogBatchRejected[] = [];
     try {
       const result = await withHeartbeat(`„${target.label}“: renkami produktai`, () => retry(
-        () => collectAboutYouTarget(page, target.url, {
-          maxProducts: env.SYNC_MAX_PRODUCTS,
-          onProgress: ({ products, expectedTotal, pages, mode }) => log(
-            `„${target.label}“: surinkta ${products}${expectedTotal ? `/${Math.min(expectedTotal, env.SYNC_MAX_PRODUCTS)}` : ""} produktų (${pages} srauto psl., ${mode}).`
-          )
-        }),
+        async () => {
+          await collectionSession.context?.close().catch(() => undefined);
+          collectionSession.context = await browser.newContext({ locale: "lt-LT", timezoneId: "Europe/Vilnius" });
+          const page = await collectionSession.context.newPage();
+          return collectAboutYouTarget(page, target.url, {
+            maxProducts: env.SYNC_MAX_PRODUCTS,
+            onProgress: ({ products, expectedTotal, pages, mode }) => log(
+              `„${target.label}“: surinkta ${products}${expectedTotal ? `/${Math.min(expectedTotal, env.SYNC_MAX_PRODUCTS)}` : ""} produktų (${pages} srauto psl., ${mode}).`
+            )
+          });
+        },
         2,
         (attempt, error) => log(`„${target.label}“: ${attempt} bandymas nepavyko (${safeError(error)}), bus kartojama.`)
       ));
@@ -146,7 +150,7 @@ try {
       });
       console.error(JSON.stringify({ target: target.label, status: "failed", error: message }));
     } finally {
-      await context.close();
+      await collectionSession.context?.close().catch(() => undefined);
     }
   }
   await withHeartbeat("Valoma sena kainų istorija", () => db.rpc("cleanup_price_history"));
