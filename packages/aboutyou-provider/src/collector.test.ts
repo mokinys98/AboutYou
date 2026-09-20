@@ -8,7 +8,7 @@ const source = ts.createSourceFile("collector.js", readFileSync(new URL("../../.
 function implementation(name: string): string {
   let found = "";
   function visit(node: ts.Node) {
-    if (ts.isFunctionDeclaration(node) && node.name?.text === name) found = node.getText(source);
+    if ((ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node)) && node.name?.text === name) found = node.getText(source);
     ts.forEachChild(node, visit);
   }
   visit(source);
@@ -28,6 +28,7 @@ function harness(overrides: Record<string, unknown> = {}) {
     AUTOMATION_MODE: false, recordDiagnostic: vi.fn(),
     parseInitialState: vi.fn(), scanCards: vi.fn(), sleep: async () => {},
     renderResults: vi.fn(), updateStatus: vi.fn(), safeDiagnosticError: String,
+    describeStreamItems: () => ({}),
     collectProductTiles: (items: Array<{ productId: string }>, visit: (item: unknown) => void) => items.forEach(visit),
     productFromTile: (item: unknown) => item,
     upsertProduct: (item: { productId: string }) => state.products.set(item.productId, item),
@@ -42,6 +43,22 @@ function harness(overrides: Record<string, unknown> = {}) {
 }
 
 describe("userscript stream reliability", () => {
+  it("skips unknown protobuf fields including their length prefix", () => {
+    const Reader = runInNewContext(`${implementation("ProtoReader")}; ProtoReader`, { Uint8Array, TextDecoder, DataView });
+    const reader = new Reader(new Uint8Array([18, 3, 65, 66, 67, 24, 9]));
+    expect(reader.uint32()).toBe(18);
+    reader.skipType(2);
+    expect(reader.pos).toBe(5);
+    expect(reader.uint32()).toBe(24);
+    expect(reader.uint32()).toBe(9);
+    expect(() => reader.uint32()).toThrow("varint");
+  });
+  it("fails fast on truncated protobuf fields and unknown wire types", () => {
+    const Reader = runInNewContext(`${implementation("ProtoReader")}; ProtoReader`, { Uint8Array, TextDecoder, DataView });
+    expect(() => new Reader(new Uint8Array([8, 65])).bytes()).toThrow("Truncated");
+    expect(() => new Reader(new Uint8Array([128])).uint32()).toThrow("varint");
+    expect(() => new Reader(new Uint8Array([0])).skipType(7)).toThrow("wire type");
+  });
   it("does not report three duplicate pages as exhausted", async () => {
     const fetchPage = vi.fn(async () => ({ items: [{ productId: "1" }], nextState: new Uint8Array([2]) }));
     const { api, state } = harness({ fetchNextProductStreamPage: fetchPage });
@@ -49,6 +66,26 @@ describe("userscript stream reliability", () => {
     expect(fetchPage).toHaveBeenCalledTimes(3);
     expect(state.stream.exhausted).toBe(false);
     expect(api.collectionSnapshot().complete).toBe(false);
+  });
+  it("uses scrolling only when explicitly allowed after a direct failure", async () => {
+    const state = { stream: { usedFallback: false }, products: new Map(), cards: [], stopLoading: false, loadingAll: false };
+    let failure = new Error("module discovery failed");
+    const scroll = vi.fn(async () => {});
+    const load = runInNewContext(`${implementation("loadProducts")}; loadProducts`, {
+      STATE: state, AUTOMATION_MODE: true, console: { warn: vi.fn() },
+      ensurePageContext: vi.fn(), applyFilter: vi.fn(), updateActiveButtons: vi.fn(),
+      updateStatus: vi.fn(), recordDiagnostic: vi.fn(), safeDiagnosticError: String,
+      loadProductsFast: async () => { throw failure; },
+      loadProductsByScroll: scroll, sleep: async () => {}, scanCards: vi.fn(), renderResults: vi.fn()
+    });
+    await load(100, false);
+    expect(scroll).not.toHaveBeenCalled();
+    await load(100, true);
+    expect(scroll).toHaveBeenCalledTimes(1);
+    failure = Object.assign(new Error("HTTP 429"), { status: 429 });
+    await load(100, true);
+    expect(scroll).toHaveBeenCalledTimes(1);
+    expect(state.stream.usedFallback).toBe(false);
   });
   it("does not accept premature stream exhaustion when total is known", async () => {
     const { api } = harness({ fetchNextProductStreamPage: async () => ({ items: [], nextState: new Uint8Array() }) });

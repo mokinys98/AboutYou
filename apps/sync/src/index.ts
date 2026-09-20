@@ -66,7 +66,7 @@ try {
           const collection = await collectAboutYouTarget(page, target.url, {
             maxProducts: env.SYNC_MAX_PRODUCTS,
             timeoutMs: env.SYNC_COLLECTION_TIMEOUT_MS,
-            directStream: attempt === 1,
+            allowDomFallback: attempt > 1,
             onProgress: ({ products, expectedTotal, pages, mode }) => log(
               `„${target.label}“: surinkta ${products}${expectedTotal ? `/${Math.min(expectedTotal, env.SYNC_MAX_PRODUCTS)}` : ""} produktų (${pages} srauto psl., ${mode}).`
             ),

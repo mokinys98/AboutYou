@@ -55,6 +55,7 @@
       learnedRequest: null,
       requestController: null,
       directError: "",
+      usedFallback: false,
       fallbackComplete: false,
       exhausted: false,
       rateLimited: false,
@@ -279,6 +280,7 @@
     STATE.stream.requestController?.abort();
     STATE.stream.requestController = null;
     STATE.stream.directError = "";
+    STATE.stream.usedFallback = false;
     STATE.stream.fallbackComplete = false;
     STATE.stream.networkInitialized = false;
     STATE.stream.exhausted = false;
@@ -322,10 +324,7 @@
           }
           if (!response.ok) return;
           const bytes = new Uint8Array(await response.clone().arrayBuffer());
-          if (AUTOMATION_MODE) {
-            const candidatesDeadline = Date.now() + 5_000;
-            while (!window.__ABOUTYOU_CATEGORY_SERVICE_MODULE_CANDIDATES__?.length && Date.now() < candidatesDeadline) await sleep(50);
-          }
+          recordDiagnostic("initial_network_stream_received", { bytes: bytes.length });
           await loadCategoryStreamService();
           const module = await import(STATE.stream.moduleUrl);
           const initialService = module.CategoryStreamService_GetProductStreamV2;
@@ -338,7 +337,13 @@
             collectProductTiles(data.items, (tile) => upsertProduct(productFromTile(tile)));
             rememberProductStreamState(data);
             STATE.stream.networkInitialized = true;
-            recordDiagnostic("initial_network_stream_decoded", { products: STATE.products.size, expectedTotal: STATE.stream.total });
+            recordDiagnostic("initial_network_stream_decoded", {
+              products: STATE.products.size, expectedTotal: STATE.stream.total,
+              items: data.items?.length ?? 0, nextStateBytes: STATE.stream.nextState?.length ?? 0,
+              keys: Object.keys(data),
+              pagination: data.pagination,
+              ...describeStreamItems(data.items)
+            });
             return data;
           } }, {});
         }).catch((error) => recordDiagnostic("initial_network_stream_failed", { error: safeDiagnosticError(error) }));
@@ -550,6 +555,17 @@
     }
   }
 
+  function describeStreamItems(items) {
+    const ids = new Set();
+    collectProductTiles(items, (tile) => ids.add(String(tile.productId)));
+    const itemTypes = {};
+    for (const item of items || []) {
+      const type = Object.keys(item.type || item).sort().join(",");
+      itemTypes[type] = (itemTypes[type] || 0) + 1;
+    }
+    return { productTiles: ids.size, itemTypes };
+  }
+
   function findCard(anchor) {
     let best = null;
     let node = anchor;
@@ -744,7 +760,7 @@
   async function loadProductsFast(targetCount) {
     parseInitialState();
     // Wait for the shop's initial stream on pages with no SSR catalog payload.
-    const initialDeadline = Date.now() + 15_000;
+    const initialDeadline = Date.now() + 30_000;
     while (!STATE.stream.nextState && STATE.stream.total === null && !STATE.stream.networkInitialized && !STATE.stopLoading && !STATE.stream.rateLimited && Date.now() < initialDeadline) {
       await sleep(100);
     }
@@ -753,7 +769,7 @@
       error.status = 429;
       throw error;
     }
-    if (!STATE.stream.networkInitialized && !STATE.stream.nextState) scanCards();
+
     recordDiagnostic("initial_state_ready", {
       products: STATE.products.size,
       expectedTotal: STATE.stream.total,
@@ -824,6 +840,7 @@
         productsAdded: STATE.products.size - countBeforePage,
         products: STATE.products.size,
         hasNextState: Boolean(STATE.stream.nextState?.length),
+        ...describeStreamItems(response.items),
       });
       renderResults();
       updateStatus(`Direct stream: ${STATE.products.size} duomenu, ${STATE.cards.length} DOM...`);
@@ -834,10 +851,15 @@
       await sleep(60);
     }
 
+    if (!STATE.stopLoading && STATE.stream.exhausted && Number.isFinite(effectiveTarget) && STATE.products.size < effectiveTarget) {
+      STATE.stream.directError = `Source stream exhausted: ${STATE.products.size}/${effectiveTarget} unique products`;
+      recordDiagnostic("stream_exhausted_before_total", { products: STATE.products.size, expectedTotal: STATE.stream.total });
+    }
+
     return STATE.products.size > initialCount;
   }
 
-  async function loadProducts(targetCount) {
+  async function loadProducts(targetCount, allowScrollFallback = !AUTOMATION_MODE) {
     ensurePageContext();
     if (STATE.loadingAll) return;
     STATE.loadingAll = true;
@@ -856,20 +878,23 @@
     try {
       await loadProductsFast(targetCount);
     } catch (error) {
-      usedFallback = true;
       STATE.stream.modulePromise = null;
       STATE.stream.directError = error?.message || String(error);
       STATE.stream.rateLimited = error?.status === 403 || error?.status === 429;
+      usedFallback = allowScrollFallback && !STATE.stopLoading && !STATE.stream.rateLimited;
+      STATE.stream.usedFallback = usedFallback;
       recordDiagnostic("direct_stream_failed", { error: safeDiagnosticError(error) });
-      console.warn("[ABOUT YOU price sorter] direct stream failed, falling back to scroll", error);
-      updateStatus(`Direct nepavyko, jungiamas scroll fallback...`);
-      await sleep(400);
-      if (!STATE.stopLoading && !STATE.stream.rateLimited) await loadProductsByScroll(targetCount);
-      STATE.stream.fallbackComplete = !STATE.stopLoading && STATE.products.size > 0;
-      recordDiagnostic("scroll_fallback_completed", {
-        products: STATE.products.size,
-        complete: STATE.stream.fallbackComplete,
-      });
+      console.warn("[ABOUT YOU price sorter] direct stream failed", error);
+      if (usedFallback && !STATE.stream.rateLimited) {
+        updateStatus(`Direct nepavyko, jungiamas scroll fallback...`);
+        await sleep(400);
+        if (!STATE.stopLoading && !STATE.stream.rateLimited) await loadProductsByScroll(targetCount);
+        STATE.stream.fallbackComplete = !STATE.stopLoading && STATE.products.size > 0;
+        recordDiagnostic("scroll_fallback_completed", {
+          products: STATE.products.size,
+          complete: STATE.stream.fallbackComplete,
+        });
+      }
     }
 
     const wasStopped = STATE.stopLoading;
@@ -884,7 +909,7 @@
     recordDiagnostic("collection_completed", {
       products: STATE.products.size,
       pages: STATE.stream.pages,
-      mode: STATE.stream.directError ? "scroll-fallback" : "direct-stream",
+      mode: STATE.stream.usedFallback ? "scroll-fallback" : "direct-stream",
       stopped: wasStopped,
     });
     if (wasStopped) {
@@ -908,7 +933,7 @@
       expectedTotal,
       pages: STATE.stream.pages,
       loading: STATE.loadingAll,
-      mode: STATE.stream.directError ? "scroll-fallback" : "direct-stream",
+      mode: STATE.stream.usedFallback ? "scroll-fallback" : "direct-stream",
       rateLimited: STATE.stream.rateLimited,
       complete: !STATE.loadingAll && !STATE.stream.stopped && !STATE.stream.rateLimited && (STATE.stream.directError
         ? STATE.stream.fallbackComplete && Number.isFinite(targetTotal) && STATE.products.size >= targetTotal
@@ -929,16 +954,17 @@
       STATE.stream.requestController?.abort();
       recordDiagnostic("collection_stop_requested");
     },
-    async collect(targetCount) {
+    async collect(targetCount, allowScrollFallback = !AUTOMATION_MODE) {
       STATE.domObserver?.disconnect();
       STATE.domObserver = null;
       recordDiagnostic("dom_observer_disconnected");
       STATE.collectionTarget = targetCount;
       STATE.stream.directError = "";
+      STATE.stream.usedFallback = false;
       STATE.stream.fallbackComplete = false;
       STATE.stream.exhausted = false;
       STATE.stream.stopped = false;
-      await loadProducts(targetCount);
+      await loadProducts(targetCount, allowScrollFallback);
       return collectionSnapshot();
     },
   };
@@ -976,25 +1002,36 @@
           throw new Error("CategoryStreamService_GetProductStreamPageV2 export nerastas.");
         }
         return service;
-      })();
+      })().catch((error) => {
+        STATE.stream.modulePromise = null;
+        throw error;
+      });
     }
     return STATE.stream.modulePromise;
   }
 
   async function resolveCategoryStreamModuleUrl() {
     if (STATE.stream.moduleUrl) return STATE.stream.moduleUrl;
-    const providerCandidates = Array.isArray(window.__ABOUTYOU_CATEGORY_SERVICE_MODULE_CANDIDATES__)
-      ? window.__ABOUTYOU_CATEGORY_SERVICE_MODULE_CANDIDATES__
-      : [];
-    const loadedCandidates = providerCandidates.concat(Array.from(performance.getEntriesByType("resource"))
-      .map((entry) => entry.name)
-      .filter((value) => /\/assets\/service\.grpc-(?!lazy)[^/]+\.js(?:\?|$)/.test(value)));
-    recordDiagnostic("category_stream_module_candidates", {
-      count: loadedCandidates.length,
-      urls: loadedCandidates.map((value) => new URL(value).pathname).slice(-30),
-    });
-    const loadedModule = await findCategoryStreamModuleUrl(loadedCandidates);
-    if (loadedModule) return loadedModule;
+    const probed = new Set();
+    const deadline = Date.now() + 8_000;
+    // Resource Timing may have evicted early entries. Playwright continuously
+    // supplies network candidates, including chunks loaded after hydration.
+    do {
+      const candidates = [
+        ...(window.__ABOUTYOU_CATEGORY_SERVICE_MODULE_CANDIDATES__ || []),
+        ...performance.getEntriesByType("resource").map((entry) => entry.name),
+        ...Array.from(document.querySelectorAll('script[src], link[rel="modulepreload"]')).map((node) => node.src || node.href),
+      ].filter((value) => /\/assets\/service\.grpc-[^/]+\.js(?:\?|$)/.test(value));
+      const fresh = Array.from(new Set(candidates)).filter((value) => !probed.has(value));
+      if (fresh.length) {
+        fresh.forEach((value) => probed.add(value));
+        recordDiagnostic("category_stream_module_candidates", { count: fresh.length, urls: fresh.map((value) => new URL(value).pathname) });
+        const module = await findCategoryStreamModuleUrl(fresh);
+        if (module) return module;
+      }
+      if (STATE.stopLoading) throw new Error("Collection stopped during module discovery");
+      await sleep(200);
+    } while (Date.now() < deadline);
 
     const indexScript = Array.from(document.scripts)
       .map((script) => script.src)
@@ -1003,7 +1040,7 @@
 
     try {
       const code = await fetchWithTimeout(indexScript, { credentials: "omit" }, "index-module", (response) => response.text());
-      const directCandidates = Array.from(code.matchAll(/(?:\.\/|assets\/)(service\.grpc-(?!lazy)[^"']+\.js)/g))
+      const directCandidates = Array.from(code.matchAll(/["'](?:\.\/|\/?assets\/)?(service\.grpc-[^"']+\.js)["']/g))
         .map((match) => new URL(match[1], indexScript).href);
       const directModule = await findCategoryStreamModuleUrl(directCandidates);
       if (directModule) return directModule;
@@ -1011,7 +1048,7 @@
       if (categoryMatch) {
         const categoryUrl = new URL(categoryMatch[0].replace(/^assets\//, ""), indexScript).href;
         const categoryCode = await fetchWithTimeout(categoryUrl, { credentials: "omit" }, "category-module", (response) => response.text());
-        const categoryCandidates = Array.from(categoryCode.matchAll(/(?:\.\/|assets\/)(service\.grpc-(?!lazy)[^"']+\.js)/g))
+        const categoryCandidates = Array.from(categoryCode.matchAll(/["'](?:\.\/|\/?assets\/)?(service\.grpc-[^"']+\.js)["']/g))
           .map((match) => new URL(match[1], categoryUrl).href);
         const categoryModule = await findCategoryStreamModuleUrl(categoryCandidates);
         if (categoryModule) return categoryModule;
@@ -1373,14 +1410,14 @@
     string() {
       const length = this.uint32();
       const start = this.pos;
-      this.pos += length;
+      this.advance(length);
       return new TextDecoder().decode(this.buf.slice(start, start + length));
     }
 
     bytes() {
       const length = this.uint32();
       const start = this.pos;
-      this.pos += length;
+      this.advance(length);
       return this.buf.slice(start, start + length);
     }
 
@@ -1411,11 +1448,13 @@
         return;
       }
       if (wireType === 1) {
-        this.pos += 8;
+        this.advance(8);
         return;
       }
       if (wireType === 2) {
-        this.pos += this.uint32();
+        // += reads the old position before uint32() consumes the length prefix.
+        const length = this.uint32();
+        this.advance(length);
         return;
       }
       if (wireType === 3) {
@@ -1427,20 +1466,29 @@
         return;
       }
       if (wireType === 5) {
-        this.pos += 4;
+        this.advance(4);
+        return;
       }
+      throw new Error(`Unsupported protobuf wire type: ${wireType}`);
+    }
+
+    advance(length) {
+      if (!Number.isSafeInteger(length) || length < 0 || this.pos + length > this.len) {
+        throw new Error("Truncated protobuf field");
+      }
+      this.pos += length;
     }
 
     readVarint() {
       let shift = 0n;
       let result = 0n;
-      while (this.pos < this.len) {
+      for (let count = 0; count < 10 && this.pos < this.len; count += 1) {
         const byte = this.buf[this.pos++];
         result |= BigInt(byte & 127) << shift;
         if ((byte & 128) === 0) return result;
         shift += 7n;
       }
-      return result;
+      throw new Error("Truncated or oversized protobuf varint");
     }
   }
 

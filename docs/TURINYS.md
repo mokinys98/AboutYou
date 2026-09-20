@@ -25,7 +25,7 @@ Progresas yra praktinis įvertis nuo `0/100` iki `100/100`:
 
 | Dokumentas | Paskirtis | Būsena |
 |---|---|---:|
-| [Rinkimo diagnostika ir pataisos](RINKIMO_DIAGNOSTIKA.md) | 2026-09-20 nustatytos rinkimo klaidos, gyvas bandymas, diagnostikos komanda ir VPS migracijos instrukcijos. | Kodas patikrintas; VPS diegimas laukia |
+| [Rinkimo diagnostika ir pataisos](RINKIMO_DIAGNOSTIKA.md) | 2026-09-20 nustatytos rinkimo klaidos, gyvas bandymas, diagnostikos komanda ir patvirtinta VPS migracija. | Kodas patikrintas; VPS migracija atlikta; rinkiklio diegimas nepatvirtintas |
 | [ABOUT YOU duomenys ir atributai](ABOUTYOU_DUOMENU_ATRIBUTAI.md) | Kaip renkami produktai, kokie atributai saugomi ir kokios duomenų spragos dar žinomos. | **100/100 analizė** |
 
 ## Dokumentų gyvavimo taisyklė

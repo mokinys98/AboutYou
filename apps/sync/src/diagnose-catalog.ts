@@ -19,10 +19,19 @@ function log(event: Record<string, unknown>) {
   writes = writes.then(() => appendFile(resolve(directory, "events.jsonl"), line));
 }
 const started = Date.now();
+const assetDelayMs = z.coerce.number().int().min(0).max(10_000).parse(process.argv[5] ?? 0);
 const browser = await chromium.launch({ headless: true });
 try {
   const context = await browser.newContext({ locale: "lt-LT", timezoneId: "Europe/Vilnius" });
   const page = await context.newPage();
+  if (assetDelayMs) {
+    // Reproduce slow CI hydration without contacting any application/database API.
+    await page.route(/\/assets\/service\.grpc-[^/]+\.js/, async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, assetDelayMs));
+      await route.continue();
+    });
+    log({ event: "diagnostic_asset_delay", delayMs: assetDelayMs });
+  }
   page.on("response", (response) => {
     if (response.status() < 400) return;
     const url = new URL(response.url());
