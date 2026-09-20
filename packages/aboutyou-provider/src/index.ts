@@ -48,12 +48,18 @@ export class AboutYouRateLimitError extends Error {
   override name = "AboutYouRateLimitError";
 }
 
+export class AboutYouCollectionTimeoutError extends Error {
+  override name = "AboutYouCollectionTimeoutError";
+}
+
 export interface CollectionResult {
   products: Product[];
   pages: number;
   expectedTotal: number | null;
   mode: "direct-stream" | "scroll-fallback" | "initial-state" | "initial-state+scroll";
   complete: boolean;
+  rateLimited?: boolean;
+  error?: string | null;
 }
 
 export interface CollectionProgress {
@@ -61,6 +67,12 @@ export interface CollectionProgress {
   expectedTotal: number | null;
   pages: number;
   mode: CollectionResult["mode"];
+}
+
+export interface CollectionDiagnosticEvent {
+  event: string;
+  at: string;
+  [key: string]: unknown;
 }
 
 export interface ProductMetadataEnrichmentProgress {
@@ -853,28 +865,70 @@ export async function collectAboutYouTarget(
     maxScrollRounds?: number;
     timeoutMs?: number;
     progressIntervalMs?: number;
+    directStream?: boolean;
     onProgress?: (progress: CollectionProgress) => void;
+    onDiagnostic?: (event: CollectionDiagnosticEvent) => void;
   } = {}
 ): Promise<CollectionResult> {
   if (!isAllowedAboutYouUrl(url)) throw new Error(`Neleistinas ABOUT YOU URL: ${url}`);
-  const maxProducts = Math.min(options.maxProducts ?? 10_000, 10_000);
+  const maxProducts = Math.min(Math.max(options.maxProducts ?? 10_000, 1), 50_000);
   const maxScrollRounds = options.maxScrollRounds ?? 180;
 
+  await page.addInitScript(() => {
+    (window as unknown as { __ABOUTYOU_CATALOG_AUTOMATION__?: boolean }).__ABOUTYOU_CATALOG_AUTOMATION__ = true;
+  });
   await page.addInitScript({
     path: fileURLToPath(new URL("../../../aboutyou-price-sort.user.js", import.meta.url))
   });
+  const categoryServiceModuleCandidates = new Set<string>();
+  page.on("response", (response) => {
+    const responseUrl = response.url();
+    if (/^https:\/\/assets\.aboutstatic\.com\/assets\/service\.grpc-(?!lazy)[^/]+\.js(?:\?|$)/.test(responseUrl)) {
+      categoryServiceModuleCandidates.add(responseUrl);
+    }
+  });
 
+  const navigationStartedAt = Date.now();
+  emitCollectionDiagnostic(options, "navigation_started", { url: safeDiagnosticUrl(url) });
   const initialResponse = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60_000 });
+  emitCollectionDiagnostic(options, "navigation_completed", {
+    status: initialResponse?.status() ?? null,
+    durationMs: Date.now() - navigationStartedAt,
+    finalUrl: safeDiagnosticUrl(page.url())
+  });
   await assertAboutYouPageAvailable(page, initialResponse);
   await page.waitForTimeout(1_200);
+  const serviceModuleCandidates = Array.from(categoryServiceModuleCandidates);
+  emitCollectionDiagnostic(options, "category_service_module_candidates_captured", {
+    count: serviceModuleCandidates.length,
+    urls: serviceModuleCandidates.map(safeDiagnosticUrl).slice(-30)
+  });
+  await page.evaluate((candidates) => {
+    (window as unknown as {
+      __ABOUTYOU_CATEGORY_SERVICE_MODULE_CANDIDATES__?: string[];
+    }).__ABOUTYOU_CATEGORY_SERVICE_MODULE_CANDIDATES__ = candidates;
+  }, serviceModuleCandidates);
 
-  try {
-    return await collectFromDirectStream(page, maxProducts, options);
-  } catch (error) {
-    console.warn(`[aboutyou-provider] Tiesioginis srautas nepavyko, naudojamas DOM fallback: ${safeError(error)}`);
-    const fallbackResponse = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60_000 });
-    await assertAboutYouPageAvailable(page, fallbackResponse);
-    await page.waitForTimeout(1_200);
+  if (options.directStream !== false) {
+    try {
+      return await collectFromDirectStream(page, maxProducts, options);
+    } catch (error) {
+      emitCollectionDiagnostic(options, "direct_stream_failed", { error: safeError(error) });
+      if (error instanceof AboutYouCollectionTimeoutError || error instanceof AboutYouRateLimitError) throw error;
+      console.warn(`[aboutyou-provider] Tiesioginis srautas nepavyko, naudojamas DOM fallback: ${safeError(error)}`);
+      const fallbackNavigationStartedAt = Date.now();
+      emitCollectionDiagnostic(options, "fallback_navigation_started", { url: safeDiagnosticUrl(url) });
+      const fallbackResponse = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60_000 });
+      emitCollectionDiagnostic(options, "fallback_navigation_completed", {
+        status: fallbackResponse?.status() ?? null,
+        durationMs: Date.now() - fallbackNavigationStartedAt,
+        finalUrl: safeDiagnosticUrl(page.url())
+      });
+      await assertAboutYouPageAvailable(page, fallbackResponse);
+      await page.waitForTimeout(1_200);
+    }
+  } else {
+    emitCollectionDiagnostic(options, "direct_stream_skipped");
   }
 
   const initial = await page.evaluate(({ streamPath }) => {
@@ -895,10 +949,11 @@ export async function collectAboutYouTarget(
           const data = wrapper?.data ?? payload;
           const pagination = (data as { pagination?: { total?: number } })?.pagination;
           if (Number.isFinite(pagination?.total)) total = pagination!.total!;
-          const pending: unknown[] = [data];
+          const dataItems = (data as { items?: unknown }).items;
+          const pending: unknown[] = [dataItems ?? data];
           while (pending.length) {
             const value = pending.pop();
-            if (!value || typeof value !== "object") continue;
+            if (!value || typeof value !== "object" || ArrayBuffer.isView(value)) continue;
             const object = value as Record<string, unknown>;
             const productTile = object.productTile as Record<string, unknown> | undefined;
             if (productTile?.productId) tiles.push(productTile);
@@ -970,7 +1025,7 @@ export async function collectAboutYouTarget(
     pages: Math.max(1, rounds),
     expectedTotal: initial.total,
     mode: rounds ? "initial-state+scroll" : "initial-state",
-    complete: raw.size > 0 && (raw.size >= targetTotal || (initial.total === null && stable >= 6))
+    complete: products.length > 0 && products.length >= targetTotal
   };
 }
 
@@ -1001,6 +1056,7 @@ type BrowserCollection = {
   mode: "direct-stream" | "scroll-fallback";
   complete: boolean;
   error: string | null;
+  rateLimited?: boolean;
 };
 
 async function collectFromDirectStream(
@@ -1010,11 +1066,14 @@ async function collectFromDirectStream(
     timeoutMs?: number;
     progressIntervalMs?: number;
     onProgress?: (progress: CollectionProgress) => void;
+    onDiagnostic?: (event: CollectionDiagnosticEvent) => void;
   }
 ): Promise<CollectionResult> {
+  emitCollectionDiagnostic(options, "collector_wait_started");
   await page.waitForFunction(() => Boolean((window as unknown as {
     __ABOUTYOU_CATALOG_COLLECTOR__?: unknown;
   }).__ABOUTYOU_CATALOG_COLLECTOR__), undefined, { timeout: 10_000 });
+  emitCollectionDiagnostic(options, "collector_ready");
 
   const collection = page.evaluate(async (limit) => {
     const api = (window as unknown as {
@@ -1027,20 +1086,31 @@ async function collectFromDirectStream(
   }, maxProducts);
   const timeoutMs = options.timeoutMs ?? 8 * 60_000;
   const progressIntervalMs = options.progressIntervalMs ?? 5_000;
+  let lastSnapshot: BrowserCollection | null = null;
+  let polling = false;
   const progress = setInterval(() => {
+    if (polling) return;
+    polling = true;
     void page.evaluate(() => {
       const api = (window as unknown as {
-        __ABOUTYOU_CATALOG_COLLECTOR__?: { snapshot: () => BrowserCollection };
+        __ABOUTYOU_CATALOG_COLLECTOR__?: {
+          snapshot: () => BrowserCollection;
+          drainDiagnostics: () => CollectionDiagnosticEvent[];
+        };
       }).__ABOUTYOU_CATALOG_COLLECTOR__;
-      return api?.snapshot();
-    }).then((snapshot) => {
-      if (snapshot) options.onProgress?.({
-        products: snapshot.productCount,
-        expectedTotal: snapshot.expectedTotal,
-        pages: snapshot.pages,
-        mode: snapshot.mode
-      });
-    }).catch(() => undefined);
+      return api ? { snapshot: api.snapshot(), diagnostics: api.drainDiagnostics() } : null;
+    }).then((state) => {
+      if (state) {
+        lastSnapshot = state.snapshot;
+        for (const event of state.diagnostics) options.onDiagnostic?.(event);
+        options.onProgress?.({
+          products: state.snapshot.productCount,
+          expectedTotal: state.snapshot.expectedTotal,
+          pages: state.snapshot.pages,
+          mode: state.snapshot.mode
+        });
+      }
+    }).catch(() => undefined).finally(() => { polling = false; });
   }, progressIntervalMs);
   progress.unref();
 
@@ -1049,15 +1119,18 @@ async function collectFromDirectStream(
   try {
     result = await Promise.race([
       collection,
-      new Promise<never>((_, reject) => {
+      new Promise<BrowserCollection>((resolve, reject) => {
         timeout = setTimeout(() => {
+          emitCollectionDiagnostic(options, "collection_timeout", { timeoutMs });
           void page.evaluate(() => {
             const api = (window as unknown as {
               __ABOUTYOU_CATALOG_COLLECTOR__?: { stop: () => void };
             }).__ABOUTYOU_CATALOG_COLLECTOR__;
             api?.stop();
           }).catch(() => undefined);
-          reject(new Error(`Produktų rinkimas viršijo ${Math.round(timeoutMs / 1_000)} s timeout'ą.`));
+          const error = `Produktų rinkimas viršijo ${Math.round(timeoutMs / 1_000)} s timeout'ą.`;
+          if (lastSnapshot?.products.length) resolve({ ...lastSnapshot, complete: false, error });
+          else reject(new AboutYouCollectionTimeoutError(error));
         }, timeoutMs);
         timeout.unref();
       })
@@ -1066,6 +1139,22 @@ async function collectFromDirectStream(
     if (timeout) clearTimeout(timeout);
     clearInterval(progress);
   }
+
+  // On timeout the browser may be unresponsive. Do not wait on another evaluate.
+  const remainingDiagnostics = result.loading ? [] : await page.evaluate(() => {
+    const api = (window as unknown as {
+      __ABOUTYOU_CATALOG_COLLECTOR__?: { drainDiagnostics: () => CollectionDiagnosticEvent[] };
+    }).__ABOUTYOU_CATALOG_COLLECTOR__;
+    return api?.drainDiagnostics() ?? [];
+  }).catch(() => [] as CollectionDiagnosticEvent[]);
+  for (const event of remainingDiagnostics) options.onDiagnostic?.(event);
+  emitCollectionDiagnostic(options, "direct_collection_completed", {
+    products: result.productCount,
+    expectedTotal: result.expectedTotal,
+    pages: result.pages,
+    mode: result.mode,
+    complete: result.complete
+  });
 
   const raw = result.products.map((item): RawProduct | null => {
     if (!item.productId || !item.url || item.currentPrice === null || item.currentPrice === undefined) return null;
@@ -1089,20 +1178,48 @@ async function collectFromDirectStream(
       sourceLpl30: item.lplPrice ?? null
     };
   }).filter((item): item is RawProduct => item !== null);
-  const products = raw.map(normalizeRawProduct).filter((item): item is Product => item !== null).slice(0, maxProducts);
+  const normalizedProducts = raw.map(normalizeRawProduct).filter((item): item is Product => item !== null);
+  const products = normalizedProducts.slice(0, maxProducts);
+  emitCollectionDiagnostic(options, "collection_normalized", {
+    received: result.products.length, valid: products.length,
+    rejected: result.products.length - normalizedProducts.length,
+    expectedTotal: result.expectedTotal, maxProducts, rateLimited: result.rateLimited ?? false
+  });
   if (result.error) console.warn(`[aboutyou-provider] Rinkimo fallback priežastis: ${result.error.slice(0, 500)}`);
+  if (products.length === 0 && result.rateLimited) throw new AboutYouRateLimitError(result.error || "ABOUT YOU rate limited");
   if (products.length === 0) throw new Error(result.error || "Tiesioginis produkto srautas negrąžino produktų.");
   return {
     products,
     pages: Math.max(1, result.pages),
     expectedTotal: result.expectedTotal,
     mode: result.mode,
-    complete: result.complete
+    complete: result.complete && products.length >= Math.min(maxProducts, result.expectedTotal ?? maxProducts),
+    rateLimited: result.rateLimited,
+    error: result.error
   };
 }
 
 function safeError(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).slice(0, 500);
+}
+
+function emitCollectionDiagnostic(
+  options: { onDiagnostic?: (event: CollectionDiagnosticEvent) => void },
+  event: string,
+  details: Record<string, unknown> = {}
+): void {
+  try {
+    options.onDiagnostic?.({ event, at: new Date().toISOString(), ...details });
+  } catch { /* diagnostics must never interrupt collection */ }
+}
+
+function safeDiagnosticUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return value.slice(0, 300);
+  }
 }
 
 function rawFromTile(tile: Record<string, unknown>, baseUrl: string): RawProduct | null {

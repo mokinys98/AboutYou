@@ -7,12 +7,14 @@ import { inferFallbackCategoryPath, resolveFallbackCategory } from "./category-c
 import { saveCatalogBatchResilient, type CatalogBatchFailureEvent, type CatalogBatchRejected } from "./catalog-batches";
 import { formatSyncError } from "./sync-errors";
 import { selectSyncTargets } from "./target-selection";
+import { catalogCollectionIssue } from "./catalog-policy";
 
 const EnvSchema = z.object({
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(20),
   SYNC_MAX_PRODUCTS: z.coerce.number().int().min(1).max(50_000).default(10_000),
   SYNC_TARGET_LABEL: z.string().default(""),
+  SYNC_COLLECTION_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(900_000).default(480_000),
   SYNC_HEADLESS: z.string().default("true").transform((value) => value !== "false")
 });
 
@@ -51,16 +53,41 @@ try {
     let rejectedProducts: CatalogBatchRejected[] = [];
     try {
       const result = await withHeartbeat(`„${target.label}“: renkami produktai`, () => retry(
-        async () => {
-          await collectionSession.context?.close().catch(() => undefined);
+        async (attempt) => {
+          const attemptStartedAt = Date.now();
+          logEvent("catalog_collection_attempt_started", { target: target.label, attempt });
+          const previousContext = collectionSession.context;
+          collectionSession.context = null;
+          await closeBrowserContext(previousContext, { target: target.label, attempt, phase: "before_attempt" });
           collectionSession.context = await browser.newContext({ locale: "lt-LT", timezoneId: "Europe/Vilnius" });
           const page = await collectionSession.context.newPage();
-          return collectAboutYouTarget(page, target.url, {
+          attachPageDiagnostics(page, target.label, attempt);
+          logEvent("catalog_browser_page_ready", { target: target.label, attempt });
+          const collection = await collectAboutYouTarget(page, target.url, {
             maxProducts: env.SYNC_MAX_PRODUCTS,
+            timeoutMs: env.SYNC_COLLECTION_TIMEOUT_MS,
+            directStream: attempt === 1,
             onProgress: ({ products, expectedTotal, pages, mode }) => log(
               `„${target.label}“: surinkta ${products}${expectedTotal ? `/${Math.min(expectedTotal, env.SYNC_MAX_PRODUCTS)}` : ""} produktų (${pages} srauto psl., ${mode}).`
-            )
+            ),
+            onDiagnostic: ({ event, at, ...details }) => logEvent("aboutyou_collection_diagnostic", {
+              target: target.label,
+              attempt,
+              collection_event: event,
+              collection_event_at: at,
+              ...details
+            })
           });
+          logEvent("catalog_collection_attempt_completed", {
+            target: target.label,
+            attempt,
+            duration_ms: Date.now() - attemptStartedAt,
+            products: collection.products.length,
+            pages: collection.pages,
+            mode: collection.mode,
+            complete: collection.complete
+          });
+          return collection;
         },
         2,
         (attempt, error) => log(`„${target.label}“: ${attempt} bandymas nepavyko (${safeError(error)}), bus kartojama.`)
@@ -69,9 +96,12 @@ try {
       if (result.products.length === 0) {
         throw new Error("Rinkimas negrąžino nė vieno produkto; tuščias rezultatas negali būti pažymėtas sėkmingu.");
       }
-      if (!result.complete) {
-        throw new Error(`Rinkimas nutrūko nepasiekęs tikslo: ${result.products.length}/${Math.min(result.expectedTotal ?? env.SYNC_MAX_PRODUCTS, env.SYNC_MAX_PRODUCTS)} produktų.`);
-      }
+      const collectionIssue = catalogCollectionIssue(result, env.SYNC_MAX_PRODUCTS);
+      logEvent("catalog_collection_summary", {
+        run_id: run.id, target: target.label, collected: result.products.length,
+        expected_total: result.expectedTotal, mode: result.mode,
+        duration_ms: Date.now() - targetStartedAt, issue: collectionIssue
+      });
       const products = result.products.map((product) => {
         const sourceCategories = product.categories;
         const sourceIsExact = sourceCategories[0]?.toLocaleLowerCase("lt") === "vyrams" && sourceCategories.length >= 2;
@@ -125,32 +155,40 @@ try {
         rejectedProducts = [...rejectedProducts, ...result.rejected];
         log(`„${target.label}“: išsaugota ${productCount}/${products.length} produktų.`);
       }
-      const finalStatus = rejectedProducts.length ? "partial" : "success";
-      const finalError = rejectedProducts.length
-        ? JSON.stringify({ rejected_products: rejectedProducts.slice(0, 50) }).slice(0, 2_000)
+      const finalStatus = rejectedProducts.length || collectionIssue ? "partial" : "success";
+      const finalError = finalStatus === "partial"
+        ? JSON.stringify({ collection_issue: collectionIssue, rejected_products: rejectedProducts.slice(0, 50) }).slice(0, 2_000)
         : null;
       const { error: finishError } = await db.rpc("finish_sync_run", {
         p_run_id: run.id, p_status: finalStatus, p_pages_count: pages,
         p_products_count: productCount, p_error: finalError
       });
       if (finishError) throw finishError;
-      if (rejectedProducts.length) {
+      if (finalStatus === "partial") {
         failed = true;
-        console.error(JSON.stringify({ event: "catalog_target_partial", target: target.label, rejected_products: rejectedProducts }));
+        console.error(JSON.stringify({ event: "catalog_target_partial", target: target.label, collection_issue: collectionIssue, rejected_products: rejectedProducts }));
         log(`„${target.label}“ baigta dalinai: ${productCount}/${products.length} produktų, ${rejectedProducts.length} atmesta.`);
       } else {
         log(`„${target.label}“ baigta sėkmingai: ${productCount} produktų, ${pages} psl., ${formatDuration(Date.now() - targetStartedAt)}.`);
       }
+      if (result.rateLimited) {
+        logEvent("catalog_rate_limit_stop", { target: target.label });
+        break;
+      }
     } catch (error) {
       failed = true;
       const message = safeError(error);
-      await db.rpc("finish_sync_run", {
+      const { error: failureRecordError } = await db.rpc("finish_sync_run", {
         p_run_id: run.id, p_status: productCount ? "partial" : "failed", p_pages_count: pages,
         p_products_count: productCount, p_error: message
       });
+      if (failureRecordError) logEvent("catalog_failure_record_failed", { run_id: run.id, error: safeError(failureRecordError) });
       console.error(JSON.stringify({ target: target.label, status: "failed", error: message }));
+      if (error instanceof AboutYouRateLimitError) break;
     } finally {
-      await collectionSession.context?.close().catch(() => undefined);
+      const finalContext = collectionSession.context;
+      collectionSession.context = null;
+      await closeBrowserContext(finalContext, { target: target.label, phase: "target_finally" });
     }
   }
   await withHeartbeat("Valoma sena kainų istorija", () => db.rpc("cleanup_price_history"));
@@ -173,10 +211,10 @@ try {
 log(`Sinchronizavimas baigtas ${failed ? "su klaidomis" : "sėkmingai"} per ${formatDuration(Date.now() - startedAt)}.`);
 if (failed) process.exitCode = 1;
 
-async function retry<T>(operation: () => Promise<T>, attempts: number, onRetry?: (attempt: number, error: unknown) => void): Promise<T> {
+async function retry<T>(operation: (attempt: number) => Promise<T>, attempts: number, onRetry?: (attempt: number, error: unknown) => void): Promise<T> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    try { return await operation(); }
+    try { return await operation(attempt); }
     catch (error) {
       lastError = error;
       if (error instanceof AboutYouRateLimitError) break;
@@ -221,4 +259,86 @@ function chunks<T>(items: T[], size: number): T[][] {
 
 function safeError(error: unknown): string {
   return formatSyncError(error);
+}
+
+function logEvent(event: string, details: Record<string, unknown> = {}): void {
+  console.log(JSON.stringify({ event, at: new Date().toISOString(), ...details }));
+}
+
+function attachPageDiagnostics(page: import("playwright").Page, target: string, attempt: number): void {
+  page.on("response", (response) => {
+    const url = response.url();
+    const isStream = url.includes("tadarida-web.aboutyou.com");
+    if (!isStream && response.status() < 400) return;
+    logEvent("catalog_browser_response", {
+      target,
+      attempt,
+      status: response.status(),
+      resource_type: response.request().resourceType(),
+      url: safeNetworkUrl(url)
+    });
+  });
+  page.on("requestfailed", (request) => {
+    const url = request.url();
+    if (!url.includes("aboutyou") && request.resourceType() !== "document") return;
+    logEvent("catalog_browser_request_failed", {
+      target,
+      attempt,
+      resource_type: request.resourceType(),
+      error: request.failure()?.errorText ?? "unknown",
+      url: safeNetworkUrl(url)
+    });
+  });
+  page.on("pageerror", (error) => logEvent("catalog_browser_page_error", {
+    target,
+    attempt,
+    error: error.message.slice(0, 500)
+  }));
+  page.on("console", (message) => {
+    const text = message.text();
+    const isCollectorEvent = text.startsWith("[aboutyou-collector-event]");
+    if (!isCollectorEvent && message.type() !== "warning" && message.type() !== "error") return;
+    logEvent("catalog_browser_console", {
+      target,
+      attempt,
+      level: message.type(),
+      message: text.slice(0, 1_000)
+    });
+  });
+}
+
+async function closeBrowserContext(
+  context: BrowserContext | null,
+  details: Record<string, unknown>,
+  timeoutMs = 10_000
+): Promise<void> {
+  if (!context) return;
+  const startedAt = Date.now();
+  logEvent("catalog_browser_context_close_started", details);
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const outcome = await Promise.race([
+    context.close().then(() => "closed" as const).catch((error) => {
+      logEvent("catalog_browser_context_close_failed", { ...details, error: safeError(error) });
+      return "failed" as const;
+    }),
+    new Promise<"timeout">((resolve) => {
+      timeout = setTimeout(() => resolve("timeout"), timeoutMs);
+      timeout.unref();
+    })
+  ]);
+  if (timeout) clearTimeout(timeout);
+  logEvent(outcome === "timeout" ? "catalog_browser_context_close_timeout" : "catalog_browser_context_close_completed", {
+    ...details,
+    outcome,
+    duration_ms: Date.now() - startedAt
+  });
+}
+
+function safeNetworkUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return value.slice(0, 300);
+  }
 }

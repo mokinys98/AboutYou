@@ -7,6 +7,9 @@ Nuxt 3, Hono, Supabase ir Playwright monorepo, periodiškai surenkantis pasirink
 Aktyvių planų, techninių dokumentų ir jų progreso sąrašas:
 [docs/TURINYS.md](docs/TURINYS.md).
 
+Rinkimo klaidų diagnostika, 2026-09-20 pataisos ir metaduomenų atkūrimo migracijos
+instrukcijos: [docs/RINKIMO_DIAGNOSTIKA.md](docs/RINKIMO_DIAGNOSTIKA.md).
+
 ## Darbo vietos
 
 - `apps/web` – privatus Nuxt katalogas ir administravimo UI.

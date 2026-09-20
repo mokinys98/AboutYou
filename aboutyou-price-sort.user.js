@@ -17,9 +17,11 @@
 (function () {
   "use strict";
 
+  if (window.top !== window) return;
   if (window.__ABOUTYOU_PRICE_SORTER_LOADED__) return;
   console.warn("[ABOUT YOU price sorter] userscript loaded", location.href);
   window.__ABOUTYOU_PRICE_SORTER_LOADED__ = true;
+  const AUTOMATION_MODE = window.__ABOUTYOU_CATALOG_AUTOMATION__ === true;
 
   const PRODUCT_PATH_RE = /\/p\/[^?#]+-(\d+)(?:[?#]|$)/;
   const TADARIDA_HOST_RE = /:\/\/tadarida-web\.aboutyou\.com\b/;
@@ -28,9 +30,9 @@
   const PRODUCT_STREAM_INITIAL_PATH = `${PRODUCT_STREAM_SERVICE}/${PRODUCT_STREAM_INITIAL_METHOD}`;
   const PRODUCT_STREAM_PAGE_METHOD = "GetProductStreamPageV2";
   const PRODUCT_STREAM_PAGE_PATH = `${PRODUCT_STREAM_SERVICE}/${PRODUCT_STREAM_PAGE_METHOD}`;
-  const CATEGORY_STREAM_MODULE_FALLBACK = "https://assets.aboutstatic.com/assets/service.grpc-DpEGTlTl.js";
   const DIRECT_ALL_MAX_PAGES = 200;
   const DIRECT_REQUEST_TIMEOUT_MS = 30_000;
+  const MAX_TRAVERSAL_NODES = 100_000;
   const STATE = {
     products: new Map(),
     cards: [],
@@ -39,6 +41,7 @@
     loadingAll: false,
     stopLoading: false,
     applyingDomChanges: false,
+    domObserver: null,
     pageKey: getPageKey(),
     initialPageKey: getPageKey(),
     stream: {
@@ -53,7 +56,12 @@
       requestController: null,
       directError: "",
       fallbackComplete: false,
+      exhausted: false,
+      rateLimited: false,
+      stopped: false,
+      networkInitialized: false,
       pages: 0,
+      diagnostics: [],
     },
     staticConfig: null,
   };
@@ -272,7 +280,12 @@
     STATE.stream.requestController = null;
     STATE.stream.directError = "";
     STATE.stream.fallbackComplete = false;
+    STATE.stream.networkInitialized = false;
+    STATE.stream.exhausted = false;
+    STATE.stream.rateLimited = false;
+    STATE.stream.stopped = false;
     STATE.stream.pages = 0;
+    STATE.stream.diagnostics = [];
 
     for (const badge of document.querySelectorAll(".ay-lpl-badge")) {
       badge.remove();
@@ -297,7 +310,40 @@
       } catch (_) {
         // Observing network shape should never affect the shop.
       }
-      return originalFetch.apply(this, arguments);
+      const promise = originalFetch.apply(this, arguments);
+      const url = input instanceof Request ? input.url : String(input || "");
+      if (url.includes(PRODUCT_STREAM_INITIAL_PATH)) {
+        // Some category responses are now client-rendered and absent from SSR.
+        void promise.then(async (response) => {
+          if (STATE.stream.networkInitialized || STATE.stream.pages > 0) return;
+          if (response.status === 403 || response.status === 429) {
+            STATE.stream.rateLimited = true;
+            return;
+          }
+          if (!response.ok) return;
+          const bytes = new Uint8Array(await response.clone().arrayBuffer());
+          if (AUTOMATION_MODE) {
+            const candidatesDeadline = Date.now() + 5_000;
+            while (!window.__ABOUTYOU_CATEGORY_SERVICE_MODULE_CANDIDATES__?.length && Date.now() < candidatesDeadline) await sleep(50);
+          }
+          await loadCategoryStreamService();
+          const module = await import(STATE.stream.moduleUrl);
+          const initialService = module.CategoryStreamService_GetProductStreamV2;
+          if (typeof initialService !== "function") throw new Error("Initial stream decoder export missing");
+          await initialService({ unary(descriptor) {
+            const message = decodeGrpcWebResponse(bytes);
+            const data = descriptor.decodeResponse(new ProtoReader(message), message.length);
+            if (STATE.stream.networkInitialized || STATE.stream.pages > 0) return data;
+            STATE.products.clear();
+            collectProductTiles(data.items, (tile) => upsertProduct(productFromTile(tile)));
+            rememberProductStreamState(data);
+            STATE.stream.networkInitialized = true;
+            recordDiagnostic("initial_network_stream_decoded", { products: STATE.products.size, expectedTotal: STATE.stream.total });
+            return data;
+          } }, {});
+        }).catch((error) => recordDiagnostic("initial_network_stream_failed", { error: safeDiagnosticError(error) }));
+      }
+      return promise;
     };
   }
 
@@ -358,6 +404,7 @@
       parsePriceText(priceV2.lpl30d?.value?.text) ??
       parsePriceText(tile.price?.lpl30);
     const lplPrice = normalizeLplPrice(rawLplPrice, currentPrice);
+    const metadata = extractTileMetadata(tile);
 
     return {
       productId: tile.productId,
@@ -368,68 +415,65 @@
       lplPrice,
       lplIsFallback: isFallbackLplPrice(rawLplPrice),
       brand: tile.brandName || tile.brandTracker?.name || "",
-      imageUrls: findImageUrls(tile),
-      colorOriginal: findString(tile, ["colorLabel", "colorName", "color", "displayColor", "baseColor"]) || null,
-      categories: findStrings(tile, ["category", "categoryName", "categoryNames", "categories"]),
-      sizes: findStrings(tile, ["availableSizes", "sizeLabels", "sizes"]),
-      otherSizes: findStrings(tile, ["otherSizes", "specialSizes", "sizeGroups"]),
-      materials: findStrings(tile, ["material", "materials", "materialName", "materialComposition"]),
-      patterns: findStrings(tile, ["pattern", "patterns", "patternName"]),
-      features: findStrings(tile, ["features", "productFeatures", "attributes"]),
-      styles: findStrings(tile, ["style", "styles", "styleName"]),
-      productTypes: findStrings(tile, ["productType", "productTypes", "productTypeName"]),
+      ...metadata,
     };
   }
 
-  function findString(value, keys) {
-    if (!value || typeof value !== "object") return "";
-    for (const key of keys) {
-      if (typeof value[key] === "string") return value[key];
-    }
-    for (const child of Object.values(value)) {
-      const found = findString(child, keys);
-      if (found) return found;
-    }
-    return "";
-  }
-
-  function findStrings(value, keys) {
-    const wanted = new Set(keys);
-    const values = new Set();
-    const add = (item) => {
-      if (typeof item === "string") {
-        const text = item.replace(/\s+/g, " ").trim();
-        if (text && text.length <= 100 && !/^https?:/i.test(text)) values.add(text);
-      } else if (Array.isArray(item)) {
-        item.forEach(add);
-      } else if (item && typeof item === "object") {
-        add(item.label ?? item.name ?? item.value ?? item.text);
+  function extractTileMetadata(tile) {
+    const keyGroups = {
+      categories: new Set(["category", "categoryName", "categoryNames", "categories"]),
+      sizes: new Set(["availableSizes", "sizeLabels", "sizes"]),
+      otherSizes: new Set(["otherSizes", "specialSizes", "sizeGroups"]),
+      materials: new Set(["material", "materials", "materialName", "materialComposition"]),
+      patterns: new Set(["pattern", "patterns", "patternName"]),
+      features: new Set(["features", "productFeatures", "attributes"]),
+      styles: new Set(["style", "styles", "styleName"]),
+      productTypes: new Set(["productType", "productTypes", "productTypeName"]),
+    };
+    const values = Object.fromEntries(Object.keys(keyGroups).map((key) => [key, new Set()]));
+    const imageUrls = new Set();
+    const colorKeys = new Set(["colorLabel", "colorName", "color", "displayColor", "baseColor"]);
+    const pending = [tile];
+    const seen = new WeakSet();
+    let colorOriginal = null;
+    let visited = 0;
+    const addValue = (target, value) => {
+      const candidates = Array.isArray(value) ? value : [value];
+      for (const candidate of candidates) {
+        const raw = typeof candidate === "string"
+          ? candidate
+          : candidate && typeof candidate === "object"
+            ? candidate.label ?? candidate.name ?? candidate.value ?? candidate.text
+            : null;
+        const text = typeof raw === "string" ? raw.replace(/\s+/g, " ").trim() : "";
+        if (text && text.length <= 100 && !/^https?:/i.test(text)) target.add(text);
       }
     };
-    const visit = (item) => {
-      if (!item || typeof item !== "object") return;
+
+    while (pending.length && visited < MAX_TRAVERSAL_NODES) {
+      const item = pending.pop();
+      if (!item || typeof item !== "object" || ArrayBuffer.isView(item) || seen.has(item)) continue;
+      seen.add(item);
+      visited += 1;
       for (const [key, child] of Object.entries(item)) {
-        if (wanted.has(key)) add(child);
-        if (child && typeof child === "object") visit(child);
+        if (!colorOriginal && colorKeys.has(key) && typeof child === "string") colorOriginal = child;
+        for (const [group, wanted] of Object.entries(keyGroups)) {
+          if (wanted.has(key)) addValue(values[group], child);
+        }
+        if (typeof child === "string" && /^https:\/\//.test(child) && /\.(?:jpe?g|webp|avif)(?:\?|$)/i.test(child)) {
+          imageUrls.add(child);
+        } else if (child && typeof child === "object" && !ArrayBuffer.isView(child)) {
+          pending.push(child);
+        }
       }
-    };
-    visit(value);
-    return Array.from(values).slice(0, 30);
-  }
+    }
 
-  function findImageUrls(value) {
-    const urls = new Set();
-    const visit = (item) => {
-      if (typeof item === "string" && /^https:\/\//.test(item) && /\.(?:jpe?g|webp|avif)(?:\?|$)/i.test(item)) {
-        urls.add(item);
-      } else if (Array.isArray(item)) {
-        item.forEach(visit);
-      } else if (item && typeof item === "object") {
-        Object.values(item).forEach(visit);
-      }
+    if (pending.length) recordDiagnostic("tile_metadata_traversal_limited", { visited, remaining: pending.length });
+    return {
+      imageUrls: Array.from(imageUrls).slice(0, 6),
+      colorOriginal: colorOriginal || null,
+      ...Object.fromEntries(Object.entries(values).map(([key, group]) => [key, Array.from(group).slice(0, 30)])),
     };
-    visit(value);
-    return Array.from(urls).slice(0, 6);
   }
 
   function parseInitialState() {
@@ -450,7 +494,7 @@
         const payload = entry?.[1];
         const data = payload?.data || payload;
         if (!key.includes(PRODUCT_STREAM_INITIAL_PATH)) continue;
-        collectProductTiles(data, (tile) => upsertProduct(productFromTile(tile)));
+        collectProductTiles(data?.items || data, (tile) => upsertProduct(productFromTile(tile)));
         rememberProductStreamState(data);
       }
     }
@@ -489,14 +533,21 @@
   }
 
   function collectProductTiles(value, onTile) {
-    if (!value || typeof value !== "object") return;
-    if (value.productTile?.productId) onTile(value.productTile);
-    if (value.type?.productSection?.productTile?.productId) onTile(value.type.productSection.productTile);
-    if (Array.isArray(value)) {
-      for (const item of value) collectProductTiles(item, onTile);
-      return;
+    const pending = [value];
+    const seen = new WeakSet();
+    let visited = 0;
+    while (pending.length && visited < MAX_TRAVERSAL_NODES) {
+      const item = pending.pop();
+      if (!item || typeof item !== "object" || ArrayBuffer.isView(item) || seen.has(item)) continue;
+      seen.add(item);
+      visited += 1;
+      if (item.productTile?.productId) onTile(item.productTile);
+      if (item.type?.productSection?.productTile?.productId) onTile(item.type.productSection.productTile);
+      pending.push(...(Array.isArray(item) ? item : Object.values(item)));
     }
-    for (const child of Object.values(value)) collectProductTiles(child, onTile);
+    if (pending.length) {
+      recordDiagnostic("product_tile_traversal_limited", { visited, remaining: pending.length });
+    }
   }
 
   function findCard(anchor) {
@@ -676,6 +727,14 @@
       previousCount = count;
       window.scrollTo(0, document.documentElement.scrollHeight);
       updateStatus(`Scroll fallback: ${STATE.products.size} duomenu, ${STATE.cards.length} DOM...`);
+      if (round === 0 || (round + 1) % 5 === 0) {
+        recordDiagnostic("scroll_progress", {
+          round: round + 1,
+          products: STATE.products.size,
+          domCards: STATE.cards.length,
+          stableRounds,
+        });
+      }
       await sleep(450);
     }
 
@@ -684,7 +743,24 @@
 
   async function loadProductsFast(targetCount) {
     parseInitialState();
-    scanCards();
+    // Wait for the shop's initial stream on pages with no SSR catalog payload.
+    const initialDeadline = Date.now() + 15_000;
+    while (!STATE.stream.nextState && STATE.stream.total === null && !STATE.stream.networkInitialized && !STATE.stopLoading && !STATE.stream.rateLimited && Date.now() < initialDeadline) {
+      await sleep(100);
+    }
+    if (STATE.stream.rateLimited) {
+      const error = new Error("Initial product stream HTTP 429/403");
+      error.status = 429;
+      throw error;
+    }
+    if (!STATE.stream.networkInitialized && !STATE.stream.nextState) scanCards();
+    recordDiagnostic("initial_state_ready", {
+      products: STATE.products.size,
+      expectedTotal: STATE.stream.total,
+      nextStateBytes: STATE.stream.nextState?.length || 0,
+    });
+    const initialTarget = Number.isFinite(STATE.stream.total) ? Math.min(targetCount, STATE.stream.total) : targetCount;
+    if (STATE.products.size > 0 && STATE.products.size >= initialTarget) return true;
     if (!(STATE.stream.nextState instanceof Uint8Array) || STATE.stream.nextState.length === 0) {
       throw new Error("Product stream nextState nerastas initial-state duomenyse.");
     }
@@ -699,6 +775,12 @@
     const maxPages = Number.isFinite(effectiveTarget)
       ? Math.max(1, Math.ceil(Math.max(0, effectiveTarget - initialCount) / 24) + 12)
       : DIRECT_ALL_MAX_PAGES;
+    recordDiagnostic("direct_stream_started", {
+      targetCount: Number.isFinite(targetCount) ? targetCount : null,
+      initialProducts: initialCount,
+      expectedTotal: STATE.stream.total,
+      maxPages,
+    });
 
     while (!STATE.stopLoading && STATE.stream.nextState && page < maxPages) {
       if (Number.isFinite(targetCount) && STATE.products.size >= targetCount) break;
@@ -708,27 +790,45 @@
       let pageError;
       for (let attempt = 1; attempt <= 4; attempt += 1) {
         try {
+          recordDiagnostic("stream_page_attempt_started", {
+            page,
+            attempt,
+            products: STATE.products.size,
+          });
           response = await fetchNextProductStreamPage();
           pageError = null;
           break;
         } catch (error) {
           pageError = error;
+          recordDiagnostic("stream_page_attempt_failed", {
+            page,
+            attempt,
+            error: safeDiagnosticError(error),
+          });
+          if (STATE.stopLoading || error?.status === 403 || error?.status === 429) throw error;
           if (attempt < 4) await sleep(500 * 2 ** (attempt - 1));
         }
       }
       if (pageError) throw pageError;
-      if (!response?.items?.length) break;
       const countBeforePage = STATE.products.size;
-      collectProductTiles(response, (tile) => upsertProduct(productFromTile(tile)));
+      collectProductTiles(response.items, (tile) => upsertProduct(productFromTile(tile)));
       stablePages = STATE.products.size === countBeforePage ? stablePages + 1 : 0;
       if (!(response.nextState instanceof Uint8Array) || response.nextState.length === 0) {
         STATE.stream.nextState = null;
+        STATE.stream.exhausted = true;
       }
       rememberProductStreamState(response);
+      recordDiagnostic("stream_page_completed", {
+        page,
+        items: response.items?.length || 0,
+        productsAdded: STATE.products.size - countBeforePage,
+        products: STATE.products.size,
+        hasNextState: Boolean(STATE.stream.nextState?.length),
+      });
       renderResults();
       updateStatus(`Direct stream: ${STATE.products.size} duomenu, ${STATE.cards.length} DOM...`);
       if (stablePages >= 3) {
-        STATE.stream.nextState = null;
+        STATE.stream.directError = "Product stream stalled: three pages without new products";
         break;
       }
       await sleep(60);
@@ -748,6 +848,9 @@
     updateActiveButtons();
     const targetLabel = Number.isFinite(targetCount) ? `${targetCount}` : "visos";
     updateStatus(`Kraunama iki ${targetLabel}...`);
+    recordDiagnostic("collection_started", {
+      targetCount: Number.isFinite(targetCount) ? targetCount : null,
+    });
 
     let usedFallback = false;
     try {
@@ -756,21 +859,34 @@
       usedFallback = true;
       STATE.stream.modulePromise = null;
       STATE.stream.directError = error?.message || String(error);
+      STATE.stream.rateLimited = error?.status === 403 || error?.status === 429;
+      recordDiagnostic("direct_stream_failed", { error: safeDiagnosticError(error) });
       console.warn("[ABOUT YOU price sorter] direct stream failed, falling back to scroll", error);
       updateStatus(`Direct nepavyko, jungiamas scroll fallback...`);
       await sleep(400);
-      if (!STATE.stopLoading) await loadProductsByScroll(targetCount);
+      if (!STATE.stopLoading && !STATE.stream.rateLimited) await loadProductsByScroll(targetCount);
       STATE.stream.fallbackComplete = !STATE.stopLoading && STATE.products.size > 0;
+      recordDiagnostic("scroll_fallback_completed", {
+        products: STATE.products.size,
+        complete: STATE.stream.fallbackComplete,
+      });
     }
 
     const wasStopped = STATE.stopLoading;
+    STATE.stream.stopped = wasStopped;
     STATE.loadingAll = false;
     STATE.stopLoading = false;
     STATE.filterCheaperThanLpl = restoreFilterAfterLoad;
     updateActiveButtons();
-    scanCards();
+    if (!AUTOMATION_MODE || usedFallback) scanCards();
     applyFilter();
     renderResults();
+    recordDiagnostic("collection_completed", {
+      products: STATE.products.size,
+      pages: STATE.stream.pages,
+      mode: STATE.stream.directError ? "scroll-fallback" : "direct-stream",
+      stopped: wasStopped,
+    });
     if (wasStopped) {
       updateStatus("Krovimas sustabdytas.");
     } else if (usedFallback) {
@@ -793,23 +909,35 @@
       pages: STATE.stream.pages,
       loading: STATE.loadingAll,
       mode: STATE.stream.directError ? "scroll-fallback" : "direct-stream",
-      complete: STATE.stream.directError
-        ? STATE.stream.fallbackComplete && (!Number.isFinite(targetTotal) || STATE.products.size >= targetTotal)
+      rateLimited: STATE.stream.rateLimited,
+      complete: !STATE.loadingAll && !STATE.stream.stopped && !STATE.stream.rateLimited && (STATE.stream.directError
+        ? STATE.stream.fallbackComplete && Number.isFinite(targetTotal) && STATE.products.size >= targetTotal
         : Number.isFinite(targetTotal)
-          ? STATE.products.size >= targetTotal || !STATE.stream.nextState
-          : !STATE.stream.nextState,
+          ? STATE.products.size >= targetTotal
+          : STATE.stream.exhausted),
       error: STATE.stream.directError || null,
     };
   }
 
   window.__ABOUTYOU_CATALOG_COLLECTOR__ = {
     snapshot: collectionSnapshot,
+    drainDiagnostics() {
+      return STATE.stream.diagnostics.splice(0);
+    },
     stop() {
       STATE.stopLoading = true;
       STATE.stream.requestController?.abort();
+      recordDiagnostic("collection_stop_requested");
     },
     async collect(targetCount) {
+      STATE.domObserver?.disconnect();
+      STATE.domObserver = null;
+      recordDiagnostic("dom_observer_disconnected");
       STATE.collectionTarget = targetCount;
+      STATE.stream.directError = "";
+      STATE.stream.fallbackComplete = false;
+      STATE.stream.exhausted = false;
+      STATE.stream.stopped = false;
       await loadProducts(targetCount);
       return collectionSnapshot();
     },
@@ -841,6 +969,7 @@
       STATE.stream.modulePromise = (async () => {
         const moduleUrl = await resolveCategoryStreamModuleUrl();
         STATE.stream.moduleUrl = moduleUrl;
+        recordDiagnostic("stream_module_resolved", { url: new URL(moduleUrl, location.href).pathname });
         const mod = await import(moduleUrl);
         const service = mod.CategoryStreamService_GetProductStreamPageV2;
         if (typeof service !== "function") {
@@ -854,26 +983,61 @@
 
   async function resolveCategoryStreamModuleUrl() {
     if (STATE.stream.moduleUrl) return STATE.stream.moduleUrl;
+    const providerCandidates = Array.isArray(window.__ABOUTYOU_CATEGORY_SERVICE_MODULE_CANDIDATES__)
+      ? window.__ABOUTYOU_CATEGORY_SERVICE_MODULE_CANDIDATES__
+      : [];
+    const loadedCandidates = providerCandidates.concat(Array.from(performance.getEntriesByType("resource"))
+      .map((entry) => entry.name)
+      .filter((value) => /\/assets\/service\.grpc-(?!lazy)[^/]+\.js(?:\?|$)/.test(value)));
+    recordDiagnostic("category_stream_module_candidates", {
+      count: loadedCandidates.length,
+      urls: loadedCandidates.map((value) => new URL(value).pathname).slice(-30),
+    });
+    const loadedModule = await findCategoryStreamModuleUrl(loadedCandidates);
+    if (loadedModule) return loadedModule;
+
     const indexScript = Array.from(document.scripts)
       .map((script) => script.src)
       .find((src) => /\/assets\/index-[^/]+\.js/.test(src));
-    if (!indexScript) return CATEGORY_STREAM_MODULE_FALLBACK;
+    if (!indexScript) throw new Error("ABOUT YOU index modulis nerastas; CategoryStream service nustatyti nepavyko.");
 
     try {
-      const code = await fetchWithTimeout(indexScript, { credentials: "omit" }).then((response) => response.text());
-      const match = code.match(/import\("\.\/(service\.grpc-[^"]+\.js)"\)[\s\S]{0,260}?CategoryStreamService_GetProductStreamPageV2/);
-      if (match) return new URL(match[1], indexScript).href;
+      const code = await fetchWithTimeout(indexScript, { credentials: "omit" }, "index-module", (response) => response.text());
+      const directCandidates = Array.from(code.matchAll(/(?:\.\/|assets\/)(service\.grpc-(?!lazy)[^"']+\.js)/g))
+        .map((match) => new URL(match[1], indexScript).href);
+      const directModule = await findCategoryStreamModuleUrl(directCandidates);
+      if (directModule) return directModule;
       const categoryMatch = code.match(/assets\/CategoryLegacy\.eager-[^"]+\.js/);
       if (categoryMatch) {
         const categoryUrl = new URL(categoryMatch[0].replace(/^assets\//, ""), indexScript).href;
-        const categoryCode = await fetchWithTimeout(categoryUrl, { credentials: "omit" }).then((response) => response.text());
-        const serviceMatch = categoryCode.match(/import\("\.\/(service\.grpc-[^"]+\.js)"\)[\s\S]{0,320}?CategoryStreamService_GetProductStreamPageV2/);
-        if (serviceMatch) return new URL(serviceMatch[1], categoryUrl).href;
+        const categoryCode = await fetchWithTimeout(categoryUrl, { credentials: "omit" }, "category-module", (response) => response.text());
+        const categoryCandidates = Array.from(categoryCode.matchAll(/(?:\.\/|assets\/)(service\.grpc-(?!lazy)[^"']+\.js)/g))
+          .map((match) => new URL(match[1], categoryUrl).href);
+        const categoryModule = await findCategoryStreamModuleUrl(categoryCandidates);
+        if (categoryModule) return categoryModule;
       }
     } catch (error) {
       console.warn("[ABOUT YOU price sorter] failed to discover category stream module", error);
     }
-    return CATEGORY_STREAM_MODULE_FALLBACK;
+    throw new Error("Dabartinis CategoryStreamService modulis nerastas tarp ABOUT YOU įkeltų asset'ų.");
+  }
+
+  async function findCategoryStreamModuleUrl(candidates) {
+    for (const candidate of Array.from(new Set(candidates)).reverse()) {
+      try {
+        const module = await import(candidate);
+        if (typeof module.CategoryStreamService_GetProductStreamPageV2 === "function") {
+          recordDiagnostic("category_stream_module_matched", { url: new URL(candidate).pathname });
+          return candidate;
+        }
+      } catch (error) {
+        recordDiagnostic("category_stream_module_probe_failed", {
+          url: new URL(candidate, location.href).pathname,
+          error: safeDiagnosticError(error),
+        });
+      }
+    }
+    return null;
   }
 
   async function callGrpcWebUnary(descriptor, request, options) {
@@ -886,37 +1050,83 @@
     const writer = ProtoWriter.create();
     descriptor.encodeRequest(writer, requestPayload);
     const requestBytes = writer.finish();
-    const response = await fetchWithTimeout(resolveGrpcUrl(descriptor), {
+    const bytes = await fetchWithTimeout(resolveGrpcUrl(descriptor), {
       method: "POST",
       credentials: STATE.stream.learnedRequest?.credentials || "include",
       mode: STATE.stream.learnedRequest?.mode || "cors",
       referrerPolicy: STATE.stream.learnedRequest?.referrerPolicy || "strict-origin-when-cross-origin",
       headers: buildGrpcHeaders(options),
       body: encodeGrpcWebFrame(requestBytes),
+    }, `grpc:${descriptor.methodName}`, async (response) => {
+      if (!response.ok) {
+        const error = new Error(`Tadarida ${descriptor.methodName} HTTP ${response.status}`);
+        error.status = response.status;
+        throw error;
+      }
+      recordDiagnostic("grpc_body_read_started", { method: descriptor.methodName });
+      return new Uint8Array(await response.arrayBuffer());
     });
-
-    if (!response.ok) {
-      throw new Error(`Tadarida ${descriptor.methodName} HTTP ${response.status}`);
-    }
-
-    const bytes = new Uint8Array(await response.arrayBuffer());
+    recordDiagnostic("grpc_body_read_completed", { method: descriptor.methodName, bytes: bytes.length });
+    recordDiagnostic("grpc_frame_decode_started", { method: descriptor.methodName });
     const messageBytes = decodeGrpcWebResponse(bytes);
+    recordDiagnostic("grpc_frame_decode_completed", { method: descriptor.methodName, bytes: messageBytes.length });
     if (!messageBytes.length) {
       throw new Error(`Tadarida ${descriptor.methodName} atsakymas tuscias.`);
     }
-    return descriptor.decodeResponse(new ProtoReader(messageBytes), messageBytes.length);
+    recordDiagnostic("grpc_proto_decode_started", { method: descriptor.methodName });
+    const decoded = descriptor.decodeResponse(new ProtoReader(messageBytes), messageBytes.length);
+    recordDiagnostic("grpc_proto_decode_completed", { method: descriptor.methodName });
+    return decoded;
   }
 
-  async function fetchWithTimeout(input, init = {}) {
+  async function fetchWithTimeout(input, init = {}, label = "fetch", read = (response) => response) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), DIRECT_REQUEST_TIMEOUT_MS);
+    const startedAt = Date.now();
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      recordDiagnostic("request_timeout", { label, timeoutMs: DIRECT_REQUEST_TIMEOUT_MS });
+      controller.abort();
+    }, DIRECT_REQUEST_TIMEOUT_MS);
     STATE.stream.requestController = controller;
+    recordDiagnostic("request_started", { label });
     try {
-      return await fetch(input, { ...init, signal: controller.signal });
+      const response = await fetch(input, { ...init, signal: controller.signal });
+      recordDiagnostic("request_completed", {
+        label,
+        status: response.status,
+        durationMs: Date.now() - startedAt,
+      });
+      // Keep the abort timer active while reading the body as well as headers.
+      return await read(response);
+    } catch (error) {
+      recordDiagnostic("request_failed", {
+        label,
+        timedOut,
+        durationMs: Date.now() - startedAt,
+        error: safeDiagnosticError(error),
+      });
+      throw error;
     } finally {
       clearTimeout(timeout);
       if (STATE.stream.requestController === controller) STATE.stream.requestController = null;
     }
+  }
+
+  function recordDiagnostic(event, details = {}) {
+    const entry = {
+      event,
+      at: new Date().toISOString(),
+      ...details,
+    };
+    STATE.stream.diagnostics.push(entry);
+    if (STATE.stream.diagnostics.length > 100) STATE.stream.diagnostics.splice(0, 20);
+    if (AUTOMATION_MODE) console.info(`[aboutyou-collector-event] ${JSON.stringify(entry)}`);
+  }
+
+  function safeDiagnosticError(error) {
+    const value = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    return value.slice(0, 500);
   }
 
   function resolveGrpcUrl(descriptor) {
@@ -1370,8 +1580,13 @@
 
   function observeChanges() {
     let timer = null;
-    const observer = new MutationObserver(() => {
+    const observer = new MutationObserver((records) => {
       if (STATE.applyingDomChanges) return;
+      const hasExternalMutation = records.some((record) => {
+        const target = record.target instanceof Element ? record.target : record.target.parentElement;
+        return !target?.closest("#ay-price-tools, .ay-lpl-badge");
+      });
+      if (!hasExternalMutation) return;
       clearTimeout(timer);
       timer = setTimeout(() => {
         if (STATE.applyingDomChanges) return;
@@ -1381,15 +1596,21 @@
       }, 300);
     });
     observer.observe(document.body, { childList: true, subtree: true });
+    STATE.domObserver = observer;
   }
 
   function init() {
-    installStyles();
-    installPanel();
+    if (!AUTOMATION_MODE) {
+      installStyles();
+      installPanel();
+    }
     parseInitialState();
-    scanCards();
-    renderResults();
-    observeChanges();
+    if (!AUTOMATION_MODE) scanCards();
+    recordDiagnostic("collector_initialized", { automationMode: AUTOMATION_MODE });
+    if (!AUTOMATION_MODE) {
+      renderResults();
+      observeChanges();
+    }
   }
 
   if (document.readyState === "loading") {

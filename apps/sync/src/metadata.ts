@@ -1,4 +1,4 @@
-import { chromium } from "playwright";
+import { chromium, type APIResponse } from "playwright";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import {
@@ -13,6 +13,7 @@ import {
 import { archiveRawPayload, cleanupRawArtifacts } from "./metadata-artifacts";
 import { classifyMetadataExtraction } from "./metadata-policy";
 import { withRetry } from "./sync-retry";
+import { formatSyncError } from "./sync-errors";
 
 const EnvSchema = z.object({
   SUPABASE_URL: z.string().url(),
@@ -107,8 +108,10 @@ try {
     const sampleIds = new Set((sampleRows ?? []).map((row) => row.product_id as string));
 
     await runPool(claims, env.METADATA_SYNC_CONCURRENCY, async (claim) => {
-      if (rateLimited) return;
+      if (rateLimited || Date.now() >= deadline) return;
       await waitForRequestSlot();
+      if (rateLimited || Date.now() >= deadline) return;
+      let sourceResponse: APIResponse | null = null;
       let responseHtml: string | null = null;
       let httpStatus: number | null = null;
       let contentType: string | null = null;
@@ -119,6 +122,7 @@ try {
           headers: { accept: "text/html,application/xhtml+xml" },
           timeout: 20_000
         });
+        sourceResponse = response;
         const status = response.status();
         httpStatus = status;
         contentType = response.headers()["content-type"] ?? null;
@@ -235,10 +239,13 @@ try {
             error: safeErrorCode(failError)
           });
         }
+      } finally {
+        // Playwright retains response bodies until disposed or the context closes.
+        await sourceResponse?.dispose().catch(() => undefined);
       }
     });
 
-    if (rateLimited) {
+    if (rateLimited || Date.now() >= deadline) {
       const leaseToken = claims[0]?.lease_token;
       if (leaseToken) {
         try {
@@ -385,7 +392,7 @@ async function runPool<T>(items: T[], concurrency: number, task: (item: T) => Pr
 
 function unique(values: string[]): string[] { return [...new Set(values)]; }
 function safeErrorCode(error: unknown): string {
-  const value = error instanceof Error ? error.message : String(error);
+  const value = formatSyncError(error);
   return `request_failed:${value}`.replace(/\s+/g, " ").slice(0, 200);
 }
 type SupabaseResult<T> = { data: T; error: unknown | null };

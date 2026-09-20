@@ -44,7 +44,7 @@ jobs:
       - name: Run catalog sync
         run: npm run sync 2>&1 | tee sync-diagnostics.log
       - name: Upload sync diagnostics
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: catalog-sync-staging-diagnostics-${{ github.run_number }}
