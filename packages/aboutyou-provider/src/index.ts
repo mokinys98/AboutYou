@@ -892,7 +892,7 @@ export async function collectAboutYouTarget(
   const categoryServiceModuleCandidates = new Set<string>();
   page.on("response", (response) => {
     const responseUrl = response.url();
-    if (/^https:\/\/assets\.aboutstatic\.com\/assets\/service\.grpc-[^/]+\.js(?:\?|$)/.test(responseUrl)) {
+    if (/^https:\/\/assets\.aboutstatic\.com\/assets\/service\.grpc(?:\.lazy)?-[^/]+\.js(?:\?|$)/.test(responseUrl)) {
       categoryServiceModuleCandidates.add(responseUrl);
     }
   });

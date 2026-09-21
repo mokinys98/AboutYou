@@ -995,7 +995,7 @@
       : [];
     const loadedCandidates = providerCandidates.concat(Array.from(performance.getEntriesByType("resource"))
       .map((entry) => entry.name)
-      .filter((value) => /\/assets\/service\.grpc-[^/]+\.js(?:\?|$)/.test(value)));
+      .filter((value) => /\/assets\/service\.grpc(?:\.lazy)?-[^/]+\.js(?:\?|$)/.test(value)));
     recordDiagnostic("category_stream_module_candidates", {
       count: loadedCandidates.length,
       urls: loadedCandidates.map((value) => new URL(value).pathname).slice(-30),
@@ -1010,7 +1010,7 @@
 
     try {
       const code = await fetchWithTimeout(indexScript, { credentials: "omit" }, "index-module", (response) => response.text());
-      const directCandidates = Array.from(code.matchAll(/(?:\.\/|assets\/)(service\.grpc-[^"']+\.js)/g))
+      const directCandidates = Array.from(code.matchAll(/(?:\.\/|assets\/)(service\.grpc(?:\.lazy)?-[^"']+\.js)/g))
         .map((match) => new URL(match[1], indexScript).href);
       const directModule = await findCategoryStreamModuleUrl(directCandidates);
       if (directModule) return directModule;
@@ -1018,7 +1018,7 @@
       if (categoryMatch) {
         const categoryUrl = new URL(categoryMatch[0].replace(/^assets\//, ""), indexScript).href;
         const categoryCode = await fetchWithTimeout(categoryUrl, { credentials: "omit" }, "category-module", (response) => response.text());
-        const categoryCandidates = Array.from(categoryCode.matchAll(/(?:\.\/|assets\/)(service\.grpc-[^"']+\.js)/g))
+        const categoryCandidates = Array.from(categoryCode.matchAll(/(?:\.\/|assets\/)(service\.grpc(?:\.lazy)?-[^"']+\.js)/g))
           .map((match) => new URL(match[1], categoryUrl).href);
         const categoryModule = await findCategoryStreamModuleUrl(categoryCandidates);
         if (categoryModule) return categoryModule;
