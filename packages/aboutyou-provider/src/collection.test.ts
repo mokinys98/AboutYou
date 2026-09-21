@@ -33,6 +33,10 @@ describe("provider collection boundaries", () => {
     expect(collection.products).toHaveLength(1);
     expect(collection.complete).toBe(false);
   });
+  it("does not allow production queue workers to silently use DOM scrolling", async () => {
+    const page = pageWith({ ...result, mode: "scroll-fallback", error: "stream module missing" });
+    await expect(collectAboutYouTarget(page, url, { allowScrollFallback: false })).rejects.toThrow("stream module missing");
+  });
   it("preserves the last valid snapshot on timeout without waiting for an unresponsive page", async () => {
     vi.useFakeTimers();
     const page = pageWith({ ...result, expectedTotal: 100 }, true);

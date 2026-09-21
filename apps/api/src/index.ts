@@ -46,7 +46,7 @@ export const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 const jwks = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 
 const WORKFLOW_BY_CRON: Readonly<Record<string, string>> = {
-  "17 */6 * * *": "sync-catalog.yml",
+  "*/15 * * * *": "sync-catalog.yml",
   "47 * * * *": "sync-product-metadata.yml"
 };
 

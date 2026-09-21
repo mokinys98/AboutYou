@@ -16,7 +16,7 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
     environment: production-vps
     permissions:
       contents: read
@@ -24,7 +24,9 @@ jobs:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       SYNC_HEADLESS: "true"
-      SYNC_MAX_PRODUCTS: "15000"
+      SYNC_MAX_PRODUCTS: "5000"
+      SYNC_WORK_BUDGET_MS: "600000"
+      SYNC_QUEUE_MODE: "true"
       SYNC_TARGET_LABEL: ${{ inputs.target_label || '' }}
     steps:
       - uses: actions/checkout@v4

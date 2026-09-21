@@ -227,7 +227,7 @@ describe("catalog API", () => {
   });
 
   it("maps Cloudflare cron triggers to the expected GitHub workflows", () => {
-    expect(workflowForCron("17 */6 * * *")).toBe("sync-catalog.yml");
+    expect(workflowForCron("*/15 * * * *")).toBe("sync-catalog.yml");
     expect(workflowForCron("47 * * * *")).toBe("sync-product-metadata.yml");
     expect(() => workflowForCron("0 0 * * *")).toThrow("Nežinomas cron grafikas");
   });

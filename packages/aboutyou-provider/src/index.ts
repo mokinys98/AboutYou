@@ -59,6 +59,7 @@ export interface CollectionResult {
   mode: "direct-stream" | "scroll-fallback" | "initial-state" | "initial-state+scroll";
   complete: boolean;
   rateLimited?: boolean;
+  retryAfterSeconds?: number | null;
   error?: string | null;
 }
 
@@ -866,6 +867,9 @@ export async function collectAboutYouTarget(
     timeoutMs?: number;
     progressIntervalMs?: number;
     directStream?: boolean;
+    // Queue workers must fail fast when the stream changes. DOM scrolling is
+    // useful for diagnostics, but it cannot guarantee a bounded full cycle.
+    allowScrollFallback?: boolean;
     onProgress?: (progress: CollectionProgress) => void;
     onDiagnostic?: (event: CollectionDiagnosticEvent) => void;
   } = {}
@@ -877,13 +881,18 @@ export async function collectAboutYouTarget(
   await page.addInitScript(() => {
     (window as unknown as { __ABOUTYOU_CATALOG_AUTOMATION__?: boolean }).__ABOUTYOU_CATALOG_AUTOMATION__ = true;
   });
+  if (options.allowScrollFallback === false) {
+    await page.addInitScript(() => {
+      (window as unknown as { __ABOUTYOU_CATALOG_NO_SCROLL_FALLBACK__?: boolean }).__ABOUTYOU_CATALOG_NO_SCROLL_FALLBACK__ = true;
+    });
+  }
   await page.addInitScript({
     path: fileURLToPath(new URL("../../../aboutyou-price-sort.user.js", import.meta.url))
   });
   const categoryServiceModuleCandidates = new Set<string>();
   page.on("response", (response) => {
     const responseUrl = response.url();
-    if (/^https:\/\/assets\.aboutstatic\.com\/assets\/service\.grpc-(?!lazy)[^/]+\.js(?:\?|$)/.test(responseUrl)) {
+    if (/^https:\/\/assets\.aboutstatic\.com\/assets\/service\.grpc-[^/]+\.js(?:\?|$)/.test(responseUrl)) {
       categoryServiceModuleCandidates.add(responseUrl);
     }
   });
@@ -915,6 +924,7 @@ export async function collectAboutYouTarget(
     } catch (error) {
       emitCollectionDiagnostic(options, "direct_stream_failed", { error: safeError(error) });
       if (error instanceof AboutYouCollectionTimeoutError || error instanceof AboutYouRateLimitError) throw error;
+      if (options.allowScrollFallback === false) throw error;
       console.warn(`[aboutyou-provider] Tiesioginis srautas nepavyko, naudojamas DOM fallback: ${safeError(error)}`);
       const fallbackNavigationStartedAt = Date.now();
       emitCollectionDiagnostic(options, "fallback_navigation_started", { url: safeDiagnosticUrl(url) });
@@ -1057,6 +1067,7 @@ type BrowserCollection = {
   complete: boolean;
   error: string | null;
   rateLimited?: boolean;
+  retryAfterSeconds?: number | null;
 };
 
 async function collectFromDirectStream(
@@ -1065,6 +1076,7 @@ async function collectFromDirectStream(
   options: {
     timeoutMs?: number;
     progressIntervalMs?: number;
+    allowScrollFallback?: boolean;
     onProgress?: (progress: CollectionProgress) => void;
     onDiagnostic?: (event: CollectionDiagnosticEvent) => void;
   }
@@ -1156,6 +1168,10 @@ async function collectFromDirectStream(
     complete: result.complete
   });
 
+  if (options.allowScrollFallback === false && result.mode === "scroll-fallback") {
+    throw new Error(result.error || "Tiesioginis produkto srautas nepavyko; produkciniame eilės režime scroll fallback išjungtas.");
+  }
+
   const raw = result.products.map((item): RawProduct | null => {
     if (!item.productId || !item.url || item.currentPrice === null || item.currentPrice === undefined) return null;
     return {
@@ -1195,6 +1211,7 @@ async function collectFromDirectStream(
     mode: result.mode,
     complete: result.complete && products.length >= Math.min(maxProducts, result.expectedTotal ?? maxProducts),
     rateLimited: result.rateLimited,
+    retryAfterSeconds: result.retryAfterSeconds ?? null,
     error: result.error
   };
 }

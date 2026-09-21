@@ -58,6 +58,7 @@
       fallbackComplete: false,
       exhausted: false,
       rateLimited: false,
+      retryAfterSeconds: null,
       stopped: false,
       networkInitialized: false,
       pages: 0,
@@ -318,6 +319,9 @@
           if (STATE.stream.networkInitialized || STATE.stream.pages > 0) return;
           if (response.status === 403 || response.status === 429) {
             STATE.stream.rateLimited = true;
+            const retryAfter = Number(response.headers.get("retry-after"));
+            STATE.stream.retryAfterSeconds = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.ceil(retryAfter) : null;
+            recordDiagnostic("source_rate_limited", { status: response.status, retryAfterSeconds: STATE.stream.retryAfterSeconds });
             return;
           }
           if (!response.ok) return;
@@ -864,11 +868,13 @@
       console.warn("[ABOUT YOU price sorter] direct stream failed, falling back to scroll", error);
       updateStatus(`Direct nepavyko, jungiamas scroll fallback...`);
       await sleep(400);
-      if (!STATE.stopLoading && !STATE.stream.rateLimited) await loadProductsByScroll(targetCount);
+      const noScrollFallback = AUTOMATION_MODE && window.__ABOUTYOU_CATALOG_NO_SCROLL_FALLBACK__ === true;
+      if (!STATE.stopLoading && !STATE.stream.rateLimited && !noScrollFallback) await loadProductsByScroll(targetCount);
       STATE.stream.fallbackComplete = !STATE.stopLoading && STATE.products.size > 0;
       recordDiagnostic("scroll_fallback_completed", {
         products: STATE.products.size,
         complete: STATE.stream.fallbackComplete,
+        skipped: noScrollFallback,
       });
     }
 
@@ -910,6 +916,7 @@
       loading: STATE.loadingAll,
       mode: STATE.stream.directError ? "scroll-fallback" : "direct-stream",
       rateLimited: STATE.stream.rateLimited,
+      retryAfterSeconds: STATE.stream.retryAfterSeconds,
       complete: !STATE.loadingAll && !STATE.stream.stopped && !STATE.stream.rateLimited && (STATE.stream.directError
         ? STATE.stream.fallbackComplete && Number.isFinite(targetTotal) && STATE.products.size >= targetTotal
         : Number.isFinite(targetTotal)
@@ -988,7 +995,7 @@
       : [];
     const loadedCandidates = providerCandidates.concat(Array.from(performance.getEntriesByType("resource"))
       .map((entry) => entry.name)
-      .filter((value) => /\/assets\/service\.grpc-(?!lazy)[^/]+\.js(?:\?|$)/.test(value)));
+      .filter((value) => /\/assets\/service\.grpc-[^/]+\.js(?:\?|$)/.test(value)));
     recordDiagnostic("category_stream_module_candidates", {
       count: loadedCandidates.length,
       urls: loadedCandidates.map((value) => new URL(value).pathname).slice(-30),
@@ -1003,7 +1010,7 @@
 
     try {
       const code = await fetchWithTimeout(indexScript, { credentials: "omit" }, "index-module", (response) => response.text());
-      const directCandidates = Array.from(code.matchAll(/(?:\.\/|assets\/)(service\.grpc-(?!lazy)[^"']+\.js)/g))
+      const directCandidates = Array.from(code.matchAll(/(?:\.\/|assets\/)(service\.grpc-[^"']+\.js)/g))
         .map((match) => new URL(match[1], indexScript).href);
       const directModule = await findCategoryStreamModuleUrl(directCandidates);
       if (directModule) return directModule;
@@ -1011,7 +1018,7 @@
       if (categoryMatch) {
         const categoryUrl = new URL(categoryMatch[0].replace(/^assets\//, ""), indexScript).href;
         const categoryCode = await fetchWithTimeout(categoryUrl, { credentials: "omit" }, "category-module", (response) => response.text());
-        const categoryCandidates = Array.from(categoryCode.matchAll(/(?:\.\/|assets\/)(service\.grpc-(?!lazy)[^"']+\.js)/g))
+        const categoryCandidates = Array.from(categoryCode.matchAll(/(?:\.\/|assets\/)(service\.grpc-[^"']+\.js)/g))
           .map((match) => new URL(match[1], categoryUrl).href);
         const categoryModule = await findCategoryStreamModuleUrl(categoryCandidates);
         if (categoryModule) return categoryModule;

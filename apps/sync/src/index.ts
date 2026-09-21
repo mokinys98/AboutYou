@@ -8,6 +8,7 @@ import { saveCatalogBatchResilient, type CatalogBatchFailureEvent, type CatalogB
 import { formatSyncError } from "./sync-errors";
 import { selectSyncTargets } from "./target-selection";
 import { catalogCollectionIssue } from "./catalog-policy";
+import { CatalogQueueEnvSchema, runCatalogQueue } from "./catalog-queue";
 
 const EnvSchema = z.object({
   SUPABASE_URL: z.string().url(),
@@ -19,6 +20,12 @@ const EnvSchema = z.object({
 });
 
 const env = EnvSchema.parse(process.env);
+
+// The queue owns cycle state, retries and disappearance reconciliation. Keep the
+// previous whole-target path available only for a deliberate emergency rollback.
+if (process.env.SYNC_QUEUE_MODE !== "false") {
+  await runCatalogQueue(CatalogQueueEnvSchema.parse(process.env));
+} else {
 const db = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false }
 });
@@ -341,4 +348,5 @@ function safeNetworkUrl(value: string): string {
   } catch {
     return value.slice(0, 300);
   }
+}
 }

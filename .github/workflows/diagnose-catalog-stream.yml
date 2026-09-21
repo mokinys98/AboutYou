@@ -1,0 +1,38 @@
+name: Diagnose catalog stream
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: ABOUT YOU LT category or filtered category URL
+        required: true
+        type: string
+      max_products:
+        description: Maximum products to inspect
+        required: false
+        default: "1000"
+        type: string
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Diagnose direct catalog stream
+        run: npm run diagnose:catalog -- "${{ inputs.url }}" "${{ inputs.max_products }}" 480000
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalog-stream-diagnostics-${{ github.run_number }}
+          path: test-results/catalog-diagnostics
+          retention-days: 14
