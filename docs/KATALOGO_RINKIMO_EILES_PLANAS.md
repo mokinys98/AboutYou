@@ -48,7 +48,7 @@ Start-Process -FilePath "C:\Program Files\PuTTY\pageant.exe" `
   -ArgumentList '"C:\Users\Auris\Documents\contabo.ppk"'
 ```
 
-Įkelkite tikslų migracijos failą:
+Įkelkite abu migracijos failus. Jei jau pritaikėte pirmąjį, pritaikykite bent antrąjį: jis užtikrina, kad `partial` ar `blocked` ciklas nebus pradėtas iš naujo kas 15 min.
 
 ```powershell
 & "C:\Program Files\PuTTY\pscp.exe" `
@@ -56,6 +56,12 @@ Start-Process -FilePath "C:\Program Files\PuTTY\pageant.exe" `
   -hostkey "SHA256:U5Km9Q2qF4HFi5E5Wiu6R8c1ZfWes6xHXnSXp/xN36Q" `
   ".\supabase\migrations\20260921122000_add_catalog_collection_queue.sql" `
   deploy@169.58.26.120:/tmp/20260921122000_add_catalog_collection_queue.sql
+
+& "C:\Program Files\PuTTY\pscp.exe" `
+  -agent `
+  -hostkey "SHA256:U5Km9Q2qF4HFi5E5Wiu6R8c1ZfWes6xHXnSXp/xN36Q" `
+  ".\supabase\migrations\20260921130000_limit_catalog_cycle_cadence.sql" `
+  deploy@169.58.26.120:/tmp/20260921130000_limit_catalog_cycle_cadence.sql
 ```
 
 Atidarykite interaktyvią sesiją:
@@ -73,6 +79,10 @@ VPS terminale, interaktyviai įvedę `sudo` slaptažodį, vykdykite:
 sudo docker exec -i supabase-db psql -X -v ON_ERROR_STOP=1 \
   -U postgres -d postgres \
   < /tmp/20260921122000_add_catalog_collection_queue.sql
+
+sudo docker exec -i supabase-db psql -X -v ON_ERROR_STOP=1 \
+  -U postgres -d postgres \
+  < /tmp/20260921130000_limit_catalog_cycle_cadence.sql
 ```
 
 Po sėkmingo vykdymo patikrinkite:
@@ -97,5 +107,6 @@ Tik po sėkmingo vykdymo ir patikros pašalinkite laikiną failą:
 
 ```bash
 rm -f /tmp/20260921122000_add_catalog_collection_queue.sql
+rm -f /tmp/20260921130000_limit_catalog_cycle_cadence.sql
 exit
 ```
