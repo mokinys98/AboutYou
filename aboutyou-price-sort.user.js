@@ -1014,7 +1014,7 @@
         .map((match) => new URL(match[1], indexScript).href);
       const directModule = await findCategoryStreamModuleUrl(directCandidates);
       if (directModule) return directModule;
-      const categoryMatch = code.match(/assets\/CategoryLegacy\.eager-[^"]+\.js/);
+      const categoryMatch = code.match(/assets\/Category(?:Legacy)?\.eager-[^"]+\.js/);
       if (categoryMatch) {
         const categoryUrl = new URL(categoryMatch[0].replace(/^assets\//, ""), indexScript).href;
         const categoryCode = await fetchWithTimeout(categoryUrl, { credentials: "omit" }, "category-module", (response) => response.text());
@@ -1030,6 +1030,39 @@
   }
 
   async function findCategoryStreamModuleUrl(candidates) {
+    const uniqueCandidates = Array.from(new Set(candidates));
+    const directModule = await findCategoryStreamModuleExport(uniqueCandidates);
+    if (directModule) return directModule;
+
+    // ABOUT YOU now loads category RPC descriptors through small
+    // `service.grpc.lazy-*` wrappers. The wrappers export minified aliases;
+    // named CategoryStreamService exports live in their `service.grpc-*` child.
+    const implementationCandidates = [];
+    for (const candidate of uniqueCandidates) {
+      if (!/\/assets\/service\.grpc\.lazy-[^/]+\.js(?:\?|$)/.test(candidate)) continue;
+      try {
+        const code = await fetchWithTimeout(candidate, { credentials: "omit" }, "category-service-lazy-module", (response) => response.text());
+        if (!code.includes("CategoryStreamService_GetProductStreamPageV2")) continue;
+        const nested = Array.from(code.matchAll(/(?:\.\/|assets\/)(service\.grpc-[^"']+\.js)/g))
+          .map((match) => new URL(match[1], candidate).href);
+        if (nested.length) {
+          recordDiagnostic("category_stream_lazy_module_resolved", {
+            wrapper: new URL(candidate, location.href).pathname,
+            implementations: nested.map((value) => new URL(value, location.href).pathname),
+          });
+          implementationCandidates.push(...nested);
+        }
+      } catch (error) {
+        recordDiagnostic("category_stream_lazy_module_scan_failed", {
+          url: new URL(candidate, location.href).pathname,
+          error: safeDiagnosticError(error),
+        });
+      }
+    }
+    return findCategoryStreamModuleExport(implementationCandidates);
+  }
+
+  async function findCategoryStreamModuleExport(candidates) {
     for (const candidate of Array.from(new Set(candidates)).reverse()) {
       try {
         const module = await import(candidate);
