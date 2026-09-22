@@ -35,7 +35,9 @@ Išlaikykite pirminio URL prekės ženklo ir kitus filtrus. Viena dalis turėtų
 
 GitHub Actions workflow **Diagnose catalog stream** neturi DB paslapčių. Paleiskite jį bendrai kategorijai, prekės ženklo filtrui ir Premium kategorijai. Artefakte `events.jsonl` turi būti `category_stream_module_matched`, `initial_network_stream_decoded`, `stream_page_completed` ir žinomas `expectedTotal`.
 
-Tiesioginio srauto aptikimas dabar įtraukia ir `service.grpc-lazy…` asset modulius. Ankstesnis filtras juos atmesdavo, todėl GitHub rinkiklis pereidavo į lėtą slinkimą.
+Tiesioginio srauto aptikimas dabar įtraukia ir `service.grpc.lazy-…` asset modulius. Ankstesnis filtras juos atmesdavo, todėl GitHub rinkiklis pereidavo į lėtą slinkimą.
+
+2026-09-22 „Premium“ apatinių drabužių kategorijos patikra: [GitHub diagnostika](https://github.com/mokinys98/AboutYou/actions/runs/35689457119) grąžino 867 unikalius produktus per 27 papildomus puslapius; srauto `pagination.total` buvo 890, o paskutinis puslapis nebeturėjo `nextState`. Atskiroje Playwright sesijoje svetainės natūralus slinkimas pagrindiniame produktų tinklelyje parodė tuos pačius 867 ID, nė vieno papildomo. Visame puslapyje buvo dar 56 ID atskirame produktų bloke ir viena reklaminė produkto nuoroda; jie nepriklauso pagrindiniam tinkleliui. Todėl 23 skirtumas nėra įrodymas, kad rinkiklis prarado tinklelio prekes. Dabartinis `complete: false` yra konservatyvus, nes eilė reikalauja `collected >= expectedTotal`; prieš keičiant šią taisyklę reikia apibrėžti, kaip saugiai priimti pasibaigusį srautą, kurio deklaruotas bendras kiekis nesutampa su faktiniu tinkleliu.
 
 Vietinis SQL testas `supabase/tests/catalog_collection_queue_test.sql` tikrina lease perėmimą, seno lease atmetimą, idempotentišką puslapio įrašymą ir 60 000 sintetinių produktų ciklą. Jis skirtas tik tuščiai, izoliuotai testinei DB.
 
