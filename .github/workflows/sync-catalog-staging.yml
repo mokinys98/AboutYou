@@ -44,7 +44,9 @@ jobs:
       - name: Mark sync start
         run: echo "SYNC_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
       - name: Run catalog sync
-        run: npm run sync 2>&1 | tee sync-diagnostics.log
+        run: |
+          set -o pipefail
+          npm run sync 2>&1 | tee sync-diagnostics.log
       - name: Upload sync diagnostics
         if: always()
         uses: actions/upload-artifact@v4

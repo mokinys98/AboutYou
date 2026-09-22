@@ -29,6 +29,8 @@ create or replace function public.finish_sync_run(p_run_id uuid, p_status public
 returns void language sql as $$ update public.sync_runs set status=p_status, pages_count=p_pages_count, products_count=p_products_count, error=p_error, finished_at=now() where id=p_run_id $$;
 
 \ir ../migrations/20260921122000_add_catalog_collection_queue.sql
+\ir ../migrations/20260921130000_limit_catalog_cycle_cadence.sql
+\ir ../migrations/20260922090000_fix_catalog_queue_claim_ambiguity.sql
 
 do $$
 declare v_source uuid := gen_random_uuid(); v_target uuid := gen_random_uuid(); v_first record; v_reclaimed record; v_saved integer; v_status public.catalog_task_status;
