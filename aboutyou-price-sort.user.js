@@ -878,7 +878,7 @@
     }
 
     if (STATE.stream.exhausted && Number.isFinite(STATE.stream.total) && STATE.products.size < STATE.stream.total) {
-      STATE.stream.directError = `Product stream exhausted below expected total: ${STATE.products.size}/${STATE.stream.total}`;
+      STATE.stream.completenessError = `Product stream exhausted below expected total: ${STATE.products.size}/${STATE.stream.total}`;
       recordDiagnostic("stream_total_mismatch", {
         products: STATE.products.size,
         expectedTotal: STATE.stream.total,
@@ -969,7 +969,7 @@
         : Number.isFinite(targetTotal)
           ? STATE.products.size >= targetTotal
           : STATE.stream.exhausted),
-      error: STATE.stream.directError || null,
+      error: STATE.stream.directError || STATE.stream.completenessError || null,
     };
   }
 
@@ -988,6 +988,7 @@
       STATE.domObserver = null;
       recordDiagnostic("dom_observer_disconnected");
       STATE.collectionTarget = targetCount;
+      STATE.stream.completenessError = "";
       STATE.stream.directError = "";
       STATE.stream.fallbackComplete = false;
       STATE.stream.exhausted = false;
