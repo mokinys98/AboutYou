@@ -339,7 +339,7 @@
             const data = descriptor.decodeResponse(new ProtoReader(message), message.length);
             if (STATE.stream.networkInitialized || STATE.stream.pages > 0) return data;
             STATE.products.clear();
-            collectProductTiles(data.items, (tile) => upsertProduct(productFromTile(tile)));
+            collectStreamItems(data.items);
             rememberProductStreamState(data);
             STATE.stream.networkInitialized = true;
             recordDiagnostic("initial_network_stream_decoded", { products: STATE.products.size, expectedTotal: STATE.stream.total });
@@ -534,6 +534,45 @@
     if (data.trackingData?.sortingChannel) {
       STATE.stream.sortingChannel = data.trackingData.sortingChannel;
     }
+  }
+
+  function collectStreamItems(items) {
+    const tiles = new Set();
+    const ids = new Set();
+    const duplicateIds = new Set();
+    const nonProductShapes = [];
+    const before = STATE.products.size;
+    for (const item of items || []) {
+      let hasProduct = false;
+      collectProductTiles(item, (tile) => {
+        hasProduct = true;
+        if (tiles.has(tile)) return;
+        tiles.add(tile);
+        const id = String(tile.productId);
+        if (ids.has(id) || STATE.products.has(tile.productId)) duplicateIds.add(id);
+        ids.add(id);
+        upsertProduct(productFromTile(tile));
+      });
+      if (!hasProduct) {
+        const shape = (value, depth = 0) => {
+          if (depth > 8) return "...";
+          if (!value || typeof value !== "object") return typeof value;
+          if (Array.isArray(value)) return { length: value.length, example: shape(value[0], depth + 1) };
+          return Object.fromEntries(Object.entries(value)
+            .filter(([key]) => !/token|cookie|session|state|authorization/i.test(key))
+            .map(([key, child]) => [key, shape(child, depth + 1)]));
+        };
+        nonProductShapes.push(shape(item.type || item));
+      }
+    }
+    recordDiagnostic("stream_items_accounted", {
+      items: items?.length || 0,
+      productTiles: tiles.size,
+      uniquePageProducts: ids.size,
+      productsAdded: STATE.products.size - before,
+      duplicateIds: Array.from(duplicateIds),
+      nonProductShapes,
+    });
   }
 
   function collectProductTiles(value, onTile) {
@@ -815,7 +854,7 @@
       }
       if (pageError) throw pageError;
       const countBeforePage = STATE.products.size;
-      collectProductTiles(response.items, (tile) => upsertProduct(productFromTile(tile)));
+      collectStreamItems(response.items);
       stablePages = STATE.products.size === countBeforePage ? stablePages + 1 : 0;
       if (!(response.nextState instanceof Uint8Array) || response.nextState.length === 0) {
         STATE.stream.nextState = null;
@@ -838,6 +877,14 @@
       await sleep(60);
     }
 
+    if (STATE.stream.exhausted && Number.isFinite(STATE.stream.total) && STATE.products.size < STATE.stream.total) {
+      STATE.stream.directError = `Product stream exhausted below expected total: ${STATE.products.size}/${STATE.stream.total}`;
+      recordDiagnostic("stream_total_mismatch", {
+        products: STATE.products.size,
+        expectedTotal: STATE.stream.total,
+        missing: STATE.stream.total - STATE.products.size,
+      });
+    }
     return STATE.products.size > initialCount;
   }
 
