@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       product_urls:
-        description: 1–10 public ABOUT YOU LT product URLs, one per line
+        description: 1–20 public ABOUT YOU LT product URLs, one per line
         required: true
         default: |-
           https://www.aboutyou.lt/p/vans/sportbaciai-be-auliuko-32237548

@@ -9,8 +9,8 @@ import { classifyMetadataExtraction } from "./metadata-policy";
 const urls = (process.env.DIAGNOSE_METADATA_URLS ?? "").split(/\r?\n/).map((url) => url.trim()).filter(Boolean);
 const repeatCount = parsePositiveInteger(process.env.DIAGNOSE_METADATA_REPEAT_COUNT, 35, 50, "DIAGNOSE_METADATA_REPEAT_COUNT");
 const concurrency = parsePositiveInteger(process.env.DIAGNOSE_METADATA_CONCURRENCY, 3, 3, "DIAGNOSE_METADATA_CONCURRENCY");
-if (!urls.length || urls.length > 10 || urls.some((url) => !isAllowedAboutYouUrl(url) || !new URL(url).pathname.startsWith("/p/"))) {
-  throw new Error("Provide 1–10 public ABOUT YOU LT product URLs in DIAGNOSE_METADATA_URLS.");
+if (!urls.length || urls.length > 20 || urls.some((url) => !isAllowedAboutYouUrl(url) || !new URL(url).pathname.startsWith("/p/"))) {
+  throw new Error("Provide 1–20 public ABOUT YOU LT product URLs in DIAGNOSE_METADATA_URLS.");
 }
 
 const tasks = Array.from({ length: repeatCount }, () => urls).flat();
@@ -46,9 +46,10 @@ function parsePositiveInteger(value: string | undefined, fallback: number, maxim
 
 async function worker(context: Awaited<ReturnType<typeof browser.newContext>>): Promise<void> {
   while (!stoppedOnTimeout) {
-    const index = nextTask++;
+    const index = nextTask;
     const url = tasks[index];
     if (!url) return;
+    nextTask += 1;
     const events: ProductDetailNetworkEvent[] = [];
     const screenshotName = `timeout-${String(index + 1).padStart(3, "0")}.png`;
     let screenshot: string | null = null;
