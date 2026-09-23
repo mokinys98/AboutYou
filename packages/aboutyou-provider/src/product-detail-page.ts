@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import type { BrowserContext, Response } from "playwright";
+import type { BrowserContext, Page, Response } from "playwright";
 import {
   PRODUCT_DETAIL_ENDPOINT, decodeGrpcWebFrames, extractProductDetailFromHtml,
   extractProductDetailFromPayload, type ProductDetailExtraction
@@ -7,17 +7,51 @@ import {
 
 const decoder = readFileSync(new URL("./product-detail-browser.js", import.meta.url), "utf8");
 
+export type ProductDetailNetworkEvent = {
+  at: string;
+  event: "navigation_started" | "navigation_finished" | "request" | "response" | "request_failed" | "page_error";
+  url?: string;
+  resourceType?: string;
+  status?: number;
+  error?: string;
+};
+
+export type ProductDetailDiagnostics = {
+  onPage?: (page: Page) => void;
+  onNetworkEvent?: (event: ProductDetailNetworkEvent) => void;
+  onFailure?: (page: Page, error: unknown) => Promise<void> | void;
+};
+
+function diagnosticUrl(value: string): string {
+  const url = new URL(value);
+  return `${url.origin}${url.pathname}`;
+}
+
+function shouldRecordNetworkEvent(url: string, resourceType: string): boolean {
+  const parsed = new URL(url);
+  return resourceType === "document" ||
+    (parsed.hostname === "tadarida-web.aboutyou.com" && parsed.pathname === `/${PRODUCT_DETAIL_ENDPOINT}`) ||
+    (parsed.hostname === "assets.aboutstatic.com" && /\/service\.grpc(?:\.lazy)?-[^/]+\.js$/.test(parsed.pathname));
+}
+
 /** Uses the shop's own request and current decoder; no session headers are persisted. */
-export async function fetchProductDetail(context: BrowserContext, url: string, timeoutMs = 25_000): Promise<{
+export async function fetchProductDetail(context: BrowserContext, url: string, timeoutMs = 25_000, diagnostics?: ProductDetailDiagnostics): Promise<{
   extraction: ProductDetailExtraction; html: string; status: number; finalUrl: string;
   contentType: string | null; mode: "html" | "network";
 }> {
   const page = await context.newPage();
+  diagnostics?.onPage?.(page);
   const modules = new Set<string>();
   let resolveResponse!: (response: Response) => void;
   const responseReady = new Promise<Response>((resolve) => { resolveResponse = resolve; });
   page.on("response", (response) => {
     const parsed = new URL(response.url());
+    if (shouldRecordNetworkEvent(response.url(), response.request().resourceType())) {
+      diagnostics?.onNetworkEvent?.({
+        at: new Date().toISOString(), event: "response", url: diagnosticUrl(response.url()),
+        resourceType: response.request().resourceType(), status: response.status()
+      });
+    }
     if (parsed.hostname === "assets.aboutstatic.com" && /\/service\.grpc-[^/]+\.js$/.test(parsed.pathname)) {
       modules.add(response.url());
     }
@@ -25,11 +59,31 @@ export async function fetchProductDetail(context: BrowserContext, url: string, t
       resolveResponse(response);
     }
   });
+  page.on("request", (request) => {
+    if (!shouldRecordNetworkEvent(request.url(), request.resourceType())) return;
+    diagnostics?.onNetworkEvent?.({
+      at: new Date().toISOString(), event: "request", url: diagnosticUrl(request.url()), resourceType: request.resourceType()
+    });
+  });
+  page.on("requestfailed", (request) => {
+    diagnostics?.onNetworkEvent?.({
+      at: new Date().toISOString(), event: "request_failed", url: diagnosticUrl(request.url()),
+      resourceType: request.resourceType(), error: request.failure()?.errorText ?? "unknown"
+    });
+  });
+  page.on("pageerror", (error) => {
+    diagnostics?.onNetworkEvent?.({ at: new Date().toISOString(), event: "page_error", error: error.message.slice(0, 500) });
+  });
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
       (async () => {
+        diagnostics?.onNetworkEvent?.({ at: new Date().toISOString(), event: "navigation_started", url: diagnosticUrl(url), resourceType: "document" });
         const navigation = await page.goto(url, { waitUntil: "domcontentloaded", timeout: timeoutMs });
+        diagnostics?.onNetworkEvent?.({
+          at: new Date().toISOString(), event: "navigation_finished", url: diagnosticUrl(page.url()),
+          resourceType: "document", status: navigation?.status() ?? 0
+        });
         const html = await page.content();
         const extraction = extractProductDetailFromHtml(html);
         const base = {
@@ -57,6 +111,9 @@ export async function fetchProductDetail(context: BrowserContext, url: string, t
         timer = setTimeout(() => reject(new Error("product_detail_request_timeout")), timeoutMs);
       })
     ]);
+  } catch (error) {
+    await diagnostics?.onFailure?.(page, error);
+    throw error;
   } finally {
     clearTimeout(timer);
     await page.close();

@@ -33,5 +33,5 @@ jobs:
         if: always()
         with:
           name: metadata-source-diagnostics
-          path: apps/sync/test-results/metadata-diagnostics.json
+          path: apps/sync/test-results/metadata-diagnostics
           retention-days: 14

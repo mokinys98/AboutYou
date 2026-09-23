@@ -195,7 +195,7 @@ Viešo šaltinio diagnostika iš projekto šaknies:
 npm.cmd run diagnose:metadata -- "https://www.aboutyou.lt/p/vans/sportbaciai-be-auliuko-32237548"
 ```
 
-Santrauka: `apps/sync/test-results/metadata-diagnostics.json`. Prekei dingus iš šaltinio, naudokite dabartinį aktyvios prekės URL.
+Santrauka: `apps/sync/test-results/metadata-diagnostics/summary.json`. Kiekvienam URL tame pačiame kataloge taip pat paliekamas Playwright trace `traces/<nr>.zip`, išvalyta network įvykių laiko juosta santraukoje ir, timeout atveju, `timeout-<nr>.png`. Prekei dingus iš šaltinio, naudokite dabartinį aktyvios prekės URL.
 
 Po kodo sujungimo į workflow naudojamą `main` šaką pirmiausia patikrinkite viešą šaltinį su `Diagnose product metadata`. Savininkas tada gali paleisti `Sync product metadata` su `max_products=50`; tikrinkite `payload_ok`, `complete`, `failure_codes` ir workflow baigtį. Šis produkcinis paleidimas naudoja VPS, todėl Codex jo nevykdė.
 

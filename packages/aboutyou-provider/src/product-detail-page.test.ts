@@ -7,18 +7,19 @@ const fixture = readFileSync(new URL("./fixtures/product-detail-initial-state.ht
 const payload = extractProductDetailPayloadFromHtml(fixture)!;
 
 function setup(options: { html?: string; status?: number; rpcStatus?: number; redirect?: boolean; silent?: boolean } = {}) {
-  let listener: (response: Response) => void;
+  const listeners: Record<string, (value: never) => void> = {};
   const response = (url: string, status: number) => ({
     url: () => url, status: () => status, ok: () => status === 200,
     headers: () => ({ "content-type": "text/html" }),
+    request: () => ({ resourceType: () => "fetch" }),
     body: async () => Buffer.from([0, 0, 0, 0, 2, 8, 1])
   }) as unknown as Response;
   const page = {
-    on: vi.fn((_event, callback) => { listener = callback; }),
+    on: vi.fn((event, callback) => { listeners[event] = callback; }),
     goto: vi.fn(async () => {
       if (!options.silent) {
-        listener(response("https://assets.aboutstatic.com/assets/service.grpc-test.js", 200));
-        listener(response(`https://tadarida-web.aboutyou.com/${PRODUCT_DETAIL_ENDPOINT}`, options.rpcStatus ?? 200));
+        listeners.response?.(response("https://assets.aboutstatic.com/assets/service.grpc-test.js", 200) as never);
+        listeners.response?.(response(`https://tadarida-web.aboutyou.com/${PRODUCT_DETAIL_ENDPOINT}`, options.rpcStatus ?? 200) as never);
       }
       return response("https://www.aboutyou.lt/p/test-123", options.status ?? 200);
     }),
@@ -61,7 +62,9 @@ describe("product detail source loading", () => {
 
   it("closes the page when the expected response never arrives", async () => {
     const { page, context } = setup({ silent: true });
-    await expect(fetchProductDetail(context, "https://www.aboutyou.lt/p/test-123", 10)).rejects.toThrow("product_detail_request_timeout");
+    const onFailure = vi.fn(async () => {});
+    await expect(fetchProductDetail(context, "https://www.aboutyou.lt/p/test-123", 10, { onFailure })).rejects.toThrow("product_detail_request_timeout");
+    expect(onFailure).toHaveBeenCalledWith(page, expect.objectContaining({ message: "product_detail_request_timeout" }));
     expect(page.close).toHaveBeenCalledOnce();
   });
 });

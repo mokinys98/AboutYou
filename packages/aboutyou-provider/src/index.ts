@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { PRODUCT_DETAIL_PARSER_VERSION, ProductSchema, cents, isAllowedAboutYouUrl, normalizeColor, normalizeColorShade, type Product } from "@catalog/shared";
 export { PRODUCT_DETAIL_PARSER_VERSION } from "@catalog/shared";
-export { fetchProductDetail } from "./product-detail-page";
+export { fetchProductDetail, type ProductDetailNetworkEvent } from "./product-detail-page";
 
 const PRODUCT_STREAM_PATH = "aysa_api.services.category_page.v1.stream.CategoryStreamService/GetProductStreamV2";
 export const PRODUCT_DETAIL_ENDPOINT = "aysa_api.services.article_detail_page.v1.ArticleDetailService/GetProductBulk";
