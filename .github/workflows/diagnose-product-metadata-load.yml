@@ -1,0 +1,53 @@
+name: Diagnose product metadata load
+
+on:
+  workflow_dispatch:
+    inputs:
+      product_urls:
+        description: 1–10 public ABOUT YOU LT product URLs, one per line
+        required: true
+        default: |-
+          https://www.aboutyou.lt/p/vans/sportbaciai-be-auliuko-32237548
+          https://www.aboutyou.lt/p/calvin-klein-underwear/kelnaites-paaukstintu-liemeniu-32190350
+          https://www.aboutyou.lt/p/calvin-klein-underwear/moteriskos-kelnaites-15135978
+        type: string
+      repeat_count:
+        description: Repetitions of the URL list; 35 × 3 URLs matches the production failure range
+        required: false
+        default: "35"
+        type: string
+      concurrency:
+        description: Parallel product pages; production uses 3
+        required: false
+        default: "3"
+        type: string
+
+concurrency:
+  group: catalog-sync
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run diagnose:metadata:load
+        env:
+          DIAGNOSE_METADATA_URLS: ${{ inputs.product_urls }}
+          DIAGNOSE_METADATA_REPEAT_COUNT: ${{ inputs.repeat_count }}
+          DIAGNOSE_METADATA_CONCURRENCY: ${{ inputs.concurrency }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: metadata-load-diagnostics
+          path: apps/sync/test-results/metadata-load-diagnostics
+          retention-days: 14

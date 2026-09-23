@@ -6,6 +6,7 @@
   "scripts": {
     "diagnose:catalog": "node --import tsx src/diagnose-catalog.ts",
     "diagnose:metadata": "node --import tsx src/diagnose-metadata.ts",
+    "diagnose:metadata:load": "node --import tsx src/diagnose-metadata-load.ts",
     "sync": "node --env-file-if-exists=../../.env --import tsx src/index.ts",
     "sync:metadata": "node --env-file-if-exists=../../.env --import tsx src/metadata.ts",
     "verify:catalog:staging": "node --env-file-if-exists=../../.env --import tsx src/verify-catalog-staging.ts",
