@@ -163,3 +163,53 @@ Dabartinė eilė neužbaigia grupių, kai `collected_count < expected_total`, to
 3. Suskaidyti dideles `root` dalis pagal tikrą kategorijų hierarchiją; nekeisti URL pagal kainą ar sąrašo poziciją.
 4. Atskirai nuspręsti, kaip priimti pasibaigusį srautą, kai svetainės `expectedTotal` neatitinka pagrindinio tinklelio faktinio kiekio. Ši taisyklė negali būti pakeista vien dėl to, kad užduotys greičiau taptų `completed`.
 5. Tik po šių patikrų įjungti viso manifesto 15 minučių grafiką ir stebėti 24 valandų našumą.
+
+## Metaduomenų rinkimo pataisa — 2026-09-23
+
+Pataisyta vietinėje `fix/premium-stream-diagnostics` šakoje; produkcinis įdiegimas ir VPS duomenų atsinaujinimas dar nepatvirtinti.
+
+### Nustatyta priežastis
+
+- [Metaduomenų workflow 35803575773](https://github.com/mokinys98/AboutYou/actions/runs/35803575773) apdorojo 3 009 prekes: `payload_ok=0`, `complete=0`, `retryable=3009`, tačiau GitHub rezultatas buvo `success`.
+- [Workflow 35819764168](https://github.com/mokinys98/AboutYou/actions/runs/35819764168) jau nepaėmė užduočių (`claimed=0`); suvestinėje buvo 37 549 aktyvios prekės, 1 `complete`, 37 156 `retryable`, 392 `sourceUnavailable`. Vien šis žurnalas neatskleidžia, ar eilė laukia būsimo termino, ar turi `infinity` įrašų.
+- Dabartinės aktyvios prekės HTML neturi `ArticleDetailService/GetProductBulk` payload. Svetainė jį gauna asinchronine gRPC užklausa. Senasis darbuotojas naudojo tik HTTP HTML gavimą, todėl negalėjo paimti šių duomenų. Priežastis atkartota viešame šaltinyje be VPS prieigos.
+- Administravimo 0 % skaičiuojamas iš aktyvių prekių dabartinės sinchronizacijos `complete` būsenos. „32 927 prekių su metadata“ yra atskiras turimų metaduomenų rodiklis. „53 % kataloge“ taip pat nėra metaduomenų aprėptis. Katalogo srauto neužbaigtumas ir metaduomenų gavimo klaida yra atskiros problemos.
+
+### Pakeitimai
+
+- Darbuotojas atidaro prekės puslapį ir perskaito svetainės natūralų `GetProductBulk` atsakymą. Jį dekoduoja tuo metu puslapio įkeltas `ArticleDetailService` modulis; asset hash nekoduojamas pastoviai. HTML payload kelias išlieka palaikomas.
+- Išlaikoma produkto ID ir galutinio URL patikra, schemos kontrolė, visų keturių detalių sekcijų būsenos, 403/429 stabdymas. Atsižvelgiama ir į JavaScript peradresavimą, kai pašalintos prekės pradinis HTTP atsakymas dar yra 200.
+- Visas vienos prekės gavimas, įskaitant atsakymo turinį ir dekodavimą, ribojamas 25 sekundėmis; puslapis visada uždaromas. Į raw archyvą neperduodami `basketToken`, `trackingSection`, `trailers`.
+- Laikinos / schemos klaidos ir ribojimas nustato exit 1. Tuščia eilė savaime nėra klaida. Kai paimta bent 25 prekių, nėra nė vienos sėkmės ir bent 20 laikinų / schemos klaidų, darbas stabdomas, nelaukiant tūkstančių nesėkmių.
+- Klaidų kodai ir skaitikliai matomi žurnale; produkcinis ir staging workflow išsaugo logą 14 dienų ir naudoja `pipefail`.
+- Pridėtas `Diagnose product metadata` workflow ir vietinė `diagnose:metadata` komanda be DB paslapčių ar `.env` skaitymo.
+- Parserio versija lieka 5: taisomas transportas, o ne žinomų laukų interpretacija. Naujos SQL migracijos šiai pataisai nereikia.
+
+### Patikra ir paleidimas
+
+Vietiniai testai: 138/138; providerio ir sync TypeScript patikra sėkminga. Gyvi šaltinio testai: 3/3 (`32237548`, `32190350`, `15135978`), visais atvejais gauti tinkami payload, ID, nuotraukos, dydžiai ir keturios detalių sekcijų būsenos. Seni gyvų testų URL atnaujinti, nes pirmasis senas produktas jau nukreipia į prekės ženklo puslapį. Katalogo testų harness papildytas po ankstesnio pakeitimo trūkusia tikra `collectStreamItems` funkcija.
+
+Viešo šaltinio diagnostika iš projekto šaknies:
+
+```powershell
+npm.cmd run diagnose:metadata -- "https://www.aboutyou.lt/p/vans/sportbaciai-be-auliuko-32237548"
+```
+
+Santrauka: `apps/sync/test-results/metadata-diagnostics.json`. Prekei dingus iš šaltinio, naudokite dabartinį aktyvios prekės URL.
+
+Po kodo sujungimo į workflow naudojamą `main` šaką pirmiausia patikrinkite viešą šaltinį su `Diagnose product metadata`. Savininkas tada gali paleisti `Sync product metadata` su `max_products=50`; tikrinkite `payload_ok`, `complete`, `failure_codes` ir workflow baigtį. Šis produkcinis paleidimas naudoja VPS, todėl Codex jo nevykdė.
+
+Jei `claimed=0`, savininkas gali atlikti šią tik skaitymo patikrą VPS `psql` sesijoje (prisijungimo komandos pateiktos `docs/RINKIMO_DIAGNOSTIKA.md`):
+
+```sql
+select status, last_error_code, count(*) as products,
+       count(*) filter (where next_attempt_at <= now()) as due_now,
+       count(*) filter (where next_attempt_at = 'infinity'::timestamptz) as infinite_wait,
+       min(next_attempt_at) as earliest_attempt
+from public.product_detail_sync
+where product_active
+group by status, last_error_code
+order by products desc;
+```
+
+Jei laikinos klaidos įstrigusios ties `infinity`, jau paruoštos migracijos `20260920190501_recover_transient_metadata_failures.sql` įkėlimo, vykdymo ir patikros komandos yra `docs/RINKIMO_DIAGNOSTIKA.md`. Jos taikymo nelaikome patvirtintu. Būsenų ir parserio versijos masiškai neatstatome; būsimo termino laukiančios užduotys turi būti paimtos pagal esamą kartojimo politiką.

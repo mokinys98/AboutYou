@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { PRODUCT_DETAIL_PARSER_VERSION, ProductSchema, cents, isAllowedAboutYouUrl, normalizeColor, normalizeColorShade, type Product } from "@catalog/shared";
 export { PRODUCT_DETAIL_PARSER_VERSION } from "@catalog/shared";
+export { fetchProductDetail } from "./product-detail-page";
 
 const PRODUCT_STREAM_PATH = "aysa_api.services.category_page.v1.stream.CategoryStreamService/GetProductStreamV2";
 export const PRODUCT_DETAIL_ENDPOINT = "aysa_api.services.article_detail_page.v1.ArticleDetailService/GetProductBulk";
@@ -190,6 +191,14 @@ export function extractColorFromProductHtml(html: string): string | null {
 
 export function extractProductDetailFromHtml(html: string): ProductDetailExtraction {
   const rawPayload = extractProductDetailPayloadFromHtml(html);
+  return extractProductDetailFromPayload(rawPayload, html);
+}
+
+export function extractProductDetailFromPayload(rawPayload: Record<string, unknown> | null, html = ""): ProductDetailExtraction {
+  if (rawPayload) {
+    const { trailers: _trailers, basketToken: _basketToken, trackingSection: _tracking, ...productPayload } = rawPayload;
+    rawPayload = productPayload;
+  }
   const parsed = rawPayload ? extractProductDetailMetadata(rawPayload) : {
     metadata: emptyProductDetailMetadata(), sourceProductId: null, schemaError: null
   };

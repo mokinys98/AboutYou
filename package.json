@@ -15,6 +15,7 @@
     "dev:api:real-db": "npm run dev:real-db --workspace @catalog/api",
     "sync": "npm run sync --workspace @catalog/sync",
     "diagnose:catalog": "npm run diagnose:catalog --workspace @catalog/sync --",
+    "diagnose:metadata": "npm run diagnose:metadata --workspace @catalog/sync --",
     "sync:metadata": "npm run sync:metadata --workspace @catalog/sync",
     "verify:catalog:staging": "npm run verify:catalog:staging --workspace @catalog/sync",
     "migration:preflight": "node scripts/migration/preflight-production.mjs",

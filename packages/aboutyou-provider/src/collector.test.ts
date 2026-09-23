@@ -28,14 +28,14 @@ function harness(overrides: Record<string, unknown> = {}) {
     AUTOMATION_MODE: false, recordDiagnostic: vi.fn(),
     parseInitialState: vi.fn(), scanCards: vi.fn(), sleep: async () => {},
     renderResults: vi.fn(), updateStatus: vi.fn(), safeDiagnosticError: String,
-    collectProductTiles: (items: Array<{ productId: string }>, visit: (item: unknown) => void) => items.forEach(visit),
+    collectProductTiles: (items: unknown, visit: (item: unknown) => void) => (Array.isArray(items) ? items : [items]).forEach(visit),
     productFromTile: (item: unknown) => item,
     upsertProduct: (item: { productId: string }) => state.products.set(item.productId, item),
     rememberProductStreamState: (data: { nextState?: Uint8Array }) => { if (data.nextState?.length) state.stream.nextState = new Uint8Array(data.nextState); },
     ...overrides
   };
   const api = runInNewContext([
-    implementation("loadProductsFast"), implementation("collectionSnapshot"), implementation("fetchWithTimeout"),
+    implementation("collectStreamItems"), implementation("loadProductsFast"), implementation("collectionSnapshot"), implementation("fetchWithTimeout"),
     "({ loadProductsFast, collectionSnapshot, fetchWithTimeout })"
   ].join("\n"), context);
   return { state, context, api };

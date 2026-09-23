@@ -42,4 +42,15 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: npm run sync:metadata
+      - name: Collect product metadata
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p test-results
+          npm run sync:metadata 2>&1 | tee test-results/metadata-sync.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: metadata-sync-diagnostics-staging
+          path: test-results/metadata-sync.log
+          retention-days: 14
