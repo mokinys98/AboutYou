@@ -112,3 +112,54 @@ rm -f /tmp/20260921122000_add_catalog_collection_queue.sql
 rm -f /tmp/20260921130000_limit_catalog_cycle_cadence.sql
 exit
 ```
+
+## Perdavimo suvestinė 2026-09-23
+
+### Kas atlikta
+
+- Įdiegta katalogo užduočių eilė su ciklais, dalimis, užduočių būsenomis, 3 minučių lease, lease pratęsimu, `FOR UPDATE SKIP LOCKED`, bandymų atidėjimu ir idempotentišku puslapio įrašymu.
+- Įdiegtas vienas darbuotojas, kuris per vieną paleidimą dirba iki 10 minučių; GitHub workflow turi 20 minučių avarinį limitą.
+- Produkciniame režime DOM slinkimo fallback išjungtas. Tiesioginio srauto klaida užduotį palieka eilėje su diagnostika.
+- ABOUT YOU modulio aptikimas pataisytas: `service.grpc.lazy-*` tarpiniai moduliai išskleidžiami iki tikro `service.grpc-*` modulio.
+- Diagnostikos workflow saugo `events.jsonl`, `summary.json`, produktus ir pradinės būsenos struktūras; workflow neturi DB paslapčių.
+- `sync-catalog.yml` ir staging workflow dabar naudoja `pipefail`, todėl GitHub nebepaslepia `npm` klaidos už žalio veiksmo rezultato.
+- Eilės RPC teisės apribotos `service_role`; vieši klientai lentelių skaityti ir keisti negali.
+
+### Migracijos
+
+1. `20260921122000_add_catalog_collection_queue.sql` – sukuria eiles lenteles, RPC ir pradines `root` dalis.
+2. `20260921130000_limit_catalog_cycle_cadence.sql` – neleidžia tam pačiam target'ui kurti naujo ciklo dažniau nei kas 24 valandas.
+3. `20260922090000_fix_catalog_queue_claim_ambiguity.sql` – pašalina PostgreSQL `42702 target_id is ambiguous` klaidą funkcijoje `claim_catalog_collection_task`.
+
+Savininkas patvirtino trečios migracijos patikrą: `fixed = true`. Remote VPS prie Codex neprieinamas; migracijų vykdymą ir DB būsenos patikrą atlieka savininkas pagal šiame dokumente pateiktas PuTTY komandas.
+
+### Diagnostikos rezultatai
+
+- Calvin Klein filtro paleidimas patvirtino tiesioginį srautą, puslapiavimą ir `expectedTotal: 1785`.
+- Bendra „Batai“ kategorija patvirtino tiesioginį srautą ir `expectedTotal: 7398`.
+- Premium kategorijos paleidimas rado `expectedTotal: 890`, bet gavo 867 pagrindinio tinklelio produktus. Natūralus svetainės slinkimas parodė tuos pačius 867 ID; kiti puslapio ID priklauso atskiram rekomendacijų blokui ir reklamai. Tai nėra įrodytas rinkiklio praradimas, todėl ši grupė tebėra `complete: false`.
+
+### Produkcinio sync būklė
+
+Po `42702` pataisos darbuotojas pradėjo realiai imti užduotis ir įrašyti produktus. Naujausiame darbe buvo paimta 12 užduočių ir įrašyta 11 162 produktų paketų, taip pat paprašytas skaitymo modelio atnaujinimas.
+
+Dabartinė eilė neužbaigia grupių, kai `collected_count < expected_total`, todėl užduotys lieka `retryable`. Didelės grupės pasiekia `SYNC_MAX_PRODUCTS=5000` ribą, o dalis mažesnių URL baigiasi keliais produktais žemiau šaltinio deklaruojamo `expectedTotal`. Tai apsaugo nuo klaidingo ciklo užbaigimo, tačiau reiškia, kad grupės kartojamos ir po penkto bandymo gali tapti `blocked`.
+
+### Git istorija
+
+- `6af37a0` – eilės įgyvendinimas.
+- `5efe7ae` – ciklo kadencijos migracijos paruošimas.
+- `2291b8e` – tiesioginio `service.grpc.lazy-*` modulio aptikimo pataisa.
+- `030fa12`, `98ef8f3` – nepilno srauto diagnostika ir teisingas `direct-stream` režimo raportavimas.
+- `4416713` – PostgreSQL claim pataisa ir workflow `pipefail`.
+- `0e4edac` – Premium tinklelio ir srauto palyginimo išvada.
+
+Šie katalogo eilės pataisymai šiuo metu yra šakoje `fix/premium-stream-diagnostics`; prieš produkcinį naudojimą juos reikia sujungti į `main` ir paleisti workflow iš `main`.
+
+### Kas liko
+
+1. Sujungti patikrintus pakeitimus į `main`.
+2. Peržiūrėti VPS `catalog_collection_tasks` ir `catalog_sync_cycles` būsenas po kelių paleidimų.
+3. Suskaidyti dideles `root` dalis pagal tikrą kategorijų hierarchiją; nekeisti URL pagal kainą ar sąrašo poziciją.
+4. Atskirai nuspręsti, kaip priimti pasibaigusį srautą, kai svetainės `expectedTotal` neatitinka pagrindinio tinklelio faktinio kiekio. Ši taisyklė negali būti pakeista vien dėl to, kad užduotys greičiau taptų `completed`.
+5. Tik po šių patikrų įjungti viso manifesto 15 minučių grafiką ir stebėti 24 valandų našumą.
