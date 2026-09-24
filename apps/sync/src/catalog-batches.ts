@@ -21,6 +21,8 @@ type Options<T extends CatalogBatchItem> = {
   save: (items: T[]) => Promise<number>;
   onFailure?: (event: CatalogBatchFailureEvent) => void;
   maxRetryAttempts?: number;
+  splitStatementTimeouts?: boolean;
+  minimumSplitSize?: number;
   sleep?: (ms: number) => Promise<void>;
 };
 
@@ -37,6 +39,7 @@ function payloadBytes(items: unknown[]): number {
 
 export async function saveCatalogBatchResilient<T extends CatalogBatchItem>(options: Options<T>): Promise<CatalogBatchResult> {
   const maxRetryAttempts = options.maxRetryAttempts ?? 3;
+  const minimumSplitSize = options.minimumSplitSize ?? 25;
   const sleep = options.sleep ?? defaultSleep;
 
   async function save(items: T[]): Promise<CatalogBatchResult> {
@@ -47,6 +50,7 @@ export async function saveCatalogBatchResilient<T extends CatalogBatchItem>(opti
       try {
         return { saved: await options.save(items), rejected: [] };
       } catch (error) {
+        const normalized = normalizeSyncError(error);
         options.onFailure?.({
           batchSize: items.length,
           payloadBytes: payloadBytes(items),
@@ -54,7 +58,7 @@ export async function saveCatalogBatchResilient<T extends CatalogBatchItem>(opti
           durationMs: Date.now() - startedAt,
           firstExternalId: items[0]?.externalId ?? null,
           lastExternalId: items.at(-1)?.externalId ?? null,
-          error: normalizeSyncError(error)
+          error: normalized
         });
         const category = classifySyncError(error);
         if (category === "deterministic" && items.length > 1) {
@@ -67,6 +71,12 @@ export async function saveCatalogBatchResilient<T extends CatalogBatchItem>(opti
         if (attempt < allowedAttempts) {
           await sleep(attempt === 1 ? 1_000 : 3_000);
           continue;
+        }
+        if (options.splitStatementTimeouts && normalized.code === "57014" && items.length > minimumSplitSize) {
+          const midpoint = Math.ceil(items.length / 2);
+          const left = await save(items.slice(0, midpoint));
+          const right = await save(items.slice(midpoint));
+          return { saved: left.saved + right.saved, rejected: [...left.rejected, ...right.rejected] };
         }
         if (category === "deterministic" && items.length === 1) {
           return {

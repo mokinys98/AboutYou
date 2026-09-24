@@ -11,6 +11,14 @@ export function shouldStopMetadataBatch(counts: RunCounts): boolean {
   return counts.claimed >= 25 && counts.complete === 0 && counts.retryable + counts.blocked_schema >= 20;
 }
 
+export function shouldOpenMetadataTimeoutCircuit(
+  counts: Pick<RunCounts, "complete">,
+  consecutiveTimeouts: number,
+  threshold: number
+): boolean {
+  return counts.complete > 0 && consecutiveTimeouts >= threshold;
+}
+
 export function metadataRunFailed(counts: RunCounts, rateLimited: boolean): boolean {
   return rateLimited || counts.retryable > 0 || counts.blocked_schema > 0;
 }

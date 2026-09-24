@@ -5,6 +5,7 @@ import { z } from "zod";
 import { AboutYouRateLimitError, collectAboutYouTarget } from "@catalog/aboutyou-provider";
 import { normalizeCategoryPath, type Product } from "@catalog/shared";
 import { inferFallbackCategoryPath, resolveFallbackCategory } from "./category-classifier";
+import { saveCatalogBatchResilient, type CatalogBatchFailureEvent } from "./catalog-batches";
 import { formatSyncError } from "./sync-errors";
 
 type QueueDb = {
@@ -99,12 +100,27 @@ async function collectTask(
     const products = mapProducts(result.products, task);
     let saved = 0;
     for (const [index, batch] of chunks(products, 200).entries()) {
-      const { data, error } = await db.rpc("record_catalog_collection_page", {
-        p_task_id: task.task_id, p_lease_token: task.lease_token, p_page_number: index + 1,
-        p_page_key: pageKey(batch), p_products: batch
+      const batchResult = await saveCatalogBatchResilient({
+        items: batch,
+        save: async (items) => {
+          const { data, error } = await db.rpc("record_catalog_collection_page", {
+            p_task_id: task.task_id, p_lease_token: task.lease_token, p_page_number: index + 1,
+            p_page_key: pageKey(items), p_products: items
+          });
+          if (error) throw error;
+          return Number(data ?? 0);
+        },
+        maxRetryAttempts: 1,
+        splitStatementTimeouts: true,
+        minimumSplitSize: 25,
+        onFailure: (event: CatalogBatchFailureEvent) => logEvent("catalog_queue_batch_failed", {
+          task_id: task.task_id, cycle_id: task.cycle_id, batch_index: index, ...event
+        })
       });
-      if (error) throw error;
-      saved += Number(data ?? 0);
+      if (batchResult.rejected.length > 0) {
+        throw new Error(`Catalog batch contained ${batchResult.rejected.length} rejected products.`);
+      }
+      saved += batchResult.saved;
     }
     const complete = result.complete && result.expectedTotal !== null && products.length >= result.expectedTotal;
     const issue = complete ? null : result.error || (result.expectedTotal === null

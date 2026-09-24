@@ -11,7 +11,9 @@ import {
   cleanupOldDiagnostics, diagnosticRow, summarizeBlockedSchema, uploadDiagnosticHtml, type BlockedSchemaRow
 } from "./metadata-diagnostics";
 import { archiveRawPayload, cleanupRawArtifacts } from "./metadata-artifacts";
-import { classifyMetadataExtraction, metadataRunFailed, shouldStopMetadataBatch } from "./metadata-policy";
+import {
+  classifyMetadataExtraction, metadataRunFailed, shouldOpenMetadataTimeoutCircuit, shouldStopMetadataBatch
+} from "./metadata-policy";
 import { withRetry } from "./sync-retry";
 import { formatSyncError } from "./sync-errors";
 
@@ -23,6 +25,7 @@ const EnvSchema = z.object({
   METADATA_SYNC_CONCURRENCY: z.coerce.number().int().min(1).max(12).default(3),
   METADATA_SYNC_DELAY_MS: z.coerce.number().int().min(250).max(60_000).default(400),
   METADATA_SYNC_MAX_RUNTIME_MINUTES: z.coerce.number().int().min(1).max(70).default(60),
+  METADATA_TIMEOUT_CIRCUIT_BREAKER: z.coerce.number().int().min(3).max(100).default(20),
   METADATA_DEBUG_HTML_LIMIT: z.coerce.number().int().min(0).max(100).default(20),
   METADATA_DEBUG_RETENTION_DAYS: z.coerce.number().int().min(1).max(90).default(14),
   METADATA_RAW_SAMPLE_LIMIT: z.coerce.number().int().min(1).max(1000).default(750),
@@ -81,6 +84,8 @@ const deadline = startedAt + env.METADATA_SYNC_MAX_RUNTIME_MINUTES * 60_000;
 let rateLimited = false;
 let nextRequestAt = Date.now();
 let systemicFailure = false;
+let timeoutCircuitOpen = false;
+let consecutiveTimeouts = 0;
 const failureCodes: Record<string, number> = {};
 
 log("metadata_sync_started", {
@@ -95,7 +100,7 @@ const browser = await chromium.launch({ headless: env.SYNC_HEADLESS });
 let debugHtmlSaved = 0;
 try {
   const context = await browser.newContext({ locale: "lt-LT", timezoneId: "Europe/Vilnius" });
-  while (!rateLimited && counters.claimed < env.METADATA_SYNC_MAX_PRODUCTS && Date.now() < deadline) {
+  while (!rateLimited && !timeoutCircuitOpen && counters.claimed < env.METADATA_SYNC_MAX_PRODUCTS && Date.now() < deadline) {
     const remaining = env.METADATA_SYNC_MAX_PRODUCTS - counters.claimed;
     const data = await withSupabaseRetry("claim_product_detail_batch", () => db.rpc("claim_product_detail_batch", {
       p_parser_version: PRODUCT_DETAIL_PARSER_VERSION,
@@ -110,15 +115,16 @@ try {
     const sampleIds = new Set((sampleRows ?? []).map((row) => row.product_id as string));
 
     await runPool(claims, env.METADATA_SYNC_CONCURRENCY, async (claim) => {
-      if (rateLimited || Date.now() >= deadline) return;
+      if (rateLimited || timeoutCircuitOpen || Date.now() >= deadline) return;
       await waitForRequestSlot();
-      if (rateLimited || Date.now() >= deadline) return;
+      if (rateLimited || timeoutCircuitOpen || Date.now() >= deadline) return;
       let responseHtml: string | null = null;
       let httpStatus: number | null = null;
       let contentType: string | null = null;
       let finalUrl: string | null = null;
       try {
         const response = await fetchProductDetail(context, claim.product_url);
+        consecutiveTimeouts = 0;
         const status = response.status;
         httpStatus = status;
         contentType = response.contentType;
@@ -218,6 +224,19 @@ try {
         counters.source_absent += metadata.sections.filter((section) => section.status === "source_absent").length;
       } catch (error) {
         counters.retryable += 1;
+        if (isProductDetailRequestTimeout(error)) {
+          consecutiveTimeouts += 1;
+          if (shouldOpenMetadataTimeoutCircuit(counters, consecutiveTimeouts, env.METADATA_TIMEOUT_CIRCUIT_BREAKER)) {
+            timeoutCircuitOpen = true;
+            log("metadata_timeout_circuit_opened", {
+              consecutive_timeouts: consecutiveTimeouts,
+              threshold: env.METADATA_TIMEOUT_CIRCUIT_BREAKER,
+              complete: counters.complete
+            });
+          }
+        } else {
+          consecutiveTimeouts = 0;
+        }
         const code = safeErrorCode(error);
         try {
           await recordDiagnostic(claim, code, { httpStatus, contentType, finalUrl, responseHtml });
@@ -238,7 +257,7 @@ try {
       }
     });
 
-    systemicFailure = shouldStopMetadataBatch(counters);
+    systemicFailure = timeoutCircuitOpen || shouldStopMetadataBatch(counters);
     if (rateLimited || systemicFailure || Date.now() >= deadline) {
       const leaseToken = claims[0]?.lease_token;
       if (leaseToken) {
@@ -282,6 +301,8 @@ log("metadata_sync_finished", {
   parser_version: PRODUCT_DETAIL_PARSER_VERSION,
   rate_limited: rateLimited,
   systemic_failure: systemicFailure,
+  timeout_circuit_open: timeoutCircuitOpen,
+  consecutive_timeouts: consecutiveTimeouts,
   failure_codes: failureCodes,
   duration_seconds: Math.round((Date.now() - startedAt) / 1_000),
   coverage
@@ -397,6 +418,10 @@ function unique(values: string[]): string[] { return [...new Set(values)]; }
 function safeErrorCode(error: unknown): string {
   const value = formatSyncError(error);
   return `request_failed:${value}`.replace(/\s+/g, " ").slice(0, 200);
+}
+
+function isProductDetailRequestTimeout(error: unknown): boolean {
+  return error instanceof Error && error.message === "product_detail_request_timeout";
 }
 type SupabaseResult<T> = { data: T; error: unknown | null };
 

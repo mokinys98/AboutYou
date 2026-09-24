@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { ProductDetailExtraction } from "@catalog/aboutyou-provider";
-import { classifyMetadataExtraction, metadataRunFailed, shouldStopMetadataBatch } from "./metadata-policy";
+import {
+  classifyMetadataExtraction, metadataRunFailed, shouldOpenMetadataTimeoutCircuit, shouldStopMetadataBatch
+} from "./metadata-policy";
 
 function extraction(overrides: Partial<ProductDetailExtraction> = {}): ProductDetailExtraction {
   return {
@@ -32,6 +34,13 @@ describe("metadata extraction failure policy", () => {
     expect(metadataRunFailed({ ...counts, complete: 24, retryable: 1 }, false)).toBe(true);
     expect(metadataRunFailed({ ...counts, blocked_schema: 1 }, false)).toBe(true);
   });
+
+  it("opens the timeout circuit after prior success and a sustained no-response streak", () => {
+    expect(shouldOpenMetadataTimeoutCircuit({ complete: 125 }, 19, 20)).toBe(false);
+    expect(shouldOpenMetadataTimeoutCircuit({ complete: 125 }, 20, 20)).toBe(true);
+    expect(shouldOpenMetadataTimeoutCircuit({ complete: 0 }, 20, 20)).toBe(false);
+  });
+
   it("retries an HTML response without a product payload", () => {
     expect(classifyMetadataExtraction(extraction({ rawPayload: null, payloadHash: null }), "123"))
       .toEqual({ kind: "retryable", code: "product_detail_payload_missing" });
