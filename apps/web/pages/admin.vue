@@ -122,6 +122,24 @@ function userStatusLabel(status: TeamUser["status"]) {
   return "Išjungtas";
 }
 
+const taskStatusOrder = ["pending", "processing", "retryable", "blocked", "completed"] as const;
+
+function taskBadges(run: Run) {
+  return taskStatusOrder
+    .filter((status) => (run.task_counts?.[status] ?? 0) > 0)
+    .map((status) => ({ status, count: run.task_counts?.[status] ?? 0 }));
+}
+
+function taskStatusLabel(status: string) {
+  return {
+    pending: "pending",
+    processing: "processing",
+    retryable: "retryable",
+    blocked: "blocked",
+    completed: "completed"
+  }[status] ?? status;
+}
+
 async function runAction(key: string, action: () => Promise<void>) {
   error.value = "";
   pending.value = key;
@@ -300,6 +318,16 @@ onMounted(refresh);
               <strong>{{ run.sync_targets?.label ?? "-" }}</strong>
               <small>{{ new Date(run.started_at).toLocaleString("lt-LT") }} · {{ runDuration(run) }}</small>
               <em>{{ formatNumber(run.products_count) }} produktų</em>
+            </div>
+          </div>
+          <p class="panel-note dashboard-run-detail-note">Ciklas ir užduotys pagal paskutinį run’ą</p>
+          <div class="dashboard-run-details">
+            <div v-for="run in dashboard?.latestRuns ?? []" :key="`${run.id}-details`">
+              <strong>{{ run.sync_targets?.label ?? "-" }}</strong>
+              <span v-if="run.cycle_status" class="status cycle-status" :class="run.cycle_status">Ciklas: {{ run.cycle_status }}</span>
+              <span v-for="badge in taskBadges(run)" :key="badge.status" class="status task-status" :class="badge.status">{{ taskStatusLabel(badge.status) }}: {{ badge.count }}</span>
+              <span v-if="run.error" class="run-error" :title="run.error">Klaida: {{ run.error }}</span>
+              <span v-if="!run.cycle_status && !run.error" class="run-muted">Užduočių būsena nepateikta</span>
             </div>
           </div>
         </section>
