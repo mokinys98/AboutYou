@@ -346,7 +346,7 @@ onMounted(refresh);
         <form class="target-form" @submit.prevent="add">
           <label>Pavadinimas<input v-model="form.label" required></label>
           <label>Tipas<select v-model="form.kind"><option value="category">Kategorija</option><option value="brand">Brandas</option><option value="search">Paieška</option></select></label>
-          <label>Prioritetas<input v-model.number="form.priority" type="number" min="0" max="1000" required></label>
+          <label>Grupės prioritetas (antrinis)<input v-model.number="form.priority" type="number" min="0" max="1000" required></label>
           <label class="wide">ABOUT YOU URL<input v-model="form.url" type="url" required placeholder="https://www.aboutyou.lt/c/..."></label>
           <button class="primary" :disabled="pending === 'add'">{{ pending === "add" ? "Pridedama..." : "Pridėti" }}</button>
         </form>
@@ -354,14 +354,17 @@ onMounted(refresh);
 
       <section class="admin-panel">
         <h2>Aktyvios grupės</h2>
+        <p class="panel-note">Realus worker eiliškumas: seniausias 24 val. ciklas → mažesnis grupės prioritetas → mažesnis jos dalies prioritetas. Lentelė rikiuojama pagal grupės prioritetą; šaltinio kiekis atnaujinamas automatiškai po root grupės rinkimo.</p>
         <p v-if="loadErrors.syncTargets" class="error-state">Sinchronizavimo grupių atnaujinti nepavyko: {{ loadErrors.syncTargets }}</p>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Grupė</th><th>Būsena</th><th>Paskutinis atnaujinimas</th><th>Veiksmai</th></tr></thead>
+            <thead><tr><th>Grupė</th><th>Šaltinio kiekis</th><th>Grupės prioritetas</th><th>Būsena</th><th>Paskutinis atnaujinimas</th><th>Veiksmai</th></tr></thead>
             <tbody>
               <template v-for="target in targets" :key="target.id">
                 <tr>
-                  <td><strong>{{ target.label }}</strong><small>{{ target.url }}</small><small>Prioritetas: {{ target.priority }}</small></td>
+                  <td><strong>{{ target.label }}</strong><small>{{ target.url }}</small></td>
+                  <td><strong>{{ target.expected_total == null ? "–" : formatNumber(target.expected_total) }}</strong><small>{{ target.expected_total == null ? "Dar nenustatyta" : "Paskutinis expectedTotal" }}</small></td>
+                  <td><strong>{{ target.priority }}</strong><small>Po ciklo amžiaus; mažesnis = anksčiau</small></td>
                   <td><span class="status" :class="target.enabled ? 'success' : ''">{{ target.enabled ? "Aktyvi" : "Išjungta" }}</span><small v-if="target.last_error" class="error">{{ target.last_error }}</small></td>
                   <td>{{ target.last_success_at ? new Date(target.last_success_at).toLocaleString("lt-LT") : "-" }}</td>
                   <td><div class="row-actions">
@@ -372,11 +375,11 @@ onMounted(refresh);
                   </div></td>
                 </tr>
                 <tr v-if="editingId === target.id" class="target-edit-row">
-                  <td colspan="4">
+                  <td colspan="6">
                     <form class="target-edit-form" @submit.prevent="save(target)">
                       <label>Pavadinimas<input v-model="editForm.label" required></label>
                       <label>Tipas<select v-model="editForm.kind"><option value="category">Kategorija</option><option value="brand">Brandas</option><option value="search">Paieška</option></select></label>
-                      <label>Prioritetas<input v-model.number="editForm.priority" type="number" min="0" max="1000" required></label>
+                      <label>Grupės prioritetas (antrinis)<input v-model.number="editForm.priority" type="number" min="0" max="1000" required></label>
                       <label class="edit-url">ABOUT YOU URL<input v-model="editForm.url" type="url" required></label>
                       <label class="edit-enabled"><input v-model="editForm.enabled" type="checkbox"> Aktyvi</label>
                       <div class="edit-actions"><button type="submit" class="primary" :disabled="Boolean(pending)">{{ pending === `save:${target.id}` ? "Saugoma..." : "Išsaugoti" }}</button><button type="button" class="secondary" :disabled="Boolean(pending)" @click="cancelEdit">Atšaukti</button></div>

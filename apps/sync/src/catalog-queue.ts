@@ -15,13 +15,14 @@ type QueueDb = {
 export const CatalogQueueEnvSchema = z.object({
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(20),
-  SYNC_MAX_PRODUCTS: z.coerce.number().int().min(1).max(15_000).default(5_000),
+  SYNC_MAX_PRODUCTS: z.coerce.number().int().min(1).max(15_000).default(15_000),
   SYNC_TARGET_LABEL: z.string().default(""),
   SYNC_COLLECTION_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(600_000).default(480_000),
   SYNC_WORK_BUDGET_MS: z.coerce.number().int().min(60_000).max(720_000).default(600_000),
   SYNC_HEADLESS: z.string().default("true").transform((value) => value !== "false")
 });
 export type CatalogQueueEnv = z.infer<typeof CatalogQueueEnvSchema>;
+export const CATALOG_DB_BATCH_SIZE = 100;
 
 type ClaimedTask = {
   task_id: string; lease_token: string; cycle_id: string; sync_run_id: string;
@@ -99,7 +100,7 @@ async function collectTask(
     });
     const products = mapProducts(result.products, task);
     let saved = 0;
-    for (const [index, batch] of chunks(products, 200).entries()) {
+    for (const [index, batch] of chunks(products, CATALOG_DB_BATCH_SIZE).entries()) {
       const batchResult = await saveCatalogBatchResilient({
         items: batch,
         save: async (items) => {

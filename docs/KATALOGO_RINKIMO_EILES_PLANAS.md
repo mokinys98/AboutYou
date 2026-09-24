@@ -143,7 +143,15 @@ Savininkas patvirtino trečios migracijos patikrą: `fixed = true`. Remote VPS p
 
 Po `42702` pataisos darbuotojas pradėjo realiai imti užduotis ir įrašyti produktus. Naujausiame darbe buvo paimta 12 užduočių ir įrašyta 11 162 produktų paketų, taip pat paprašytas skaitymo modelio atnaujinimas.
 
-Dabartinė eilė neužbaigia grupių, kai `collected_count < expected_total`, todėl užduotys lieka `retryable`. Didelės grupės pasiekia `SYNC_MAX_PRODUCTS=5000` ribą, o dalis mažesnių URL baigiasi keliais produktais žemiau šaltinio deklaruojamo `expectedTotal`. Tai apsaugo nuo klaidingo ciklo užbaigimo, tačiau reiškia, kad grupės kartojamos ir po penkto bandymo gali tapti `blocked`.
+Dabartinė eilė neužbaigia grupių, kai `collected_count < expected_total`, todėl užduotys lieka `retryable`. Iki 2026-09-24 didelės grupės pasiekdavo `SYNC_MAX_PRODUCTS=5000` ribą, o dalis mažesnių URL baigdavosi keliais produktais žemiau šaltinio deklaruojamo `expectedTotal`. Tai apsaugo nuo klaidingo ciklo užbaigimo, tačiau reiškia, kad grupės kartojamos ir po penkto bandymo gali tapti `blocked`.
+
+### 2026-09-24 mastelio pakeitimai
+
+- Workflow ir queue worker limitas paruoštas kelti iki `SYNC_MAX_PRODUCTS=15000`.
+- Pirminis PostgreSQL įrašymo batch mažinamas nuo 200 iki 100 produktų; `57014` atveju lieka adaptyvus skaidymas iki 50 ir 25.
+- `sync_targets.expected_total` saugos paskutinį root grupės šaltinio `expectedTotal`; migracija taip pat užpildys esamas grupes iš naujausios root užduoties.
+- Admin UI aiškiai rodo, kad realus claim eiliškumas yra ciklo amžius, tada mažesnis grupės prioritetas, tada mažesnis dalies prioritetas.
+- Šie pakeitimai pradės veikti tik įkėlus kodą ir pritaikius `20260924073825_persist_catalog_target_expected_total.sql` VPS.
 
 ### Git istorija
 

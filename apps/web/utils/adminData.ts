@@ -8,6 +8,7 @@ export type Target = {
   kind: TargetKind;
   enabled: boolean;
   priority: number;
+  expected_total?: number | null;
   last_success_at: string | null;
   last_error: string | null;
 };

@@ -31,6 +31,7 @@ returns void language sql as $$ update public.sync_runs set status=p_status, pag
 \ir ../migrations/20260921122000_add_catalog_collection_queue.sql
 \ir ../migrations/20260921130000_limit_catalog_cycle_cadence.sql
 \ir ../migrations/20260922090000_fix_catalog_queue_claim_ambiguity.sql
+\ir ../migrations/20260924073825_persist_catalog_target_expected_total.sql
 
 do $$
 declare v_source uuid := gen_random_uuid(); v_target uuid := gen_random_uuid(); v_first record; v_reclaimed record; v_saved integer; v_status public.catalog_task_status;
@@ -53,6 +54,7 @@ begin
   exception when raise_exception then if sqlerrm <> 'Catalog task lease is missing or expired' then raise; end if; end;
   select public.finish_catalog_collection_task(v_reclaimed.task_id, v_reclaimed.lease_token, true, 60000, 60000, 1, null) into v_status;
   if v_status <> 'completed' then raise exception 'Task did not complete'; end if;
+  if (select expected_total from public.sync_targets where id=v_target) <> 60000 then raise exception 'Target expected total was not persisted'; end if;
   if not exists (select 1 from public.catalog_sync_cycles where target_id=v_target and status='success') then raise exception 'Cycle did not complete'; end if;
   if not exists (select 1 from public.sync_runs where target_id=v_target and status='success' and products_count=60000) then raise exception 'Run was not reconciled once'; end if;
 end $$;

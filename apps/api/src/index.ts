@@ -728,7 +728,7 @@ app.delete("/v1/admin/brand-tiers/:brandKey", requireAdmin, async (c) => {
 });
 
 app.get("/v1/sync-targets", requireAdmin, async (c) => {
-  const { data, error } = await c.get("db").from("sync_targets").select("*,sources(slug,name)").order("priority");
+  const { data, error } = await c.get("db").from("sync_targets").select("*,sources(slug,name)").order("priority").order("label");
   return error ? c.json({ error: error.message }, 500) : c.json(data);
 });
 
