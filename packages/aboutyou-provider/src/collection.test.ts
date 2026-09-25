@@ -18,7 +18,10 @@ function pageWith(result: Record<string, unknown>, pending = false) {
     waitForFunction: vi.fn(), evaluate
   } as unknown as Page;
 }
-const result = { products: [product], productCount: 1, pages: 1, expectedTotal: 1, mode: "direct-stream", complete: true, error: null, loading: false };
+const result = {
+  products: [product], productCount: 1, pages: 1, expectedTotal: 1, mode: "direct-stream",
+  complete: true, terminationReason: "target-reached", error: null, loading: false
+};
 afterEach(() => vi.useRealTimers());
 
 describe("provider collection boundaries", () => {
@@ -45,6 +48,7 @@ describe("provider collection boundaries", () => {
     const actual = await collection;
     expect(actual.products).toHaveLength(1);
     expect(actual.complete).toBe(false);
+    expect(actual.terminationReason).toBe("timeout");
     expect(actual.error).toContain("timeout");
   });
 });

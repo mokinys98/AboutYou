@@ -7,6 +7,7 @@ import { normalizeCategoryPath, type Product } from "@catalog/shared";
 import { inferFallbackCategoryPath, resolveFallbackCategory } from "./category-classifier";
 import { saveCatalogBatchResilient, type CatalogBatchFailureEvent } from "./catalog-batches";
 import { formatSyncError } from "./sync-errors";
+import { catalogCollectionDecision } from "./catalog-policy";
 
 type QueueDb = {
   rpc: (name: string, args?: Record<string, unknown>) => Promise<{ data: unknown; error: unknown | null }>;
@@ -123,12 +124,14 @@ async function collectTask(
       }
       saved += batchResult.saved;
     }
-    const complete = result.complete && result.expectedTotal !== null && products.length >= result.expectedTotal;
-    const issue = complete ? null : result.error || (result.expectedTotal === null
-      ? "Šaltinis negrąžino bendro prekių skaičiaus."
-      : `Nepilnas rinkimas: ${products.length}/${result.expectedTotal}.`);
-    const status = await finishTask(db, task, complete, result.expectedTotal, products.length, result.pages, issue, result.rateLimited ?? false, result.retryAfterSeconds ?? null);
-    logEvent("catalog_queue_task_finished", { task_id: task.task_id, cycle_id: task.cycle_id, status, saved, collected: products.length, expected_total: result.expectedTotal, pages: result.pages, mode: result.mode, issue });
+    const decision = catalogCollectionDecision({ ...result, products }, env.SYNC_MAX_PRODUCTS);
+    const status = await finishTask(db, task, decision.accepted, result.expectedTotal, products.length, result.pages, decision.issue, result.rateLimited ?? false, result.retryAfterSeconds ?? null);
+    logEvent("catalog_queue_task_finished", {
+      task_id: task.task_id, cycle_id: task.cycle_id, status, saved, collected: products.length,
+      expected_total: result.expectedTotal, pages: result.pages, mode: result.mode,
+      termination_reason: result.terminationReason, completion_quality: decision.quality,
+      reconciliation_eligible: decision.reconciliationEligible, coverage: decision.coverage, issue: decision.issue
+    });
     return { wroteProducts: saved > 0, rateLimited: result.rateLimited ?? false };
   } catch (error) {
     const rateLimited = error instanceof AboutYouRateLimitError;

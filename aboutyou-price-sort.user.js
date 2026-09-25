@@ -955,6 +955,14 @@
     const targetTotal = Number.isFinite(requestedTotal) && Number.isFinite(expectedTotal)
       ? Math.min(requestedTotal, expectedTotal)
       : requestedTotal;
+    const targetReached = Number.isFinite(targetTotal) && STATE.products.size >= targetTotal;
+    const terminationReason = STATE.loadingAll ? null
+      : STATE.stream.stopped ? "stopped"
+      : STATE.stream.rateLimited ? "rate-limited"
+      : STATE.stream.directError ? "stalled"
+      : STATE.stream.exhausted ? "stream-exhausted"
+      : targetReached ? "target-reached"
+      : "stalled";
     return {
       products: Array.from(STATE.products.values()),
       productCount: STATE.products.size,
@@ -964,6 +972,7 @@
       mode: STATE.stream.directError ? "scroll-fallback" : "direct-stream",
       rateLimited: STATE.stream.rateLimited,
       retryAfterSeconds: STATE.stream.retryAfterSeconds,
+      terminationReason,
       complete: !STATE.loadingAll && !STATE.stream.stopped && !STATE.stream.rateLimited && (STATE.stream.directError
         ? STATE.stream.fallbackComplete && Number.isFinite(targetTotal) && STATE.products.size >= targetTotal
         : Number.isFinite(targetTotal)

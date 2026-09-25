@@ -11,12 +11,19 @@ export function shouldStopMetadataBatch(counts: RunCounts): boolean {
   return counts.claimed >= 25 && counts.complete === 0 && counts.retryable + counts.blocked_schema >= 20;
 }
 
-export function shouldOpenMetadataTimeoutCircuit(
-  counts: Pick<RunCounts, "complete">,
-  consecutiveTimeouts: number,
-  threshold: number
-): boolean {
-  return counts.complete > 0 && consecutiveTimeouts >= threshold;
+export type MetadataContextAction = "continue" | "rotate-scheduled" | "recover-timeout" | "open-circuit";
+
+export function metadataContextAction(input: {
+  attemptsInContext: number;
+  maxAttemptsInContext: number;
+  timeoutThresholdReached: boolean;
+  timeoutRecoveries: number;
+  maxTimeoutRecoveries: number;
+}): MetadataContextAction {
+  if (input.timeoutThresholdReached) {
+    return input.timeoutRecoveries + 1 >= input.maxTimeoutRecoveries ? "open-circuit" : "recover-timeout";
+  }
+  return input.attemptsInContext >= input.maxAttemptsInContext ? "rotate-scheduled" : "continue";
 }
 
 export function metadataRunFailed(counts: RunCounts, rateLimited: boolean): boolean {

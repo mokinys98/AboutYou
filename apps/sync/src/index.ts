@@ -7,7 +7,7 @@ import { inferFallbackCategoryPath, resolveFallbackCategory } from "./category-c
 import { saveCatalogBatchResilient, type CatalogBatchFailureEvent, type CatalogBatchRejected } from "./catalog-batches";
 import { formatSyncError } from "./sync-errors";
 import { selectSyncTargets } from "./target-selection";
-import { catalogCollectionIssue } from "./catalog-policy";
+import { catalogCollectionDecision } from "./catalog-policy";
 import { CatalogQueueEnvSchema, runCatalogQueue } from "./catalog-queue";
 
 const EnvSchema = z.object({
@@ -103,10 +103,13 @@ try {
       if (result.products.length === 0) {
         throw new Error("Rinkimas negrąžino nė vieno produkto; tuščias rezultatas negali būti pažymėtas sėkmingu.");
       }
-      const collectionIssue = catalogCollectionIssue(result, env.SYNC_MAX_PRODUCTS);
+      const collectionDecision = catalogCollectionDecision(result, env.SYNC_MAX_PRODUCTS);
+      const collectionIssue = collectionDecision.issue;
       logEvent("catalog_collection_summary", {
         run_id: run.id, target: target.label, collected: result.products.length,
         expected_total: result.expectedTotal, mode: result.mode,
+        termination_reason: result.terminationReason, completion_quality: collectionDecision.quality,
+        reconciliation_eligible: collectionDecision.reconciliationEligible,
         duration_ms: Date.now() - targetStartedAt, issue: collectionIssue
       });
       const products = result.products.map((product) => {
@@ -166,9 +169,10 @@ try {
       const finalError = finalStatus === "partial"
         ? JSON.stringify({ collection_issue: collectionIssue, rejected_products: rejectedProducts.slice(0, 50) }).slice(0, 2_000)
         : null;
-      const { error: finishError } = await db.rpc("finish_sync_run", {
+      const { error: finishError } = await db.rpc("finish_sync_run_with_policy", {
         p_run_id: run.id, p_status: finalStatus, p_pages_count: pages,
-        p_products_count: productCount, p_error: finalError
+        p_products_count: productCount, p_error: finalError,
+        p_reconcile_missing: finalStatus === "success" && collectionDecision.reconciliationEligible
       });
       if (finishError) throw finishError;
       if (finalStatus === "partial") {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ProductDetailExtraction } from "@catalog/aboutyou-provider";
 import {
-  classifyMetadataExtraction, metadataRunFailed, shouldOpenMetadataTimeoutCircuit, shouldStopMetadataBatch
+  classifyMetadataExtraction, metadataContextAction, metadataRunFailed, shouldStopMetadataBatch
 } from "./metadata-policy";
 
 function extraction(overrides: Partial<ProductDetailExtraction> = {}): ProductDetailExtraction {
@@ -35,10 +35,15 @@ describe("metadata extraction failure policy", () => {
     expect(metadataRunFailed({ ...counts, blocked_schema: 1 }, false)).toBe(true);
   });
 
-  it("opens the timeout circuit after prior success and a sustained no-response streak", () => {
-    expect(shouldOpenMetadataTimeoutCircuit({ complete: 125 }, 19, 20)).toBe(false);
-    expect(shouldOpenMetadataTimeoutCircuit({ complete: 125 }, 20, 20)).toBe(true);
-    expect(shouldOpenMetadataTimeoutCircuit({ complete: 0 }, 20, 20)).toBe(false);
+  it("rotates contexts on schedule and opens the circuit after three timeout recoveries", () => {
+    const base = {
+      attemptsInContext: 99, maxAttemptsInContext: 100, timeoutThresholdReached: false,
+      timeoutRecoveries: 0, maxTimeoutRecoveries: 3
+    };
+    expect(metadataContextAction(base)).toBe("continue");
+    expect(metadataContextAction({ ...base, attemptsInContext: 100 })).toBe("rotate-scheduled");
+    expect(metadataContextAction({ ...base, timeoutThresholdReached: true })).toBe("recover-timeout");
+    expect(metadataContextAction({ ...base, timeoutThresholdReached: true, timeoutRecoveries: 2 })).toBe("open-circuit");
   });
 
   it("retries an HTML response without a product payload", () => {

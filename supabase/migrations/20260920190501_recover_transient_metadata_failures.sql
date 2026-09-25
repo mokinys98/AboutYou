@@ -50,10 +50,12 @@ begin
 end $$;
 
 
--- Recover only transient failures stranded by the previous retry policy.
+-- Recover only request timeouts stranded by the previous retry policy.
 -- Spread recovery over six hours to avoid flooding the source.
 update public.product_detail_sync
 set next_attempt_at = now() + random() * interval '6 hours', updated_at = now()
-where status = 'retryable_error' and next_attempt_at = 'infinity'::timestamptz;
+where status = 'retryable_error'
+  and next_attempt_at = 'infinity'::timestamptz
+  and last_error_code = 'request_failed:product_detail_request_timeout';
 
 commit;

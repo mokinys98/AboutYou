@@ -54,6 +54,7 @@ describe("userscript stream reliability", () => {
     const { api } = harness({ fetchNextProductStreamPage: async () => ({ items: [], nextState: new Uint8Array() }) });
     await api.loadProductsFast(10);
     expect(api.collectionSnapshot().complete).toBe(false);
+    expect(api.collectionSnapshot().terminationReason).toBe("stream-exhausted");
   });
   it("accepts a small initial catalog without requesting another page", async () => {
     const fetchPage = vi.fn();
@@ -63,6 +64,7 @@ describe("userscript stream reliability", () => {
     await api.loadProductsFast(100);
     expect(fetchPage).not.toHaveBeenCalled();
     expect(api.collectionSnapshot().complete).toBe(true);
+    expect(api.collectionSnapshot().terminationReason).toBe("target-reached");
   });
   it("does not retry rate-limited stream requests", async () => {
     const error = Object.assign(new Error("HTTP 429"), { status: 429 });

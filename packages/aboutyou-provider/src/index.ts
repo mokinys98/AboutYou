@@ -53,12 +53,21 @@ export class AboutYouCollectionTimeoutError extends Error {
   override name = "AboutYouCollectionTimeoutError";
 }
 
+export type CollectionTerminationReason =
+  | "target-reached"
+  | "stream-exhausted"
+  | "timeout"
+  | "rate-limited"
+  | "stalled"
+  | "stopped";
+
 export interface CollectionResult {
   products: Product[];
   pages: number;
   expectedTotal: number | null;
   mode: "direct-stream" | "scroll-fallback" | "initial-state" | "initial-state+scroll";
   complete: boolean;
+  terminationReason: CollectionTerminationReason;
   rateLimited?: boolean;
   retryAfterSeconds?: number | null;
   error?: string | null;
@@ -1044,7 +1053,8 @@ export async function collectAboutYouTarget(
     pages: Math.max(1, rounds),
     expectedTotal: initial.total,
     mode: rounds ? "initial-state+scroll" : "initial-state",
-    complete: products.length > 0 && products.length >= targetTotal
+    complete: products.length > 0 && products.length >= targetTotal,
+    terminationReason: products.length > 0 && products.length >= targetTotal ? "target-reached" : "stalled"
   };
 }
 
@@ -1074,6 +1084,7 @@ type BrowserCollection = {
   loading: boolean;
   mode: "direct-stream" | "scroll-fallback";
   complete: boolean;
+  terminationReason: CollectionTerminationReason | null;
   error: string | null;
   rateLimited?: boolean;
   retryAfterSeconds?: number | null;
@@ -1150,7 +1161,9 @@ async function collectFromDirectStream(
             api?.stop();
           }).catch(() => undefined);
           const error = `Produktų rinkimas viršijo ${Math.round(timeoutMs / 1_000)} s timeout'ą.`;
-          if (lastSnapshot?.products.length) resolve({ ...lastSnapshot, complete: false, error });
+          if (lastSnapshot?.products.length) resolve({
+            ...lastSnapshot, complete: false, error, terminationReason: "timeout"
+          });
           else reject(new AboutYouCollectionTimeoutError(error));
         }, timeoutMs);
         timeout.unref();
@@ -1219,6 +1232,7 @@ async function collectFromDirectStream(
     expectedTotal: result.expectedTotal,
     mode: result.mode,
     complete: result.complete && products.length >= Math.min(maxProducts, result.expectedTotal ?? maxProducts),
+    terminationReason: result.terminationReason ?? "stalled",
     rateLimited: result.rateLimited,
     retryAfterSeconds: result.retryAfterSeconds ?? null,
     error: result.error
