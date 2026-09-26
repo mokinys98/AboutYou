@@ -122,6 +122,24 @@ function userStatusLabel(status: TeamUser["status"]) {
   return "Išjungtas";
 }
 
+const taskStatusOrder = ["pending", "processing", "retryable", "blocked", "completed"] as const;
+
+function taskBadges(run: Run) {
+  return taskStatusOrder
+    .filter((status) => (run.task_counts?.[status] ?? 0) > 0)
+    .map((status) => ({ status, count: run.task_counts?.[status] ?? 0 }));
+}
+
+function taskStatusLabel(status: string) {
+  return {
+    pending: "pending",
+    processing: "processing",
+    retryable: "retryable",
+    blocked: "blocked",
+    completed: "completed"
+  }[status] ?? status;
+}
+
 async function runAction(key: string, action: () => Promise<void>) {
   error.value = "";
   pending.value = key;
@@ -302,6 +320,16 @@ onMounted(refresh);
               <em>{{ formatNumber(run.products_count) }} produktų</em>
             </div>
           </div>
+          <p class="panel-note dashboard-run-detail-note">Ciklas ir užduotys pagal paskutinį run’ą</p>
+          <div class="dashboard-run-details">
+            <div v-for="run in dashboard?.latestRuns ?? []" :key="`${run.id}-details`">
+              <strong>{{ run.sync_targets?.label ?? "-" }}</strong>
+              <span v-if="run.cycle_status" class="status cycle-status" :class="run.cycle_status">Ciklas: {{ run.cycle_status }}</span>
+              <span v-for="badge in taskBadges(run)" :key="badge.status" class="status task-status" :class="badge.status">{{ taskStatusLabel(badge.status) }}: {{ badge.count }}</span>
+              <span v-if="run.error" class="run-error" :title="run.error">Klaida: {{ run.error }}</span>
+              <span v-if="!run.cycle_status && !run.error" class="run-muted">Užduočių būsena nepateikta</span>
+            </div>
+          </div>
         </section>
       </div>
     </section>
@@ -346,7 +374,7 @@ onMounted(refresh);
         <form class="target-form" @submit.prevent="add">
           <label>Pavadinimas<input v-model="form.label" required></label>
           <label>Tipas<select v-model="form.kind"><option value="category">Kategorija</option><option value="brand">Brandas</option><option value="search">Paieška</option></select></label>
-          <label>Prioritetas<input v-model.number="form.priority" type="number" min="0" max="1000" required></label>
+          <label>Grupės prioritetas (antrinis)<input v-model.number="form.priority" type="number" min="0" max="1000" required></label>
           <label class="wide">ABOUT YOU URL<input v-model="form.url" type="url" required placeholder="https://www.aboutyou.lt/c/..."></label>
           <button class="primary" :disabled="pending === 'add'">{{ pending === "add" ? "Pridedama..." : "Pridėti" }}</button>
         </form>
@@ -354,14 +382,17 @@ onMounted(refresh);
 
       <section class="admin-panel">
         <h2>Aktyvios grupės</h2>
+        <p class="panel-note">Realus worker eiliškumas: seniausias 24 val. ciklas → mažesnis grupės prioritetas → mažesnis jos dalies prioritetas. Lentelė rikiuojama pagal grupės prioritetą; šaltinio kiekis atnaujinamas automatiškai po root grupės rinkimo.</p>
         <p v-if="loadErrors.syncTargets" class="error-state">Sinchronizavimo grupių atnaujinti nepavyko: {{ loadErrors.syncTargets }}</p>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Grupė</th><th>Būsena</th><th>Paskutinis atnaujinimas</th><th>Veiksmai</th></tr></thead>
+            <thead><tr><th>Grupė</th><th>Šaltinio kiekis</th><th>Grupės prioritetas</th><th>Būsena</th><th>Paskutinis atnaujinimas</th><th>Veiksmai</th></tr></thead>
             <tbody>
               <template v-for="target in targets" :key="target.id">
                 <tr>
-                  <td><strong>{{ target.label }}</strong><small>{{ target.url }}</small><small>Prioritetas: {{ target.priority }}</small></td>
+                  <td><strong>{{ target.label }}</strong><small>{{ target.url }}</small></td>
+                  <td><strong>{{ target.expected_total == null ? "–" : formatNumber(target.expected_total) }}</strong><small>{{ target.expected_total == null ? "Dar nenustatyta" : "Paskutinis expectedTotal" }}</small></td>
+                  <td><strong>{{ target.priority }}</strong><small>Po ciklo amžiaus; mažesnis = anksčiau</small></td>
                   <td><span class="status" :class="target.enabled ? 'success' : ''">{{ target.enabled ? "Aktyvi" : "Išjungta" }}</span><small v-if="target.last_error" class="error">{{ target.last_error }}</small></td>
                   <td>{{ target.last_success_at ? new Date(target.last_success_at).toLocaleString("lt-LT") : "-" }}</td>
                   <td><div class="row-actions">
@@ -372,11 +403,11 @@ onMounted(refresh);
                   </div></td>
                 </tr>
                 <tr v-if="editingId === target.id" class="target-edit-row">
-                  <td colspan="4">
+                  <td colspan="6">
                     <form class="target-edit-form" @submit.prevent="save(target)">
                       <label>Pavadinimas<input v-model="editForm.label" required></label>
                       <label>Tipas<select v-model="editForm.kind"><option value="category">Kategorija</option><option value="brand">Brandas</option><option value="search">Paieška</option></select></label>
-                      <label>Prioritetas<input v-model.number="editForm.priority" type="number" min="0" max="1000" required></label>
+                      <label>Grupės prioritetas (antrinis)<input v-model.number="editForm.priority" type="number" min="0" max="1000" required></label>
                       <label class="edit-url">ABOUT YOU URL<input v-model="editForm.url" type="url" required></label>
                       <label class="edit-enabled"><input v-model="editForm.enabled" type="checkbox"> Aktyvi</label>
                       <div class="edit-actions"><button type="submit" class="primary" :disabled="Boolean(pending)">{{ pending === `save:${target.id}` ? "Saugoma..." : "Išsaugoti" }}</button><button type="button" class="secondary" :disabled="Boolean(pending)" @click="cancelEdit">Atšaukti</button></div>

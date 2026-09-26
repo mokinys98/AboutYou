@@ -8,6 +8,7 @@ export type Target = {
   kind: TargetKind;
   enabled: boolean;
   priority: number;
+  expected_total?: number | null;
   last_success_at: string | null;
   last_error: string | null;
 };
@@ -19,6 +20,8 @@ export type Run = {
   products_count: number;
   error: string | null;
   sync_targets?: { label: string };
+  cycle_status?: string | null;
+  task_counts?: Partial<Record<"pending" | "processing" | "retryable" | "blocked" | "completed", number>>;
 };
 export type DashboardCategory = { id: string; parentId: string | null; name: string; level: number; path: string; count: number };
 export type DashboardStats = {

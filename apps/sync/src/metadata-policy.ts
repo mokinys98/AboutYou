@@ -5,6 +5,31 @@ export type MetadataFailure = {
   code: string;
 };
 
+type RunCounts = { claimed: number; complete: number; retryable: number; blocked_schema: number };
+
+export function shouldStopMetadataBatch(counts: RunCounts): boolean {
+  return counts.claimed >= 25 && counts.complete === 0 && counts.retryable + counts.blocked_schema >= 20;
+}
+
+export type MetadataContextAction = "continue" | "rotate-scheduled" | "recover-timeout" | "open-circuit";
+
+export function metadataContextAction(input: {
+  attemptsInContext: number;
+  maxAttemptsInContext: number;
+  timeoutThresholdReached: boolean;
+  timeoutRecoveries: number;
+  maxTimeoutRecoveries: number;
+}): MetadataContextAction {
+  if (input.timeoutThresholdReached) {
+    return input.timeoutRecoveries + 1 >= input.maxTimeoutRecoveries ? "open-circuit" : "recover-timeout";
+  }
+  return input.attemptsInContext >= input.maxAttemptsInContext ? "rotate-scheduled" : "continue";
+}
+
+export function metadataRunFailed(counts: RunCounts, rateLimited: boolean): boolean {
+  return rateLimited || counts.retryable > 0 || counts.blocked_schema > 0;
+}
+
 export function classifyMetadataExtraction(
   extraction: ProductDetailExtraction,
   expectedExternalId: string

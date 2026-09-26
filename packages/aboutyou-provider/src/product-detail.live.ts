@@ -1,21 +1,20 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { chromium, type APIRequestContext, type Browser } from "playwright";
-import { extractProductDetailFromHtml } from "./index";
+import { chromium, type BrowserContext, type Browser } from "playwright";
+import { fetchProductDetail } from "./index";
 
 const productCases = [
-  ["28410256", "https://www.aboutyou.lt/p/calvin-klein-underwear/boxer-trumpikes-28410256"],
-  ["30763734", "https://www.aboutyou.lt/p/calvin-klein-underwear/boxer-trumpikes-30763734"],
-  ["31866800", "https://www.aboutyou.lt/p/calvin-klein-underwear/boxer-trumpikes-31866800"]
+  ["32237548", "https://www.aboutyou.lt/p/vans/sportbaciai-be-auliuko-32237548"],
+  ["32190350", "https://www.aboutyou.lt/p/calvin-klein-underwear/kelnaites-paaukstintu-liemeniu-32190350"],
+  ["15135978", "https://www.aboutyou.lt/p/calvin-klein-underwear/moteriskos-kelnaites-15135978"]
 ] as const;
 
 describe("live ABOUT YOU metadata sync product pages", () => {
   let browser: Browser;
-  let request: APIRequestContext;
+  let context: BrowserContext;
 
   beforeAll(async () => {
     browser = await chromium.launch({ headless: true });
-    const context = await browser.newContext({ locale: "lt-LT", timezoneId: "Europe/Vilnius" });
-    request = context.request;
+    context = await browser.newContext({ locale: "lt-LT", timezoneId: "Europe/Vilnius" });
   });
 
   afterAll(async () => {
@@ -23,17 +22,13 @@ describe("live ABOUT YOU metadata sync product pages", () => {
   });
 
   it.each(productCases)("parses product %s with images", async (externalId, url) => {
-    const response = await request.get(url, {
-      failOnStatusCode: false,
-      headers: { accept: "text/html,application/xhtml+xml" },
-      timeout: 20_000
-    });
+    const response = await fetchProductDetail(context, url);
 
-    expect(response.status()).toBe(200);
-    const finalUrl = new URL(response.url());
+    expect(response.status).toBe(200);
+    const finalUrl = new URL(response.finalUrl);
     expect(finalUrl.pathname).toMatch(new RegExp(`-${externalId}/?$`));
 
-    const extraction = extractProductDetailFromHtml(await response.text());
+    const extraction = response.extraction;
     expect(extraction.sourceProductId).toBe(externalId);
     expect(extraction.rawPayload).not.toBeNull();
     expect(extraction.payloadHash).toMatch(/^[0-9a-f]{64}$/);

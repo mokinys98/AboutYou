@@ -1078,6 +1078,71 @@ a {
     font-weight: 700
 }
 
+.dashboard-run-details {
+    display: grid;
+    gap: 8px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--line)
+}
+
+.dashboard-run-detail-note {
+    margin: 14px 0 0
+}
+
+.dashboard-run-details>div {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 8px;
+    font-size: 11px
+}
+
+.dashboard-run-details strong {
+    min-width: 150px;
+    margin-right: 4px
+}
+
+.dashboard-run-details .status {
+    padding: 3px 6px;
+    font-size: 9px
+}
+
+.status.cycle-status.running,
+.status.processing {
+    background: #e4edff
+}
+
+.status.cycle-status.partial,
+.status.retryable,
+.status.pending {
+    background: #fff0c7
+}
+
+.status.blocked,
+.status.cycle-status.failed,
+.run-error {
+    background: #ffe0dc;
+}
+
+.status.completed,
+.status.cycle-status.success {
+    background: #dff4df;
+}
+
+.run-error {
+    max-width: 420px;
+    overflow: hidden;
+    padding: 3px 6px;
+    color: #8a2418;
+    text-overflow: ellipsis;
+    white-space: nowrap
+}
+
+.run-muted {
+    color: var(--muted)
+}
+
 .target-form {
     display: grid;
     grid-template-columns: 2fr 1fr 120px auto;

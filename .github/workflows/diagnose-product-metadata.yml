@@ -1,0 +1,37 @@
+name: Diagnose product metadata
+
+on:
+  workflow_dispatch:
+    inputs:
+      product_url:
+        description: Public ABOUT YOU LT product URL (no database access)
+        required: true
+        type: string
+
+concurrency:
+  group: catalog-sync
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run diagnose:metadata -- "$PRODUCT_URL"
+        env:
+          PRODUCT_URL: ${{ inputs.product_url }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: metadata-source-diagnostics
+          path: apps/sync/test-results/metadata-diagnostics
+          retention-days: 14

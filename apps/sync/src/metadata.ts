@@ -1,17 +1,19 @@
-import { chromium, type APIResponse } from "playwright";
+import { chromium, type BrowserContext } from "playwright";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import {
   PRODUCT_DETAIL_ENDPOINT,
   PRODUCT_DETAIL_PARSER_VERSION,
-  extractProductDetailFromHtml
+  fetchProductDetail
 } from "@catalog/aboutyou-provider";
 import { normalizeCategoryPath, normalizeColor, normalizeColorShade } from "@catalog/shared";
 import {
   cleanupOldDiagnostics, diagnosticRow, summarizeBlockedSchema, uploadDiagnosticHtml, type BlockedSchemaRow
 } from "./metadata-diagnostics";
 import { archiveRawPayload, cleanupRawArtifacts } from "./metadata-artifacts";
-import { classifyMetadataExtraction } from "./metadata-policy";
+import {
+  classifyMetadataExtraction, metadataContextAction, metadataRunFailed, shouldStopMetadataBatch
+} from "./metadata-policy";
 import { withRetry } from "./sync-retry";
 import { formatSyncError } from "./sync-errors";
 
@@ -21,8 +23,12 @@ const EnvSchema = z.object({
   METADATA_SYNC_MAX_PRODUCTS: z.coerce.number().int().min(1).max(50_000).default(10_000),
   METADATA_SYNC_CLAIM_SIZE: z.coerce.number().int().min(1).max(100).default(25),
   METADATA_SYNC_CONCURRENCY: z.coerce.number().int().min(1).max(12).default(3),
-  METADATA_SYNC_DELAY_MS: z.coerce.number().int().min(250).max(60_000).default(400),
+  METADATA_SYNC_DELAY_MS: z.coerce.number().int().min(250).max(60_000).default(800),
   METADATA_SYNC_MAX_RUNTIME_MINUTES: z.coerce.number().int().min(1).max(70).default(60),
+  METADATA_CONTEXT_MAX_ATTEMPTS: z.coerce.number().int().min(10).max(1_000).default(100),
+  METADATA_CONTEXT_TIMEOUT_THRESHOLD: z.coerce.number().int().min(1).max(20).default(3),
+  METADATA_CONTEXT_RECOVERY_PAUSE_MS: z.coerce.number().int().min(1_000).max(600_000).default(60_000),
+  METADATA_MAX_CONTEXT_RECOVERIES: z.coerce.number().int().min(1).max(20).default(3),
   METADATA_DEBUG_HTML_LIMIT: z.coerce.number().int().min(0).max(100).default(20),
   METADATA_DEBUG_RETENTION_DAYS: z.coerce.number().int().min(1).max(90).default(14),
   METADATA_RAW_SAMPLE_LIMIT: z.coerce.number().int().min(1).max(1000).default(750),
@@ -80,20 +86,33 @@ try {
 const deadline = startedAt + env.METADATA_SYNC_MAX_RUNTIME_MINUTES * 60_000;
 let rateLimited = false;
 let nextRequestAt = Date.now();
+let systemicFailure = false;
+let timeoutCircuitOpen = false;
+let consecutiveTimeouts = 0;
+let attemptsInContext = 0;
+let timeoutRecoveries = 0;
+let contextGeneration = 0;
+let timeoutRotationRequested = false;
+const failureCodes: Record<string, number> = {};
 
 log("metadata_sync_started", {
   parser_version: PRODUCT_DETAIL_PARSER_VERSION,
   max_products: env.METADATA_SYNC_MAX_PRODUCTS,
-  max_runtime_minutes: env.METADATA_SYNC_MAX_RUNTIME_MINUTES
+  max_runtime_minutes: env.METADATA_SYNC_MAX_RUNTIME_MINUTES,
+  request_delay_ms: env.METADATA_SYNC_DELAY_MS,
+  context_max_attempts: env.METADATA_CONTEXT_MAX_ATTEMPTS,
+  context_timeout_threshold: env.METADATA_CONTEXT_TIMEOUT_THRESHOLD,
+  max_context_recoveries: env.METADATA_MAX_CONTEXT_RECOVERIES
 });
 
 await logBlockedSchemaSummary("before_sync");
 
 const browser = await chromium.launch({ headless: env.SYNC_HEADLESS });
 let debugHtmlSaved = 0;
+let context: BrowserContext | null = null;
 try {
-  const context = await browser.newContext({ locale: "lt-LT", timezoneId: "Europe/Vilnius" });
-  while (!rateLimited && counters.claimed < env.METADATA_SYNC_MAX_PRODUCTS && Date.now() < deadline) {
+  context = await createMetadataContext("initial");
+  while (!rateLimited && !timeoutCircuitOpen && counters.claimed < env.METADATA_SYNC_MAX_PRODUCTS && Date.now() < deadline) {
     const remaining = env.METADATA_SYNC_MAX_PRODUCTS - counters.claimed;
     const data = await withSupabaseRetry("claim_product_detail_batch", () => db.rpc("claim_product_detail_batch", {
       p_parser_version: PRODUCT_DETAIL_PARSER_VERSION,
@@ -106,27 +125,28 @@ try {
     const sampleRows = await withSupabaseRetry("product_raw_sample_members", () => db.from("product_raw_sample_members")
       .select("product_id").in("product_id", claims.map((claim) => claim.id)));
     const sampleIds = new Set((sampleRows ?? []).map((row) => row.product_id as string));
+    const activeContext = context;
+    if (!activeContext) throw new Error("Metadata browser context is unavailable");
 
     await runPool(claims, env.METADATA_SYNC_CONCURRENCY, async (claim) => {
-      if (rateLimited || Date.now() >= deadline) return;
+      if (rateLimited || timeoutCircuitOpen || timeoutRotationRequested ||
+          attemptsInContext >= env.METADATA_CONTEXT_MAX_ATTEMPTS || Date.now() >= deadline) return;
       await waitForRequestSlot();
-      if (rateLimited || Date.now() >= deadline) return;
-      let sourceResponse: APIResponse | null = null;
+      if (rateLimited || timeoutCircuitOpen || timeoutRotationRequested ||
+          attemptsInContext >= env.METADATA_CONTEXT_MAX_ATTEMPTS || Date.now() >= deadline) return;
+      attemptsInContext += 1;
       let responseHtml: string | null = null;
       let httpStatus: number | null = null;
       let contentType: string | null = null;
       let finalUrl: string | null = null;
       try {
-        const response = await context.request.get(claim.product_url, {
-          failOnStatusCode: false,
-          headers: { accept: "text/html,application/xhtml+xml" },
-          timeout: 20_000
-        });
-        sourceResponse = response;
-        const status = response.status();
+        const response = await fetchProductDetail(activeContext, claim.product_url);
+        consecutiveTimeouts = 0;
+        const status = response.status;
         httpStatus = status;
-        contentType = response.headers()["content-type"] ?? null;
-        finalUrl = response.url();
+        contentType = response.contentType;
+        finalUrl = response.finalUrl;
+        responseHtml = response.html;
         if (status === 403 || status === 429) {
           rateLimited = true;
           await recordDiagnostic(claim, `http_${status}`, { httpStatus, contentType, finalUrl });
@@ -139,14 +159,14 @@ try {
           await fail(claim, "source_unavailable", `http_${status}`, status);
           return;
         }
-        if (!response.ok()) {
+        if (status < 200 || status >= 400) {
           counters.retryable += 1;
           await recordDiagnostic(claim, `http_${status}`, { httpStatus, contentType, finalUrl });
           await fail(claim, "retryable", `http_${status}`, status);
           return;
         }
 
-        const parsedFinalUrl = new URL(response.url());
+        const parsedFinalUrl = new URL(response.finalUrl);
         const finalProductId = parsedFinalUrl.pathname.match(/-(\d+)\/?$/)?.[1] ?? null;
         if (!parsedFinalUrl.pathname.startsWith("/p/") || finalProductId !== claim.external_id) {
           counters.source_unavailable += 1;
@@ -157,8 +177,7 @@ try {
           return;
         }
 
-        responseHtml = await response.text();
-        const extraction = extractProductDetailFromHtml(responseHtml);
+        const extraction = response.extraction;
         const extractionFailure = classifyMetadataExtraction(extraction, claim.external_id);
         if (extractionFailure) {
           counters[extractionFailure.kind === "blocked_schema" ? "blocked_schema" : "retryable"] += 1;
@@ -222,6 +241,20 @@ try {
         counters.source_absent += metadata.sections.filter((section) => section.status === "source_absent").length;
       } catch (error) {
         counters.retryable += 1;
+        if (isProductDetailRequestTimeout(error)) {
+          consecutiveTimeouts += 1;
+          if (consecutiveTimeouts >= env.METADATA_CONTEXT_TIMEOUT_THRESHOLD) {
+            timeoutRotationRequested = true;
+            log("metadata_context_timeout_threshold_reached", {
+              context_generation: contextGeneration,
+              consecutive_timeouts: consecutiveTimeouts,
+              threshold: env.METADATA_CONTEXT_TIMEOUT_THRESHOLD,
+              attempts_in_context: attemptsInContext
+            });
+          }
+        } else {
+          consecutiveTimeouts = 0;
+        }
         const code = safeErrorCode(error);
         try {
           await recordDiagnostic(claim, code, { httpStatus, contentType, finalUrl, responseHtml });
@@ -239,25 +272,60 @@ try {
             error: safeErrorCode(failError)
           });
         }
-      } finally {
-        // Playwright retains response bodies until disposed or the context closes.
-        await sourceResponse?.dispose().catch(() => undefined);
       }
-    });
+    }, () => !rateLimited && !timeoutCircuitOpen && !timeoutRotationRequested &&
+      attemptsInContext < env.METADATA_CONTEXT_MAX_ATTEMPTS && Date.now() < deadline);
 
-    if (rateLimited || Date.now() >= deadline) {
-      const leaseToken = claims[0]?.lease_token;
-      if (leaseToken) {
-        try {
-          await withSupabaseRetry("release_product_detail_claim", () => db.rpc("release_product_detail_claim", { p_lease_token: leaseToken }));
-        } catch (error) {
-          log("metadata_claim_release_failed", { error: safeErrorCode(error) });
-        }
-      }
+    const contextAction = metadataContextAction({
+      attemptsInContext,
+      maxAttemptsInContext: env.METADATA_CONTEXT_MAX_ATTEMPTS,
+      timeoutThresholdReached: timeoutRotationRequested,
+      timeoutRecoveries,
+      maxTimeoutRecoveries: env.METADATA_MAX_CONTEXT_RECOVERIES
+    });
+    if (contextAction === "open-circuit") {
+      timeoutRecoveries += 1;
+      timeoutCircuitOpen = true;
+      log("metadata_timeout_circuit_opened", {
+        context_generation: contextGeneration,
+        timeout_recoveries: timeoutRecoveries,
+        max_context_recoveries: env.METADATA_MAX_CONTEXT_RECOVERIES,
+        consecutive_timeouts: consecutiveTimeouts
+      });
     }
-    log("metadata_sync_checkpoint", counters);
+    systemicFailure = timeoutCircuitOpen || shouldStopMetadataBatch(counters);
+    if (rateLimited || systemicFailure || contextAction !== "continue" || Date.now() >= deadline) {
+      await releaseClaimBatch(claims);
+    }
+    log("metadata_sync_checkpoint", {
+      ...counters, context_generation: contextGeneration, attempts_in_context: attemptsInContext,
+      consecutive_timeouts: consecutiveTimeouts, timeout_recoveries: timeoutRecoveries,
+      context_action: contextAction
+    });
+    if (systemicFailure) {
+      log("metadata_sync_systemic_failure", { ...counters, failure_codes: failureCodes });
+      break;
+    }
+    if (rateLimited || Date.now() >= deadline) break;
+    if (contextAction === "rotate-scheduled" || contextAction === "recover-timeout") {
+      const reason = contextAction === "rotate-scheduled" ? "scheduled" : "timeout";
+      if (contextAction === "recover-timeout") timeoutRecoveries += 1;
+      log("metadata_context_rotation_started", {
+        context_generation: contextGeneration, reason, attempts_in_context: attemptsInContext,
+        consecutive_timeouts: consecutiveTimeouts, timeout_recoveries: timeoutRecoveries
+      });
+      await context.close().catch((error) => log("metadata_context_close_failed", { error: safeErrorCode(error) }));
+      context = null;
+      if (contextAction === "recover-timeout") {
+        const remainingMs = deadline - Date.now();
+        if (remainingMs <= env.METADATA_CONTEXT_RECOVERY_PAUSE_MS) break;
+        await sleep(env.METADATA_CONTEXT_RECOVERY_PAUSE_MS);
+      }
+      context = await createMetadataContext(reason);
+    }
   }
 } finally {
+  await context?.close().catch(() => undefined);
   await browser.close();
 }
 
@@ -283,10 +351,17 @@ log("metadata_sync_finished", {
   ...counters,
   parser_version: PRODUCT_DETAIL_PARSER_VERSION,
   rate_limited: rateLimited,
+  systemic_failure: systemicFailure,
+  timeout_circuit_open: timeoutCircuitOpen,
+  consecutive_timeouts: consecutiveTimeouts,
+  context_generation: contextGeneration,
+  timeout_recoveries: timeoutRecoveries,
+  failure_codes: failureCodes,
   duration_seconds: Math.round((Date.now() - startedAt) / 1_000),
   coverage
 });
 await logBlockedSchemaSummary("after_sync");
+if (metadataRunFailed(counters, rateLimited)) process.exitCode = 1;
 
 async function fail(
   claim: Claim,
@@ -294,6 +369,8 @@ async function fail(
   code: string,
   httpStatus: number | null
 ): Promise<void> {
+  failureCodes[code] = (failureCodes[code] ?? 0) + 1;
+  log("metadata_product_failed", { external_id: claim.external_id, kind, code, http_status: httpStatus });
   const { error } = await db.rpc("fail_product_detail", {
     p_product_id: claim.id,
     p_lease_token: claim.lease_token,
@@ -375,13 +452,37 @@ async function waitForRequestSlot(): Promise<void> {
   const now = Date.now();
   const scheduledAt = Math.max(now, nextRequestAt);
   nextRequestAt = scheduledAt + env.METADATA_SYNC_DELAY_MS;
-  if (scheduledAt > now) await new Promise((resolve) => setTimeout(resolve, scheduledAt - now));
+  if (scheduledAt > now) await sleep(scheduledAt - now);
 }
 
-async function runPool<T>(items: T[], concurrency: number, task: (item: T) => Promise<void>): Promise<void> {
+async function createMetadataContext(reason: "initial" | "scheduled" | "timeout"): Promise<BrowserContext> {
+  const created = await browser.newContext({ locale: "lt-LT", timezoneId: "Europe/Vilnius" });
+  contextGeneration += 1;
+  attemptsInContext = 0;
+  consecutiveTimeouts = 0;
+  timeoutRotationRequested = false;
+  log("metadata_context_opened", { context_generation: contextGeneration, reason });
+  return created;
+}
+
+async function releaseClaimBatch(claims: Claim[]): Promise<void> {
+  const leaseToken = claims[0]?.lease_token;
+  if (!leaseToken) return;
+  try {
+    await withSupabaseRetry("release_product_detail_claim", () => db.rpc("release_product_detail_claim", {
+      p_lease_token: leaseToken
+    }));
+  } catch (error) {
+    log("metadata_claim_release_failed", { error: safeErrorCode(error) });
+  }
+}
+
+async function runPool<T>(
+  items: T[], concurrency: number, task: (item: T) => Promise<void>, shouldContinue: () => boolean = () => true
+): Promise<void> {
   let cursor = 0;
   const worker = async () => {
-    while (cursor < items.length) {
+    while (cursor < items.length && shouldContinue()) {
       const item = items[cursor++];
       if (item === undefined) break;
       await task(item);
@@ -390,10 +491,15 @@ async function runPool<T>(items: T[], concurrency: number, task: (item: T) => Pr
   await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
 }
 
+function sleep(ms: number): Promise<void> { return new Promise((resolve) => setTimeout(resolve, ms)); }
 function unique(values: string[]): string[] { return [...new Set(values)]; }
 function safeErrorCode(error: unknown): string {
   const value = formatSyncError(error);
   return `request_failed:${value}`.replace(/\s+/g, " ").slice(0, 200);
+}
+
+function isProductDetailRequestTimeout(error: unknown): boolean {
+  return error instanceof Error && error.message === "product_detail_request_timeout";
 }
 type SupabaseResult<T> = { data: T; error: unknown | null };
 

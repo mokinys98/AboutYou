@@ -18,7 +18,10 @@ function pageWith(result: Record<string, unknown>, pending = false) {
     waitForFunction: vi.fn(), evaluate
   } as unknown as Page;
 }
-const result = { products: [product], productCount: 1, pages: 1, expectedTotal: 1, mode: "direct-stream", complete: true, error: null, loading: false };
+const result = {
+  products: [product], productCount: 1, pages: 1, expectedTotal: 1, mode: "direct-stream",
+  complete: true, terminationReason: "target-reached", error: null, loading: false
+};
 afterEach(() => vi.useRealTimers());
 
 describe("provider collection boundaries", () => {
@@ -49,6 +52,10 @@ describe("provider collection boundaries", () => {
     expect(collection.products).toHaveLength(1);
     expect(collection.complete).toBe(false);
   });
+  it("does not allow production queue workers to silently use DOM scrolling", async () => {
+    const page = pageWith({ ...result, mode: "scroll-fallback", error: "stream module missing" });
+    await expect(collectAboutYouTarget(page, url, { allowScrollFallback: false })).rejects.toThrow("stream module missing");
+  });
   it("preserves the last valid snapshot on timeout without waiting for an unresponsive page", async () => {
     vi.useFakeTimers();
     const page = pageWith({ ...result, expectedTotal: 100 }, true);
@@ -57,6 +64,7 @@ describe("provider collection boundaries", () => {
     const actual = await collection;
     expect(actual.products).toHaveLength(1);
     expect(actual.complete).toBe(false);
+    expect(actual.terminationReason).toBe("timeout");
     expect(actual.error).toContain("timeout");
   });
 });

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   decodeGrpcWebFrames, extractColorFromProductHtml, extractProductDetailFromHtml,
-  extractProductDetailPayloadFromHtml, extractProductMetadataFromHtml, hashProductDetailPayload, normalizeRawProduct,
+  extractProductDetailPayloadFromHtml, extractProductDetailFromPayload, extractProductMetadataFromHtml, hashProductDetailPayload, normalizeRawProduct,
   PRODUCT_DETAIL_ENDPOINT, PRODUCT_DETAIL_PARSER_VERSION
 } from "./index";
 
@@ -143,6 +143,19 @@ describe("ABOUT YOU provider", () => {
       expect.objectContaining({ externalId: "3935028", label: "juoda", selected: true })
     ]);
     expect(extraction.metadata.sizeOptions.every((option) => option.group === null)).toBe(true);
+  });
+
+  it("parses the same metadata from a network payload and removes transport/session fields", () => {
+    const original = extractProductDetailFromHtml(productDetailFixture);
+    const result = extractProductDetailFromPayload({
+      ...original.rawPayload, basketToken: "do-not-archive", trailers: { session: "private" }, trackingSection: { tracking: "private" }
+    }, productDetailFixture);
+    expect(result.metadata).toEqual(original.metadata);
+    expect(result.sourceProductId).toBe(original.sourceProductId);
+    expect(result.payloadHash).toBe(original.payloadHash);
+    expect(result.rawPayload).not.toHaveProperty("basketToken");
+    expect(result.rawPayload).not.toHaveProperty("trackingSection");
+    expect(result.rawPayload).not.toHaveProperty("trailers");
   });
 
   it("supports the sustainabilityInfoLane used by product 28539045", () => {

@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { PRODUCT_DETAIL_PARSER_VERSION, ProductSchema, cents, isAllowedAboutYouUrl, normalizeColor, normalizeColorShade, type Product } from "@catalog/shared";
 export { PRODUCT_DETAIL_PARSER_VERSION } from "@catalog/shared";
+export { fetchProductDetail, type ProductDetailNetworkEvent } from "./product-detail-page";
 
 const PRODUCT_STREAM_PATH = "aysa_api.services.category_page.v1.stream.CategoryStreamService/GetProductStreamV2";
 export const PRODUCT_DETAIL_ENDPOINT = "aysa_api.services.article_detail_page.v1.ArticleDetailService/GetProductBulk";
@@ -52,13 +53,23 @@ export class AboutYouCollectionTimeoutError extends Error {
   override name = "AboutYouCollectionTimeoutError";
 }
 
+export type CollectionTerminationReason =
+  | "target-reached"
+  | "stream-exhausted"
+  | "timeout"
+  | "rate-limited"
+  | "stalled"
+  | "stopped";
+
 export interface CollectionResult {
   products: Product[];
   pages: number;
   expectedTotal: number | null;
   mode: "direct-stream" | "scroll-fallback" | "initial-state" | "initial-state+scroll";
   complete: boolean;
+  terminationReason: CollectionTerminationReason;
   rateLimited?: boolean;
+  retryAfterSeconds?: number | null;
   error?: string | null;
 }
 
@@ -189,6 +200,14 @@ export function extractColorFromProductHtml(html: string): string | null {
 
 export function extractProductDetailFromHtml(html: string): ProductDetailExtraction {
   const rawPayload = extractProductDetailPayloadFromHtml(html);
+  return extractProductDetailFromPayload(rawPayload, html);
+}
+
+export function extractProductDetailFromPayload(rawPayload: Record<string, unknown> | null, html = ""): ProductDetailExtraction {
+  if (rawPayload) {
+    const { trailers: _trailers, basketToken: _basketToken, trackingSection: _tracking, ...productPayload } = rawPayload;
+    rawPayload = productPayload;
+  }
   const parsed = rawPayload ? extractProductDetailMetadata(rawPayload) : {
     metadata: emptyProductDetailMetadata(), sourceProductId: null, schemaError: null
   };
@@ -865,7 +884,12 @@ export async function collectAboutYouTarget(
     maxScrollRounds?: number;
     timeoutMs?: number;
     progressIntervalMs?: number;
+    directStream?: boolean;
+    /** Enables the userscript and provider DOM fallback. Disabled by default. */
     allowDomFallback?: boolean;
+    // Queue workers must fail fast when the stream changes. DOM scrolling is
+    // useful for diagnostics, but it cannot guarantee a bounded full cycle.
+    allowScrollFallback?: boolean;
     onProgress?: (progress: CollectionProgress) => void;
     onDiagnostic?: (event: CollectionDiagnosticEvent) => void;
   } = {}
@@ -873,19 +897,26 @@ export async function collectAboutYouTarget(
   if (!isAllowedAboutYouUrl(url)) throw new Error(`Neleistinas ABOUT YOU URL: ${url}`);
   const maxProducts = Math.min(Math.max(options.maxProducts ?? 10_000, 1), 50_000);
   const maxScrollRounds = options.maxScrollRounds ?? 180;
+  const allowDomFallback = options.allowDomFallback ?? options.allowScrollFallback ?? false;
 
   await page.addInitScript(() => {
     (window as unknown as { __ABOUTYOU_CATALOG_AUTOMATION__?: boolean }).__ABOUTYOU_CATALOG_AUTOMATION__ = true;
   });
+  if (!allowDomFallback) {
+    await page.addInitScript(() => {
+      (window as unknown as { __ABOUTYOU_CATALOG_NO_SCROLL_FALLBACK__?: boolean }).__ABOUTYOU_CATALOG_NO_SCROLL_FALLBACK__ = true;
+    });
+  }
   await page.addInitScript({
     path: fileURLToPath(new URL("../../../aboutyou-price-sort.user.js", import.meta.url))
   });
   const categoryServiceModuleCandidates = new Set<string>();
   const captureServiceModule = (response: Response) => {
     const responseUrl = response.url();
-    if (/^https:\/\/assets\.aboutstatic\.com\/assets\/service\.grpc-[^/]+\.js(?:\?|$)/.test(responseUrl)) {
+    if (/^https:\/\/assets\.aboutstatic\.com\/assets\/service\.grpc(?:\.lazy)?-[^/]+\.js(?:\?|$)/.test(responseUrl)) {
       categoryServiceModuleCandidates.add(responseUrl);
-      // Keep discovering chunks after hydration; a fixed 1.2s snapshot fails on CI.
+      // Resource Timing can evict early entries, so also feed late chunks to
+      // the collector while it is discovering the category service module.
       void page.evaluate((candidate) => {
         const state = window as unknown as { __ABOUTYOU_CATEGORY_SERVICE_MODULE_CANDIDATES__?: string[] };
         state.__ABOUTYOU_CATEGORY_SERVICE_MODULE_CANDIDATES__ = Array.from(new Set([
@@ -897,144 +928,148 @@ export async function collectAboutYouTarget(
   page.on("response", captureServiceModule);
 
   try {
-    const navigationStartedAt = Date.now();
-    emitCollectionDiagnostic(options, "navigation_started", { url: safeDiagnosticUrl(url) });
-    const initialResponse = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60_000 });
-    emitCollectionDiagnostic(options, "navigation_completed", {
-      status: initialResponse?.status() ?? null,
-      durationMs: Date.now() - navigationStartedAt,
-      finalUrl: safeDiagnosticUrl(page.url())
-    });
-    await assertAboutYouPageAvailable(page, initialResponse);
-    await page.waitForTimeout(1_200);
-    const serviceModuleCandidates = Array.from(categoryServiceModuleCandidates);
-    emitCollectionDiagnostic(options, "category_service_module_candidates_captured", {
-      count: serviceModuleCandidates.length,
-      urls: serviceModuleCandidates.map(safeDiagnosticUrl).slice(-30)
-    });
-    await page.evaluate((candidates) => {
-      const state = window as unknown as { __ABOUTYOU_CATEGORY_SERVICE_MODULE_CANDIDATES__?: string[] };
-      state.__ABOUTYOU_CATEGORY_SERVICE_MODULE_CANDIDATES__ = Array.from(new Set([
-        ...(state.__ABOUTYOU_CATEGORY_SERVICE_MODULE_CANDIDATES__ ?? []), ...candidates
-      ]));
-    }, serviceModuleCandidates);
+  const navigationStartedAt = Date.now();
+  emitCollectionDiagnostic(options, "navigation_started", { url: safeDiagnosticUrl(url) });
+  const initialResponse = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60_000 });
+  emitCollectionDiagnostic(options, "navigation_completed", {
+    status: initialResponse?.status() ?? null,
+    durationMs: Date.now() - navigationStartedAt,
+    finalUrl: safeDiagnosticUrl(page.url())
+  });
+  await assertAboutYouPageAvailable(page, initialResponse);
+  await page.waitForTimeout(1_200);
+  const serviceModuleCandidates = Array.from(categoryServiceModuleCandidates);
+  emitCollectionDiagnostic(options, "category_service_module_candidates_captured", {
+    count: serviceModuleCandidates.length,
+    urls: serviceModuleCandidates.map(safeDiagnosticUrl).slice(-30)
+  });
+  await page.evaluate((candidates) => {
+    const state = window as unknown as { __ABOUTYOU_CATEGORY_SERVICE_MODULE_CANDIDATES__?: string[] };
+    state.__ABOUTYOU_CATEGORY_SERVICE_MODULE_CANDIDATES__ = Array.from(new Set([
+      ...(state.__ABOUTYOU_CATEGORY_SERVICE_MODULE_CANDIDATES__ ?? []), ...candidates
+    ]));
+  }, serviceModuleCandidates);
 
-    {
+  if (options.directStream !== false) {
+    try {
+      return await collectFromDirectStream(page, maxProducts, options);
+    } catch (error) {
+      emitCollectionDiagnostic(options, "direct_stream_failed", { error: safeError(error) });
+      if (error instanceof AboutYouCollectionTimeoutError || error instanceof AboutYouRateLimitError) throw error;
+      if (!allowDomFallback) throw error;
+      console.warn(`[aboutyou-provider] Tiesioginis srautas nepavyko, naudojamas DOM fallback: ${safeError(error)}`);
+      const fallbackNavigationStartedAt = Date.now();
+      emitCollectionDiagnostic(options, "fallback_navigation_started", { url: safeDiagnosticUrl(url) });
+      const fallbackResponse = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60_000 });
+      emitCollectionDiagnostic(options, "fallback_navigation_completed", {
+        status: fallbackResponse?.status() ?? null,
+        durationMs: Date.now() - fallbackNavigationStartedAt,
+        finalUrl: safeDiagnosticUrl(page.url())
+      });
+      await assertAboutYouPageAvailable(page, fallbackResponse);
+      await page.waitForTimeout(1_200);
+    }
+  } else {
+    emitCollectionDiagnostic(options, "direct_stream_skipped");
+  }
+
+  const initial = await page.evaluate(({ streamPath }) => {
+    const tiles: unknown[] = [];
+    let total: number | null = null;
+    for (const script of document.querySelectorAll('script[data-tadarida-initial-state="true"]')) {
       try {
-        return await collectFromDirectStream(page, maxProducts, options);
-      } catch (error) {
-        emitCollectionDiagnostic(options, "direct_stream_failed", { error: safeError(error) });
-        if (!options.allowDomFallback || error instanceof AboutYouCollectionTimeoutError || error instanceof AboutYouRateLimitError) throw error;
-        console.warn(`[aboutyou-provider] Tiesioginis srautas nepavyko, naudojamas DOM fallback: ${safeError(error)}`);
-        const fallbackNavigationStartedAt = Date.now();
-        emitCollectionDiagnostic(options, "fallback_navigation_started", { url: safeDiagnosticUrl(url) });
-        const fallbackResponse = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60_000 });
-        emitCollectionDiagnostic(options, "fallback_navigation_completed", {
-          status: fallbackResponse?.status() ?? null,
-          durationMs: Date.now() - fallbackNavigationStartedAt,
-          finalUrl: safeDiagnosticUrl(page.url())
-        });
-        await assertAboutYouPageAvailable(page, fallbackResponse);
-        await page.waitForTimeout(1_200);
-      }
-    }
-
-    const initial = await page.evaluate(({ streamPath }) => {
-      const tiles: unknown[] = [];
-      let total: number | null = null;
-      for (const script of document.querySelectorAll('script[data-tadarida-initial-state="true"]')) {
-        try {
-          const entries = JSON.parse(script.textContent || "[]", (key: string, value: unknown) => {
-            const candidate = value as { __type?: string; data?: unknown[] } | null;
-            if ((candidate?.__type === "_Uint8Array_" || key === "nextState") && Array.isArray(candidate?.data)) {
-              return new Uint8Array(candidate.data as number[]);
-            }
-            return value;
-          }) as Array<[string, unknown]>;
-          for (const [key, payload] of entries) {
-            if (!String(key).includes(streamPath)) continue;
-            const wrapper = payload as { data?: Record<string, unknown> };
-            const data = wrapper?.data ?? payload;
-            const pagination = (data as { pagination?: { total?: number } })?.pagination;
-            if (Number.isFinite(pagination?.total)) total = pagination!.total!;
-            const dataItems = (data as { items?: unknown }).items;
-            const pending: unknown[] = [dataItems ?? data];
-            while (pending.length) {
-              const value = pending.pop();
-              if (!value || typeof value !== "object" || ArrayBuffer.isView(value)) continue;
-              const object = value as Record<string, unknown>;
-              const productTile = object.productTile as Record<string, unknown> | undefined;
-              if (productTile?.productId) tiles.push(productTile);
-              const type = object.type as Record<string, unknown> | undefined;
-              const section = type?.productSection as Record<string, unknown> | undefined;
-              const nested = section?.productTile as Record<string, unknown> | undefined;
-              if (nested?.productId) tiles.push(nested);
-              pending.push(...(Array.isArray(value) ? value : Object.values(object)));
-            }
+        const entries = JSON.parse(script.textContent || "[]", (key: string, value: unknown) => {
+          const candidate = value as { __type?: string; data?: unknown[] } | null;
+          if ((candidate?.__type === "_Uint8Array_" || key === "nextState") && Array.isArray(candidate?.data)) {
+            return new Uint8Array(candidate.data as number[]);
           }
-        } catch { /* ignore malformed state */ }
-      }
-      return { tiles, total };
-    }, { streamPath: PRODUCT_STREAM_PATH });
-
-    const raw = new Map<string, RawProduct>();
-    for (const tile of initial.tiles) {
-      const product = rawFromTile(tile as Record<string, unknown>, url);
-      if (product) raw.set(product.externalId, product);
+          return value;
+        }) as Array<[string, unknown]>;
+        for (const [key, payload] of entries) {
+          if (!String(key).includes(streamPath)) continue;
+          const wrapper = payload as { data?: Record<string, unknown> };
+          const data = wrapper?.data ?? payload;
+          const pagination = (data as { pagination?: { total?: number } })?.pagination;
+          if (Number.isFinite(pagination?.total)) total = pagination!.total!;
+          const dataItems = (data as { items?: unknown }).items;
+          const pending: unknown[] = [dataItems ?? data];
+          while (pending.length) {
+            const value = pending.pop();
+            if (!value || typeof value !== "object" || ArrayBuffer.isView(value)) continue;
+            const object = value as Record<string, unknown>;
+            const productTile = object.productTile as Record<string, unknown> | undefined;
+            if (productTile?.productId) tiles.push(productTile);
+            const type = object.type as Record<string, unknown> | undefined;
+            const section = type?.productSection as Record<string, unknown> | undefined;
+            const nested = section?.productTile as Record<string, unknown> | undefined;
+            if (nested?.productId) tiles.push(nested);
+            pending.push(...(Array.isArray(value) ? value : Object.values(object)));
+          }
+        }
+      } catch { /* ignore malformed state */ }
     }
+    return { tiles, total };
+  }, { streamPath: PRODUCT_STREAM_PATH });
 
-    let stable = 0;
-    let previous = raw.size;
-    let rounds = 0;
-    while (raw.size < maxProducts && stable < 6 && rounds < maxScrollRounds) {
-      rounds += 1;
-      const domProducts = await page.evaluate(() => Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href*="/p/"]')).map((anchor) => {
-        const card = anchor.closest<HTMLElement>("article, li") ?? anchor.parentElement;
-        const image = card?.querySelector<HTMLImageElement>("img");
-        const text = card?.innerText ?? "";
-        return { href: anchor.href, name: image?.alt || anchor.getAttribute("aria-label") || "", image: image?.currentSrc || image?.src || "", text };
-      }));
-      for (const item of domProducts) {
-        const id = item.href.match(/-(\d+)(?:[?#]|$)/)?.[1];
-        const currentPrice = cents(item.text);
-        if (!id || currentPrice === null) continue;
-        const existing = raw.get(id);
-        raw.set(id, {
-          externalId: id,
-          name: existing?.name || item.name || `Produktas ${id}`,
-          brand: existing?.brand || "",
-          productUrl: item.href,
-          imageUrls: existing?.imageUrls.length ? existing.imageUrls : item.image ? [item.image] : [],
-          colorOriginal: existing?.colorOriginal ?? null,
-          categories: existing?.categories.length ? existing.categories : [],
-          sizes: existing?.sizes ?? [],
-          otherSizes: existing?.otherSizes ?? [],
-          materials: existing?.materials ?? [],
-          patterns: existing?.patterns ?? [],
-          features: existing?.features ?? [],
-          styles: existing?.styles ?? [],
-          productTypes: existing?.productTypes ?? productTypeFromName(item.name),
-          currentPrice: existing?.currentPrice ?? currentPrice,
-          originalPrice: existing?.originalPrice ?? null,
-          sourceLpl30: existing?.sourceLpl30 ?? null
-        });
-      }
-      stable = raw.size === previous ? stable + 1 : 0;
-      previous = raw.size;
-      if (initial.total && raw.size >= initial.total) break;
-      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-      await page.waitForTimeout(650);
+  const raw = new Map<string, RawProduct>();
+  for (const tile of initial.tiles) {
+    const product = rawFromTile(tile as Record<string, unknown>, url);
+    if (product) raw.set(product.externalId, product);
+  }
+
+  let stable = 0;
+  let previous = raw.size;
+  let rounds = 0;
+  while (raw.size < maxProducts && stable < 6 && rounds < maxScrollRounds) {
+    rounds += 1;
+    const domProducts = await page.evaluate(() => Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href*="/p/"]')).map((anchor) => {
+      const card = anchor.closest<HTMLElement>("article, li") ?? anchor.parentElement;
+      const image = card?.querySelector<HTMLImageElement>("img");
+      const text = card?.innerText ?? "";
+      return { href: anchor.href, name: image?.alt || anchor.getAttribute("aria-label") || "", image: image?.currentSrc || image?.src || "", text };
+    }));
+    for (const item of domProducts) {
+      const id = item.href.match(/-(\d+)(?:[?#]|$)/)?.[1];
+      const currentPrice = cents(item.text);
+      if (!id || currentPrice === null) continue;
+      const existing = raw.get(id);
+      raw.set(id, {
+        externalId: id,
+        name: existing?.name || item.name || `Produktas ${id}`,
+        brand: existing?.brand || "",
+        productUrl: item.href,
+        imageUrls: existing?.imageUrls.length ? existing.imageUrls : item.image ? [item.image] : [],
+        colorOriginal: existing?.colorOriginal ?? null,
+        categories: existing?.categories.length ? existing.categories : [],
+        sizes: existing?.sizes ?? [],
+        otherSizes: existing?.otherSizes ?? [],
+        materials: existing?.materials ?? [],
+        patterns: existing?.patterns ?? [],
+        features: existing?.features ?? [],
+        styles: existing?.styles ?? [],
+        productTypes: existing?.productTypes ?? productTypeFromName(item.name),
+        currentPrice: existing?.currentPrice ?? currentPrice,
+        originalPrice: existing?.originalPrice ?? null,
+        sourceLpl30: existing?.sourceLpl30 ?? null
+      });
     }
+    stable = raw.size === previous ? stable + 1 : 0;
+    previous = raw.size;
+    if (initial.total && raw.size >= initial.total) break;
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    await page.waitForTimeout(650);
+  }
 
-    const products = Array.from(raw.values()).map(normalizeRawProduct).filter((item): item is Product => item !== null).slice(0, maxProducts);
-    const targetTotal = Math.min(maxProducts, initial.total ?? maxProducts);
-    return {
-      products,
-      pages: Math.max(1, rounds),
-      expectedTotal: initial.total,
-      mode: rounds ? "initial-state+scroll" : "initial-state",
-      complete: products.length > 0 && products.length >= targetTotal
-    };
+  const products = Array.from(raw.values()).map(normalizeRawProduct).filter((item): item is Product => item !== null).slice(0, maxProducts);
+  const targetTotal = Math.min(maxProducts, initial.total ?? maxProducts);
+  return {
+    products,
+    pages: Math.max(1, rounds),
+    expectedTotal: initial.total,
+    mode: rounds ? "initial-state+scroll" : "initial-state",
+    complete: products.length > 0 && products.length >= targetTotal,
+    terminationReason: products.length > 0 && products.length >= targetTotal ? "target-reached" : "stalled"
+  };
   } finally {
     page.off("response", captureServiceModule);
   }
@@ -1066,8 +1101,10 @@ type BrowserCollection = {
   loading: boolean;
   mode: "direct-stream" | "scroll-fallback";
   complete: boolean;
+  terminationReason: CollectionTerminationReason | null;
   error: string | null;
   rateLimited?: boolean;
+  retryAfterSeconds?: number | null;
 };
 
 async function collectFromDirectStream(
@@ -1077,6 +1114,7 @@ async function collectFromDirectStream(
     timeoutMs?: number;
     progressIntervalMs?: number;
     allowDomFallback?: boolean;
+    allowScrollFallback?: boolean;
     onProgress?: (progress: CollectionProgress) => void;
     onDiagnostic?: (event: CollectionDiagnosticEvent) => void;
   }
@@ -1095,7 +1133,7 @@ async function collectFromDirectStream(
       };
     }).__ABOUTYOU_CATALOG_COLLECTOR__;
     return api.collect(limit, allowDomFallback);
-  }, { limit: maxProducts, allowDomFallback: options.allowDomFallback ?? false });
+  }, { limit: maxProducts, allowDomFallback: options.allowDomFallback ?? options.allowScrollFallback ?? false });
   const timeoutMs = options.timeoutMs ?? 8 * 60_000;
   const progressIntervalMs = options.progressIntervalMs ?? 5_000;
   let lastSnapshot: BrowserCollection | null = null;
@@ -1141,7 +1179,9 @@ async function collectFromDirectStream(
             api?.stop();
           }).catch(() => undefined);
           const error = `Produktų rinkimas viršijo ${Math.round(timeoutMs / 1_000)} s timeout'ą.`;
-          if (lastSnapshot?.products.length) resolve({ ...lastSnapshot, complete: false, error });
+          if (lastSnapshot?.products.length) resolve({
+            ...lastSnapshot, complete: false, error, terminationReason: "timeout"
+          });
           else reject(new AboutYouCollectionTimeoutError(error));
         }, timeoutMs);
         timeout.unref();
@@ -1167,6 +1207,10 @@ async function collectFromDirectStream(
     mode: result.mode,
     complete: result.complete
   });
+
+  if (options.allowScrollFallback === false && result.mode === "scroll-fallback") {
+    throw new Error(result.error || "Tiesioginis produkto srautas nepavyko; produkciniame eilės režime scroll fallback išjungtas.");
+  }
 
   const raw = result.products.map((item): RawProduct | null => {
     if (!item.productId || !item.url || item.currentPrice === null || item.currentPrice === undefined) return null;
@@ -1197,7 +1241,7 @@ async function collectFromDirectStream(
     rejected: result.products.length - normalizedProducts.length,
     expectedTotal: result.expectedTotal, maxProducts, rateLimited: result.rateLimited ?? false
   });
-  if (result.error) console.warn(`[aboutyou-provider] Rinkimo klaida (${result.mode}): ${result.error.slice(0, 500)}`);
+  if (result.error) console.warn(`[aboutyou-provider] Rinkimo fallback priežastis: ${result.error.slice(0, 500)}`);
   if (products.length === 0 && result.rateLimited) throw new AboutYouRateLimitError(result.error || "ABOUT YOU rate limited");
   if (products.length === 0) throw new Error(result.error || "Tiesioginis produkto srautas negrąžino produktų.");
   return {
@@ -1206,7 +1250,9 @@ async function collectFromDirectStream(
     expectedTotal: result.expectedTotal,
     mode: result.mode,
     complete: result.complete && products.length >= Math.min(maxProducts, result.expectedTotal ?? maxProducts),
+    terminationReason: result.terminationReason ?? "stalled",
     rateLimited: result.rateLimited,
+    retryAfterSeconds: result.retryAfterSeconds ?? null,
     error: result.error
   };
 }
@@ -1233,7 +1279,6 @@ function safeDiagnosticUrl(value: string): string {
     return value.slice(0, 300);
   }
 }
-
 
 function rawFromTile(tile: Record<string, unknown>, baseUrl: string): RawProduct | null {
   const productId = tile.productId;

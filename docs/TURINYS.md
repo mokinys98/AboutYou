@@ -20,6 +20,7 @@ Progresas yra praktinis įvertis nuo `0/100` iki `100/100`:
 | [Telegram alertų publikavimo planas](TELEGRAM_ALERTU_PLANAS.md) | Kode įgyvendinto publikacijos versijavimo rollout, produkcinės patikros ir būsimi alertų scenarijai. | **57/100** |
 | [Supabase → VPS migracijos užbaigimas](MIGRACIJOS_UZBAIGIMAS.md) | Jau atliktos migracijos santrauka, likę stabilizavimo darbai ir rollback procedūra. | **100/100** |
 | [Techninių darbų planas](TECHNINIU_DARBU_PLANAS.md) | Admin dashboard, raw payload Storage, read modelio ir mažesnių techninių darbų backlog. | **45/100** |
+| [Katalogo rinkimo eilė](KATALOGO_RINKIMO_EILES_PLANAS.md) | Tęstinis 60 000 prekių katalogo rinkimas, manifestas, lease eilė ir diegimo patikra. | **90/100** |
 
 ## Nuolatinė techninė dokumentacija
 

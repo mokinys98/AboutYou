@@ -7,8 +7,11 @@ create table public.product_detail_sync (
   last_error_code text, last_http_status integer
 );
 insert into public.products (id) values ('00000000-0000-0000-0000-000000000001');
-insert into public.product_detail_sync (product_id, status, next_attempt_at)
-values ('00000000-0000-0000-0000-000000000001', 'retryable_error', 'infinity');
+insert into public.products (id) values ('00000000-0000-0000-0000-000000000003');
+insert into public.product_detail_sync (product_id, status, next_attempt_at, last_error_code)
+values
+  ('00000000-0000-0000-0000-000000000001', 'retryable_error', 'infinity', 'request_failed:product_detail_request_timeout'),
+  ('00000000-0000-0000-0000-000000000003', 'retryable_error', 'infinity', 'request_failed:fetch failed');
 
 \ir ../migrations/20260920190501_recover_transient_metadata_failures.sql
 
@@ -21,6 +24,10 @@ begin
   select next_attempt_at into next_time from public.product_detail_sync where product_id = product;
   if next_time < now() or next_time > now() + interval '6 hours' then
     raise exception 'Old transient failure was not recovered';
+  end if;
+  if not exists (select 1 from public.product_detail_sync
+      where product_id = '00000000-0000-0000-0000-000000000003' and next_attempt_at = 'infinity') then
+    raise exception 'A non-timeout transient failure was incorrectly recovered';
   end if;
   update public.product_detail_sync set status = 'processing', attempt_count = 2,
     lease_token = lease, lease_until = now() + interval '20 minutes' where product_id = product;

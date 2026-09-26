@@ -16,7 +16,7 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 20
     environment: production-vps
     permissions:
       contents: read
@@ -27,8 +27,12 @@ jobs:
       METADATA_SYNC_MAX_PRODUCTS: ${{ inputs.max_products || '10000' }}
       METADATA_SYNC_CLAIM_SIZE: "25"
       METADATA_SYNC_CONCURRENCY: "3"
-      METADATA_SYNC_DELAY_MS: "400"
-      METADATA_SYNC_MAX_RUNTIME_MINUTES: "60"
+      METADATA_SYNC_DELAY_MS: "800"
+      METADATA_SYNC_MAX_RUNTIME_MINUTES: "10"
+      METADATA_CONTEXT_MAX_ATTEMPTS: "100"
+      METADATA_CONTEXT_TIMEOUT_THRESHOLD: "3"
+      METADATA_CONTEXT_RECOVERY_PAUSE_MS: "60000"
+      METADATA_MAX_CONTEXT_RECOVERIES: "3"
       METADATA_RAW_SAMPLE_LIMIT: "750"
       METADATA_RAW_RETENTION_DAYS: "30"
     steps:
@@ -39,4 +43,15 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: npm run sync:metadata
+      - name: Collect product metadata
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p test-results
+          npm run sync:metadata 2>&1 | tee test-results/metadata-sync.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: metadata-sync-diagnostics
+          path: test-results/metadata-sync.log
+          retention-days: 14

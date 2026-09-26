@@ -17,6 +17,41 @@ describe("resilient catalog batches", () => {
     expect(result).toEqual({ saved: 2, rejected: [] });
   });
 
+  it("bisects statement timeouts until the database accepts smaller batches", async () => {
+    const accepted: string[][] = [];
+    const result = await saveCatalogBatchResilient({
+      items: Array.from({ length: 100 }, (_, index) => ({ externalId: String(index) })),
+      save: async (items) => {
+        if (items.length > 25) throw { code: "57014", message: "canceling statement due to statement timeout" };
+        accepted.push(items.map((item) => item.externalId));
+        return items.length;
+      },
+      maxRetryAttempts: 1,
+      splitStatementTimeouts: true,
+      minimumSplitSize: 25,
+      sleep: async () => undefined
+    });
+
+    expect(result).toEqual({ saved: 100, rejected: [] });
+    expect(accepted.map((items) => items.length)).toEqual([25, 25, 25, 25]);
+    expect(accepted.flat()).toEqual(Array.from({ length: 100 }, (_, index) => String(index)));
+  });
+
+  it("does not split unrelated retryable database failures", async () => {
+    const attempts: number[] = [];
+    await expect(saveCatalogBatchResilient({
+      items: Array.from({ length: 100 }, (_, index) => ({ externalId: String(index) })),
+      save: async (items) => {
+        attempts.push(items.length);
+        throw { code: "40001", message: "serialization failure" };
+      },
+      maxRetryAttempts: 1,
+      splitStatementTimeouts: true,
+      sleep: async () => undefined
+    })).rejects.toThrow();
+    expect(attempts).toEqual([100]);
+  });
+
   it("bisects deterministic failures and rejects only the bad singleton", async () => {
     const saved: string[][] = [];
     const failures: unknown[] = [];

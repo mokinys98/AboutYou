@@ -46,7 +46,7 @@ export const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 const jwks = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 
 const WORKFLOW_BY_CRON: Readonly<Record<string, string>> = {
-  "17 */6 * * *": "sync-catalog.yml",
+  "*/15 * * * *": "sync-catalog.yml",
   "47 * * * *": "sync-product-metadata.yml"
 };
 
@@ -728,7 +728,7 @@ app.delete("/v1/admin/brand-tiers/:brandKey", requireAdmin, async (c) => {
 });
 
 app.get("/v1/sync-targets", requireAdmin, async (c) => {
-  const { data, error } = await c.get("db").from("sync_targets").select("*,sources(slug,name)").order("priority");
+  const { data, error } = await c.get("db").from("sync_targets").select("*,sources(slug,name)").order("priority").order("label");
   return error ? c.json({ error: error.message }, 500) : c.json(data);
 });
 
@@ -781,6 +781,32 @@ export async function loadAdminDashboard(db: Pick<SupabaseClient, "from" | "rpc"
   const queryError = facets.error ?? metadataSummary.error ?? latestRuns.error;
   if (queryError) throw new Error(queryError.message);
 
+  const runIds = (latestRuns.data ?? []).map((run) => String((run as { id?: unknown }).id)).filter(Boolean);
+  const latestRunCycles = runIds.length
+    ? await db.from("catalog_sync_cycles").select("sync_run_id,status,catalog_collection_tasks(status,lease_until)").in("sync_run_id", runIds)
+    : { data: [], error: null };
+  if (latestRunCycles.error) throw new Error(latestRunCycles.error.message);
+
+  const cycleByRun = new Map<string, { status: string; taskCounts: Record<string, number> }>();
+  for (const cycle of latestRunCycles.data ?? []) {
+    const runId = String((cycle as { sync_run_id?: unknown }).sync_run_id ?? "");
+    if (!runId) continue;
+    const tasks = Array.isArray((cycle as { catalog_collection_tasks?: unknown }).catalog_collection_tasks)
+      ? (cycle as { catalog_collection_tasks: Array<{ status?: unknown }> }).catalog_collection_tasks
+      : [];
+    const taskCounts: Record<string, number> = {};
+    for (const task of tasks) {
+      const status = String(task.status ?? "unknown");
+      taskCounts[status] = (taskCounts[status] ?? 0) + 1;
+    }
+    cycleByRun.set(runId, { status: String((cycle as { status?: unknown }).status ?? "unknown"), taskCounts });
+  }
+
+  const enrichedRuns = (latestRuns.data ?? []).map((run) => {
+    const cycle = cycleByRun.get(String((run as { id?: unknown }).id));
+    return cycle ? { ...run, cycle_status: cycle.status, task_counts: cycle.taskCounts } : run;
+  });
+
   return {
     generatedAt: now.toISOString(),
     parserVersion: PRODUCT_DETAIL_PARSER_VERSION,
@@ -801,7 +827,7 @@ export async function loadAdminDashboard(db: Pick<SupabaseClient, "from" | "rpc"
     },
     metadata: metadataSummary.data ?? {},
     categories: dashboardCategories(facets.data),
-    latestRuns: latestRuns.data ?? []
+    latestRuns: enrichedRuns
   };
 }
 
