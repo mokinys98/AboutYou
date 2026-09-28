@@ -13,6 +13,11 @@ const users = ref<TeamUser[]>([]);
 const brandTierRows = ref<BrandTierRow[]>([]);
 const tierQuery = ref("");
 const tierFilter = ref<BrandTier | "unassigned" | "">("");
+const catalogDialogOpen = ref(false);
+const catalogRange = ref<7 | 14 | 30>(30);
+const catalogGroupQuery = ref("");
+const catalogSummaryButton = ref<HTMLButtonElement | null>(null);
+const catalogDialogElement = ref<HTMLElement | null>(null);
 const error = ref("");
 const success = ref("");
 const pending = ref("");
@@ -49,6 +54,76 @@ const metadataRows = computed(() => {
     { label: "Schema blokuoja", value: metadata.blockedSchema ?? 0, className: "failed" },
     { label: "Nebepasiekiama", value: metadata.sourceUnavailable ?? 0, className: "muted" }
   ].map((row) => ({ ...row, percent: pct(row.value, active) }));
+});
+const catalogGroups = computed(() => {
+  const query = catalogGroupQuery.value.trim().toLocaleLowerCase("lt");
+  return (dashboard.value?.catalogInsights.groups ?? [])
+    .map((group) => {
+      const difference = group.expectedTotal == null ? null : group.catalogProducts - group.expectedTotal;
+      const state: "unknown" | "behind" | "surplus" | "complete" = group.expectedTotal == null
+        ? "unknown"
+        : difference! < 0 ? "behind" : difference! > 0 ? "surplus" : "complete";
+      return {
+        ...group,
+        difference,
+        coverage: group.expectedTotal == null ? null : pct(group.catalogProducts, group.expectedTotal),
+        state
+      };
+    })
+    .filter((group) => !query || group.label.toLocaleLowerCase("lt").includes(query))
+    .sort((a, b) => {
+      const order = { behind: 0, unknown: 1, surplus: 2, complete: 3 };
+      const stateOrder = order[a.state] - order[b.state];
+      if (stateOrder) return stateOrder;
+      return (a.difference ?? 0) - (b.difference ?? 0) || a.label.localeCompare(b.label, "lt");
+    });
+});
+const catalogGroupSummary = computed(() => {
+  const groups = dashboard.value?.catalogInsights.groups ?? [];
+  return {
+    behind: groups.filter((group) => group.expectedTotal != null && group.catalogProducts < group.expectedTotal).length,
+    reached: groups.filter((group) => group.expectedTotal != null && group.catalogProducts >= group.expectedTotal).length,
+    unknown: groups.filter((group) => group.expectedTotal == null).length
+  };
+});
+const catalogHistory = computed(() => {
+  const history = dashboard.value?.catalogHistory ?? [];
+  if (!history.length) return [];
+  const lastDate = new Date(`${history.at(-1)!.date}T00:00:00Z`);
+  const cutoff = new Date(lastDate);
+  cutoff.setUTCDate(cutoff.getUTCDate() - catalogRange.value + 1);
+  return history.filter((point) => new Date(`${point.date}T00:00:00Z`) >= cutoff);
+});
+const catalogChart = computed(() => {
+  const width = 720;
+  const height = 220;
+  const padding = { top: 18, right: 18, bottom: 30, left: 58 };
+  const values = catalogHistory.value.map((point) => point.catalogProducts);
+  if (!values.length) return { width, height, points: [], path: "", min: 0, max: 0 };
+  const rawMin = Math.min(...values);
+  const rawMax = Math.max(...values);
+  const spread = Math.max(rawMax - rawMin, Math.ceil(rawMax * 0.01), 1);
+  const min = Math.max(0, rawMin - Math.ceil(spread * 0.15));
+  const max = rawMax + Math.ceil(spread * 0.15);
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+  const points = catalogHistory.value.map((point, index, all) => ({
+    ...point,
+    x: padding.left + (all.length === 1 ? chartWidth / 2 : (index / (all.length - 1)) * chartWidth),
+    y: padding.top + ((max - point.catalogProducts) / Math.max(max - min, 1)) * chartHeight
+  }));
+  return {
+    width,
+    height,
+    points,
+    path: points.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" "),
+    min,
+    max
+  };
+});
+const catalogGrowth = computed(() => {
+  const history = catalogHistory.value;
+  return history.length > 1 ? history.at(-1)!.catalogProducts - history[0]!.catalogProducts : null;
 });
 
 async function refresh() {
@@ -218,6 +293,19 @@ function formatPct(value: number) {
   return `${value.toLocaleString("lt-LT")}%`;
 }
 
+function formatDifference(value: number | null) {
+  if (value == null) return "–";
+  return `${value > 0 ? "+" : ""}${formatNumber(value)}`;
+}
+
+function formatShortDate(value: string) {
+  return new Date(`${value}T00:00:00Z`).toLocaleDateString("lt-LT", { month: "short", day: "numeric", timeZone: "UTC" });
+}
+
+function closeCatalogDialog() {
+  catalogDialogOpen.value = false;
+}
+
 function runDuration(run: Run) {
   if (!run.finished_at) return "vyksta";
   const seconds = Math.max(0, Math.round((new Date(run.finished_at).getTime() - new Date(run.started_at).getTime()) / 1000));
@@ -225,7 +313,25 @@ function runDuration(run: Run) {
   return `${Math.round(seconds / 60)} min`;
 }
 
-onMounted(refresh);
+function handleKeydown(event: KeyboardEvent) {
+  if (event.key === "Escape" && catalogDialogOpen.value) closeCatalogDialog();
+}
+
+watch(catalogDialogOpen, async (open) => {
+  document.body.style.overflow = open ? "hidden" : "";
+  await nextTick();
+  if (open) catalogDialogElement.value?.querySelector<HTMLButtonElement>(".dialog-close")?.focus();
+  else catalogSummaryButton.value?.focus();
+});
+
+onMounted(() => {
+  window.addEventListener("keydown", handleKeydown);
+  refresh();
+});
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", handleKeydown);
+  document.body.style.overflow = "";
+});
 </script>
 
 <template>
@@ -249,10 +355,12 @@ onMounted(refresh);
           <strong>{{ formatNumber(dashboard?.totals.products) }}</strong>
           <small>{{ formatNumber(dashboard?.totals.activeProducts) }} aktyvių</small>
         </article>
-        <article>
-          <span>Kataloge</span>
-          <strong>{{ formatNumber(dashboard?.totals.catalogProducts) }}</strong>
-          <small>{{ formatPct(productFill) }} nuo visų prekių</small>
+        <article class="catalog-summary-card">
+          <button ref="catalogSummaryButton" type="button" aria-haspopup="dialog" @click="catalogDialogOpen = true">
+            <span>Kataloge</span>
+            <strong>{{ formatNumber(dashboard?.totals.catalogProducts) }}</strong>
+            <small>{{ formatPct(productFill) }} nuo visų prekių · Rodyti sudėtį →</small>
+          </button>
         </article>
         <article>
           <span>Metaduomenys</span>
@@ -457,5 +565,89 @@ onMounted(refresh);
         </div>
       </section>
     </template>
+
+    <Teleport to="body">
+      <div v-if="catalogDialogOpen" class="modal-backdrop catalog-modal-backdrop" @mousedown.self="closeCatalogDialog">
+        <section ref="catalogDialogElement" class="catalog-dialog" role="dialog" aria-modal="true" aria-labelledby="catalog-dialog-title">
+          <button type="button" class="dialog-close" aria-label="Uždaryti" @click="closeCatalogDialog">×</button>
+          <p class="eyebrow">KATALOGO BŪKLĖ</p>
+          <div class="catalog-dialog-heading">
+            <div>
+              <h2 id="catalog-dialog-title">Iš kur susideda katalogas</h2>
+              <p>Unikalios prekės kataloge ir kiekvienos įjungtos rinkimo grupės būklė.</p>
+            </div>
+            <strong>{{ formatNumber(dashboard?.catalogInsights.catalogProducts ?? dashboard?.totals.catalogProducts) }}</strong>
+          </div>
+
+          <div class="catalog-kpis">
+            <div><span>Aktyvios grupės</span><strong>{{ formatNumber(dashboard?.catalogInsights.enabledTargets) }}</strong></div>
+            <div><span>Pasiekė šaltinio kiekį</span><strong>{{ catalogGroupSummary.reached }}</strong></div>
+            <div :class="{ attention: catalogGroupSummary.behind }"><span>Trūksta prekių</span><strong>{{ catalogGroupSummary.behind }}</strong></div>
+            <div><span>Kiekis nežinomas</span><strong>{{ catalogGroupSummary.unknown }}</strong></div>
+          </div>
+
+          <section class="catalog-history-section">
+            <div class="catalog-section-head">
+              <div>
+                <h3>Katalogo dydis per laiką</h3>
+                <p v-if="catalogGrowth != null">Pokytis per pasirinktą laikotarpį: <strong :class="{ negative: catalogGrowth < 0 }">{{ formatDifference(catalogGrowth) }}</strong></p>
+                <p v-else>Istorija pradedama kaupti nuo šio pakeitimo įdiegimo.</p>
+              </div>
+              <div class="catalog-range-tabs" aria-label="Grafiko laikotarpis">
+                <button v-for="range in ([7, 14, 30] as const)" :key="range" type="button" :class="{ active: catalogRange === range }" @click="catalogRange = range">{{ range }} d.</button>
+              </div>
+            </div>
+            <div v-if="catalogChart.points.length" class="catalog-chart-wrap">
+              <svg class="catalog-chart" :viewBox="`0 0 ${catalogChart.width} ${catalogChart.height}`" role="img" aria-label="Katalogo prekių skaičiaus kitimas">
+                <line x1="58" y1="18" x2="58" y2="190" class="chart-axis" />
+                <line x1="58" y1="190" x2="702" y2="190" class="chart-axis" />
+                <text x="50" y="24" text-anchor="end">{{ formatNumber(catalogChart.max) }}</text>
+                <text x="50" y="194" text-anchor="end">{{ formatNumber(catalogChart.min) }}</text>
+                <path v-if="catalogChart.points.length > 1" :d="catalogChart.path" class="chart-line" />
+                <g v-for="point in catalogChart.points" :key="point.date">
+                  <circle :cx="point.x" :cy="point.y" r="4" class="chart-point"><title>{{ formatShortDate(point.date) }}: {{ formatNumber(point.catalogProducts) }}</title></circle>
+                </g>
+                <text v-if="catalogChart.points[0]" :x="catalogChart.points[0].x" y="213" text-anchor="start">{{ formatShortDate(catalogChart.points[0].date) }}</text>
+                <text v-if="catalogChart.points.length > 1" :x="catalogChart.points.at(-1)!.x" y="213" text-anchor="end">{{ formatShortDate(catalogChart.points.at(-1)!.date) }}</text>
+              </svg>
+            </div>
+            <p v-else class="catalog-empty">Istorinių taškų dar nėra. Pirmasis bus įrašytas pritaikius migraciją.</p>
+          </section>
+
+          <section class="catalog-groups-section">
+            <div class="catalog-section-head catalog-groups-head">
+              <div><h3>Grupės</h3><p>ABOUT YOU rodomas kiekis lyginamas su aktyviomis tos grupės prekėmis jūsų kataloge.</p></div>
+              <label><span class="sr-only">Ieškoti grupės</span><input v-model="catalogGroupQuery" type="search" placeholder="Ieškoti grupės"></label>
+            </div>
+            <div class="catalog-groups-table-wrap">
+              <table class="catalog-groups-table">
+                <thead><tr><th>Grupė</th><th>ABOUT YOU</th><th>Mūsų kataloge</th><th>Skirtumas</th><th>Užpildymas</th></tr></thead>
+                <tbody>
+                  <tr v-for="group in catalogGroups" :key="group.id">
+                    <td><strong>{{ group.label }}</strong><small>{{ group.lastSuccessAt ? `Atnaujinta ${new Date(group.lastSuccessAt).toLocaleDateString('lt-LT')}` : "Sėkmingo atnaujinimo dar nėra" }}</small></td>
+                    <td>{{ group.expectedTotal == null ? "–" : formatNumber(group.expectedTotal) }}</td>
+                    <td>{{ formatNumber(group.catalogProducts) }}</td>
+                    <td><span class="catalog-difference" :class="group.state">{{ formatDifference(group.difference) }}</span></td>
+                    <td>
+                      <template v-if="group.coverage != null">
+                        <div class="catalog-progress"><i :class="group.state" :style="{ width: `${Math.min(group.coverage, 100)}%` }"></i></div>
+                        <small>{{ formatPct(group.coverage) }}</small>
+                      </template>
+                      <span v-else>–</span>
+                    </td>
+                  </tr>
+                  <tr v-if="!catalogGroups.length"><td colspan="5" class="catalog-empty">Grupių nerasta.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <aside class="catalog-explanation">
+            <strong>Kaip skaityti šiuos skaičius?</strong>
+            <p>„Kataloge“ yra unikalios šiuo metu rodomos prekės. Grupės gali persidengti, todėl jų skaičių sumuoti negalima. Teigiamas skirtumas reiškia, kad grupėje dar yra seniau rastų prekių; neigiamas – kad iki naujausio šaltinio kiekio dar trūksta.</p>
+          </aside>
+        </section>
+      </div>
+    </Teleport>
   </main>
 </template>

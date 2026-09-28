@@ -758,7 +758,9 @@ export async function loadAdminDashboard(db: Pick<SupabaseClient, "from" | "rpc"
     metadataSummary,
     enabledTargets,
     disabledTargets,
-    latestRuns
+    latestRuns,
+    catalogInsights,
+    catalogHistory
   ] = await Promise.all([
     counted("dashboard.products.total", db.from("products").select("id", { count: "exact", head: true })),
     counted("dashboard.products.active", db.from("products").select("id", { count: "exact", head: true }).eq("active", true)),
@@ -775,7 +777,12 @@ export async function loadAdminDashboard(db: Pick<SupabaseClient, "from" | "rpc"
     db.rpc("product_detail_sync_summary", { p_parser_version: PRODUCT_DETAIL_PARSER_VERSION }),
     counted("dashboard.sync_targets.enabled", db.from("sync_targets").select("id", { count: "exact", head: true }).eq("enabled", true)),
     counted("dashboard.sync_targets.disabled", db.from("sync_targets").select("id", { count: "exact", head: true }).eq("enabled", false)),
-    db.from("sync_runs").select("id,status,started_at,finished_at,products_count,error,sync_targets(label)").order("started_at", { ascending: false }).limit(8)
+    db.from("sync_runs").select("id,status,started_at,finished_at,products_count,error,sync_targets(label)").order("started_at", { ascending: false }).limit(8),
+    db.rpc("catalog_statistics_current"),
+    db.from("catalog_statistics_snapshots")
+      .select("observed_on,catalog_products,active_products,enabled_targets")
+      .gte("observed_on", catalogHistoryCutoff(now))
+      .order("observed_on", { ascending: true })
   ]);
 
   const queryError = facets.error ?? metadataSummary.error ?? latestRuns.error;
@@ -826,8 +833,50 @@ export async function loadAdminDashboard(db: Pick<SupabaseClient, "from" | "rpc"
       disabledTargets
     },
     metadata: metadataSummary.data ?? {},
+    catalogInsights: normalizeCatalogInsights(catalogInsights.data, {
+      catalogProducts,
+      activeProducts,
+      enabledTargets
+    }),
+    catalogHistory: (catalogHistory.error ? [] : catalogHistory.data ?? []).map((point) => ({
+      date: String(point.observed_on),
+      catalogProducts: Number(point.catalog_products ?? 0),
+      activeProducts: Number(point.active_products ?? 0),
+      enabledTargets: Number(point.enabled_targets ?? 0)
+    })),
     categories: dashboardCategories(facets.data),
     latestRuns: enrichedRuns
+  };
+}
+
+export function catalogHistoryCutoff(now: Date) {
+  const cutoff = new Date(now);
+  cutoff.setUTCDate(cutoff.getUTCDate() - 29);
+  return cutoff.toISOString().slice(0, 10);
+}
+
+export function normalizeCatalogInsights(
+  payload: unknown,
+  fallback: { catalogProducts: number; activeProducts: number; enabledTargets: number }
+) {
+  if (!payload || typeof payload !== "object") return { ...fallback, groups: [] };
+  const value = payload as Record<string, unknown>;
+  const groups = Array.isArray(value.groups) ? value.groups.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const group = item as Record<string, unknown>;
+    return [{
+      id: String(group.id ?? ""),
+      label: String(group.label ?? ""),
+      expectedTotal: group.expectedTotal == null ? null : Number(group.expectedTotal),
+      catalogProducts: Number(group.catalogProducts ?? 0),
+      lastSuccessAt: group.lastSuccessAt == null ? null : String(group.lastSuccessAt)
+    }];
+  }).filter((group) => group.id && group.label) : [];
+  return {
+    catalogProducts: Number(value.catalogProducts ?? fallback.catalogProducts),
+    activeProducts: Number(value.activeProducts ?? fallback.activeProducts),
+    enabledTargets: Number(value.enabledTargets ?? fallback.enabledTargets),
+    groups
   };
 }
 
@@ -1164,6 +1213,16 @@ export default {
     return app.fetch(request, env, ctx);
   },
   async scheduled(controller, env) {
+    if (controller.cron === "12 0 * * *") {
+      const db = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+      const { data: observedOn, error } = await db.rpc("capture_catalog_statistics_snapshot");
+      if (error) {
+        console.error(JSON.stringify({ event: "catalog_statistics_snapshot_failed", error: error.message }));
+        throw new Error(error.message);
+      }
+      console.log(JSON.stringify({ event: "catalog_statistics_snapshot_captured", observedOn }));
+      return;
+    }
     if (controller.cron === "*/5 * * * *") {
       if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_WEBHOOK_SECRET || !env.TELEGRAM_BOT_USERNAME || env.TELEGRAM_BOT_USERNAME === "your_catalog_bot") {
         console.warn(JSON.stringify({ event: "telegram_alerts_skipped", reason: "Telegram integracija nesukonfigūruota" }));

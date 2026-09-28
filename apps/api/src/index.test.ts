@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { describe, expect, it, vi } from "vitest";
-import { EXCLUDED_BASICS_CATEGORIES, allowedCorsOrigin, app, catalogCacheUrl, catalogCursorFilter, counted, dispatchGitHubWorkflow, downloadRawArtifact, inspectProductDebugPayload, inviteErrorResponse, loadAdminDashboard, mapProductDebug, mapProductDetail, newestCatalogCutoff, normalizeBrandKey, parseFilters, postgresArrayLiteral, priceComparisonColumn, sortDefinition, splitSizeFilters, supabaseOrigin, teamMemberStatus, workflowForCron } from "./index";
+import { EXCLUDED_BASICS_CATEGORIES, allowedCorsOrigin, app, catalogCacheUrl, catalogCursorFilter, catalogHistoryCutoff, counted, dispatchGitHubWorkflow, downloadRawArtifact, inspectProductDebugPayload, inviteErrorResponse, loadAdminDashboard, mapProductDebug, mapProductDetail, newestCatalogCutoff, normalizeBrandKey, normalizeCatalogInsights, parseFilters, postgresArrayLiteral, priceComparisonColumn, sortDefinition, splitSizeFilters, supabaseOrigin, teamMemberStatus, workflowForCron } from "./index";
 
 describe("catalog API", () => {
   it("accepts grouped size tokens while preserving legacy size values", () => {
@@ -188,6 +188,33 @@ describe("catalog API", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("normalizes catalog group insights and uses a 30-day inclusive history window", () => {
+    expect(catalogHistoryCutoff(new Date("2026-09-28T12:00:00.000Z"))).toBe("2026-08-30");
+    expect(normalizeCatalogInsights({
+      catalogProducts: 56_044,
+      activeProducts: 56_044,
+      enabledTargets: 2,
+      groups: [{
+        id: "target-1",
+        label: "Batai",
+        expectedTotal: 7_837,
+        catalogProducts: 8_518,
+        lastSuccessAt: "2026-09-27T09:54:37.399953+00:00"
+      }]
+    }, { catalogProducts: 0, activeProducts: 0, enabledTargets: 0 })).toEqual({
+      catalogProducts: 56_044,
+      activeProducts: 56_044,
+      enabledTargets: 2,
+      groups: [{
+        id: "target-1",
+        label: "Batai",
+        expectedTotal: 7_837,
+        catalogProducts: 8_518,
+        lastSuccessAt: "2026-09-27T09:54:37.399953+00:00"
+      }]
+    });
   });
 
   it("logs a named structured Supabase timeout from counted queries", async () => {

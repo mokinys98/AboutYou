@@ -938,6 +938,37 @@ a {
     font-size: 12px
 }
 
+.dashboard-summary .catalog-summary-card {
+    padding: 0
+}
+
+.catalog-summary-card button {
+    width: 100%;
+    height: 100%;
+    padding: 18px;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    font: inherit;
+    cursor: pointer;
+    transition: background .18s ease, color .18s ease
+}
+
+.catalog-summary-card button:hover,
+.catalog-summary-card button:focus-visible {
+    background: #111;
+    color: #fff;
+    outline: none
+}
+
+.catalog-summary-card button:hover span,
+.catalog-summary-card button:hover small,
+.catalog-summary-card button:focus-visible span,
+.catalog-summary-card button:focus-visible small {
+    color: #fff
+}
+
 .dashboard-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3266,6 +3297,311 @@ td small {
 
 .alert-dialog h2 { margin: 5px 35px 22px 0 }
 .dialog-close { position: absolute; top: 14px; right: 16px; border: 0; background: transparent; font-size: 30px; cursor: pointer }
+.catalog-modal-backdrop {
+    align-items: start
+}
+
+.catalog-dialog {
+    position: relative;
+    width: min(1120px, 100%);
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+    padding: clamp(24px, 4vw, 48px);
+    background: #fff;
+    box-shadow: 0 24px 80px #0005
+}
+
+.catalog-dialog .eyebrow {
+    margin: 0 0 8px
+}
+
+.catalog-dialog-heading,
+.catalog-section-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 24px
+}
+
+.catalog-dialog-heading h2 {
+    margin: 0 0 8px;
+    font-size: clamp(25px, 4vw, 40px)
+}
+
+.catalog-dialog-heading p,
+.catalog-section-head p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 13px
+}
+
+.catalog-dialog-heading>strong {
+    padding-right: 24px;
+    font-size: clamp(34px, 6vw, 60px);
+    line-height: 1
+}
+
+.catalog-kpis {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+    margin: 28px 0
+}
+
+.catalog-kpis>div {
+    padding: 14px 16px;
+    border: 1px solid var(--line);
+    background: var(--surface)
+}
+
+.catalog-kpis>div.attention {
+    border-color: #b83b32;
+    background: #fff1ef
+}
+
+.catalog-kpis span,
+.catalog-kpis strong {
+    display: block
+}
+
+.catalog-kpis span {
+    min-height: 30px;
+    color: var(--muted);
+    font-size: 12px
+}
+
+.catalog-kpis strong {
+    margin-top: 6px;
+    font-size: 25px
+}
+
+.catalog-history-section,
+.catalog-groups-section {
+    padding: 25px 0;
+    border-top: 1px solid var(--ink)
+}
+
+.catalog-section-head h3 {
+    margin: 0 0 6px;
+    font-size: 18px
+}
+
+.catalog-section-head .negative {
+    color: var(--danger)
+}
+
+.catalog-range-tabs {
+    display: flex;
+    flex: 0 0 auto
+}
+
+.catalog-range-tabs button {
+    min-height: 34px;
+    padding: 0 12px;
+    border: 1px solid var(--line);
+    border-right: 0;
+    background: #fff;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer
+}
+
+.catalog-range-tabs button:last-child {
+    border-right: 1px solid var(--line)
+}
+
+.catalog-range-tabs button.active {
+    background: #111;
+    color: #fff
+}
+
+.catalog-chart-wrap {
+    overflow-x: auto;
+    margin-top: 18px;
+    padding: 8px 8px 0;
+    background: var(--surface)
+}
+
+.catalog-chart {
+    display: block;
+    width: 100%;
+    min-width: 620px
+}
+
+.catalog-chart text {
+    fill: var(--muted);
+    font-size: 11px
+}
+
+.chart-axis {
+    stroke: #d3d3d3;
+    stroke-width: 1
+}
+
+.chart-line {
+    fill: none;
+    stroke: #111;
+    stroke-width: 3;
+    stroke-linecap: round;
+    stroke-linejoin: round
+}
+
+.chart-point {
+    fill: #fff;
+    stroke: #111;
+    stroke-width: 3
+}
+
+.catalog-empty {
+    padding: 24px;
+    color: var(--muted);
+    text-align: center
+}
+
+.catalog-groups-head {
+    align-items: end;
+    margin-bottom: 16px
+}
+
+.catalog-groups-head input {
+    min-width: 230px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    font: inherit
+}
+
+.catalog-groups-table-wrap {
+    max-height: 430px;
+    overflow: auto;
+    border: 1px solid var(--line)
+}
+
+.catalog-groups-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px
+}
+
+.catalog-groups-table th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 11px 12px;
+    background: #111;
+    color: #fff;
+    text-align: left;
+    white-space: nowrap
+}
+
+.catalog-groups-table td {
+    padding: 12px;
+    border-top: 1px solid var(--line);
+    vertical-align: middle
+}
+
+.catalog-groups-table td:first-child {
+    min-width: 245px
+}
+
+.catalog-groups-table td>strong,
+.catalog-groups-table td>small {
+    display: block
+}
+
+.catalog-groups-table td>small {
+    margin-top: 4px;
+    color: var(--muted)
+}
+
+.catalog-difference {
+    display: inline-block;
+    min-width: 54px;
+    padding: 4px 7px;
+    background: #eee;
+    text-align: center;
+    font-weight: 700
+}
+
+.catalog-difference.behind {
+    background: #fde4e1;
+    color: #9c251d
+}
+
+.catalog-difference.surplus {
+    background: #fff1cf;
+    color: #765300
+}
+
+.catalog-difference.complete {
+    background: #e3f3e6;
+    color: #176b35
+}
+
+.catalog-progress {
+    width: 100px;
+    height: 6px;
+    margin-bottom: 4px;
+    overflow: hidden;
+    background: #e5e5e5
+}
+
+.catalog-progress i {
+    display: block;
+    height: 100%;
+    background: #4f9d50
+}
+
+.catalog-progress i.behind {
+    background: #c8473d
+}
+
+.catalog-progress i.surplus {
+    background: #d9a441
+}
+
+.catalog-explanation {
+    padding: 16px 18px;
+    background: #f5f2e9;
+    font-size: 13px
+}
+
+.catalog-explanation p {
+    margin: 6px 0 0;
+    line-height: 1.55
+}
+
+@media (max-width: 720px) {
+    .catalog-dialog {
+        max-height: 100vh;
+        min-height: 100vh;
+        padding: 24px 16px
+    }
+
+    .catalog-dialog-heading,
+    .catalog-section-head {
+        display: block
+    }
+
+    .catalog-dialog-heading>strong {
+        display: block;
+        margin-top: 18px
+    }
+
+    .catalog-kpis {
+        grid-template-columns: repeat(2, minmax(0, 1fr))
+    }
+
+    .catalog-range-tabs,
+    .catalog-groups-head input {
+        margin-top: 14px
+    }
+
+    .catalog-groups-head input {
+        width: 100%;
+        min-width: 0
+    }
+}
 .alert-dialog form, .field { display: grid; gap: 9px }
 .alert-dialog form { gap: 16px }
 .field { font-size: 12px; font-weight: 700 }
