@@ -38,6 +38,7 @@ returns void language sql as $$ update public.sync_runs set status=p_status, pag
 \ir ../migrations/20260922090000_fix_catalog_queue_claim_ambiguity.sql
 \ir ../migrations/20260924073825_persist_catalog_target_expected_total.sql
 \ir ../migrations/20260925061314_stabilize_catalog_collection.sql
+\ir ../migrations/20260929125114_reduce_catalog_sync_cadence_to_six_hours.sql
 
 do $$
 declare v_source uuid := gen_random_uuid(); v_target uuid := gen_random_uuid(); v_first record; v_reclaimed record; v_saved integer; v_status public.catalog_task_status;
@@ -93,7 +94,7 @@ begin
     where target_id = v_target and product_id = v_unseen and missing_successful_runs = 0 and active
   ) then raise exception 'Near-complete cycle changed unseen-product state'; end if;
   if exists (select 1 from public.claim_catalog_collection_task('Near complete')) then
-    raise exception 'Successful cycle ignored the 24-hour cadence';
+    raise exception 'Successful cycle ignored the 6-hour cadence';
   end if;
 
   update public.sync_targets
@@ -103,6 +104,31 @@ begin
   if v_manual.task_id is null then raise exception 'Manual request did not bypass cadence'; end if;
   if exists (select 1 from public.sync_targets where id = v_target and requested_at is not null) then
     raise exception 'Manual request was not consumed atomically';
+  end if;
+end $$;
+
+do $$
+declare
+  v_source uuid := gen_random_uuid(); v_target uuid := gen_random_uuid(); v_run uuid := gen_random_uuid();
+  v_cycle uuid := gen_random_uuid(); v_task record;
+begin
+  insert into public.sources(id) values (v_source);
+  insert into public.sync_targets(id, source_id, label, url)
+  values (v_target, v_source, 'Successful cadence', 'https://www.aboutyou.lt/c/vyrams/drabuziai-20210');
+  insert into public.sync_runs(id, target_id, status, finished_at)
+  values (v_run, v_target, 'success', now() - interval '5 hours');
+  insert into public.catalog_sync_cycles(id, target_id, source_id, sync_run_id, status, started_at, finished_at)
+  values (v_cycle, v_target, v_source, v_run, 'success', now() - interval '5 hours', now() - interval '5 hours');
+
+  if exists (select 1 from public.claim_catalog_collection_task('Successful cadence')) then
+    raise exception 'A recent successful cycle ignored the 6-hour cadence';
+  end if;
+  update public.catalog_sync_cycles
+  set started_at = now() - interval '7 hours', finished_at = now() - interval '7 hours'
+  where id = v_cycle;
+  select * into v_task from public.claim_catalog_collection_task('Successful cadence');
+  if v_task.task_id is null then
+    raise exception 'An old successful cycle did not become eligible after 6 hours';
   end if;
 end $$;
 
