@@ -5,7 +5,7 @@ import { aiBudget, aiOutputFormat, analyzeControlItem } from "./ai-control";
 const env = { AI_ENRICHMENT_ENABLED: "true", AI_INCENTIVE_VERIFIED: "true",
   AI_DAILY_TOKEN_CAP: "200000", OPENAI_API_KEY: "test-only" };
 
-function fakeDb(response: unknown) {
+function fakeDb(response: unknown, status = 200) {
   const rpc = vi.fn(async (name: string) => name === "reserve_ai_control_request"
     ? { data: "request-id", error: null } : { data: true, error: null });
   const updates: unknown[] = [];
@@ -25,7 +25,7 @@ function fakeDb(response: unknown) {
     },
     rpc
   } as unknown as SupabaseClient;
-  const fetchMock = vi.fn(async () => Response.json(response));
+  const fetchMock = vi.fn(async () => Response.json(response, { status }));
   vi.stubGlobal("fetch", fetchMock);
   return { db, rpc, updates, fetchMock };
 }
@@ -63,5 +63,15 @@ describe("AI control cost gate", () => {
     await expect(analyzeControlItem(db, env, "set-id", "product-id"))
       .rejects.toThrow("apskaita neaiški");
     expect(updates).toMatchObject([{ status: "uncertain" }]);
+  });
+
+  it("records the OpenAI error code for a rejected request without retrying", async () => {
+    const { db, updates, fetchMock } = fakeDb({ error: { code: "project_spend_limit_exceeded" } }, 429);
+    await expect(analyzeControlItem(db, env, "set-id", "product-id"))
+      .rejects.toThrow("apskaita neaiški");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(updates).toMatchObject([{
+      status: "uncertain", error_code: "OpenAI HTTP 429 project_spend_limit_exceeded"
+    }]);
   });
 });

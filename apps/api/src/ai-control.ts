@@ -124,7 +124,11 @@ export async function analyzeControlItem(db: SupabaseClient, env: AiEnvironment,
       signal: AbortSignal.timeout(20000)
     });
     const payload = await limitedResponseJson(response) as Record<string, any>;
-    if (!response.ok) throw new Error(`OpenAI HTTP ${response.status}`);
+    if (!response.ok) {
+      const errorCode = payload.error?.code;
+      const safeCode = typeof errorCode === "string" && /^[a-z0-9_]{1,48}$/.test(errorCode) ? ` ${errorCode}` : "";
+      throw new Error(`OpenAI HTTP ${response.status}${safeCode}`);
+    }
     if (payload.status !== "completed") throw new Error("OpenAI response incomplete");
     const content = payload.output?.flatMap((part: any) => part.content ?? [])
       .find((part: any) => part.type === "output_text")?.text;

@@ -33,7 +33,8 @@ const busy = ref("");
 const message = ref("");
 const error = ref("");
 const editingId = ref("");
-const reconciliationTokens = ref<number | null>(null);
+const reconciliationTokens = ref("");
+const reconciliationError = ref("");
 const review = reactive({ colorFamily: "", colorShade: "", temperature: "", lightness: "", saturation: "",
   contrast: "", visualPattern: "", note: "" });
 const activeSet = computed(() => sets.value.find((set) => set.id === selectedSet.value));
@@ -49,11 +50,12 @@ const saturationOptions = ["", "muted", "medium", "vivid", "unknown"];
 const contrastOptions = ["", "low", "medium", "high", "unknown"];
 const patternOptions = ["", "solid", "striped", "checked", "floral", "graphic", "other", "unknown"];
 
-function report(cause: unknown) {
+function errorMessage(cause: unknown) {
   const detail = cause && typeof cause === "object" && "data" in cause
     ? (cause as { data?: { error?: unknown } }).data?.error : null;
-  error.value = typeof detail === "string" ? detail : cause instanceof Error ? cause.message : "Veiksmas nepavyko.";
+  return typeof detail === "string" ? detail : cause instanceof Error ? cause.message : "Veiksmas nepavyko.";
 }
+function report(cause: unknown) { error.value = errorMessage(cause); }
 async function refresh() {
   const [setRows, budget] = await Promise.all([
     api<ControlSet[]>("/v1/admin/ai-control/sets"),
@@ -156,16 +158,23 @@ async function removeItem(item: ControlItem) {
   finally { busy.value = ""; }
 }
 async function reconcile() {
-  if (!uncertain.value || reconciliationTokens.value === null) return;
-  error.value = ""; busy.value = "reconcile";
+  const request = uncertain.value;
+  const input = reconciliationTokens.value.trim();
+  if (!request) { reconciliationError.value = "Nėra nesuderintos užklausos. Atnaujinkite puslapį."; return; }
+  if (!/^(0|[1-9]\d*)$/.test(input) || Number(input) > 20000) {
+    reconciliationError.value = "Įrašykite sveiką tokenų skaičių nuo 0 iki 20000.";
+    return;
+  }
+  error.value = ""; message.value = ""; reconciliationError.value = ""; busy.value = "reconcile";
   try {
-    await api(`/v1/admin/ai-control/requests/${uncertain.value.id}/reconcile`, {
-      method: "POST", body: { actualTokens: reconciliationTokens.value }
+    await api(`/v1/admin/ai-control/requests/${request.id}/reconcile`, {
+      method: "POST", body: { actualTokens: Number(input) }
     });
-    usage.value = await api<Usage>("/v1/admin/ai-control/usage");
-    reconciliationTokens.value = null;
+    reconciliationTokens.value = "";
     message.value = "Užklausa suderinta.";
-  } catch (cause) { report(cause); }
+    try { usage.value = await api<Usage>("/v1/admin/ai-control/usage"); }
+    catch { reconciliationError.value = "Suderinta, bet būsenos atnaujinti nepavyko. Perkraukite puslapį."; }
+  } catch (cause) { reconciliationError.value = errorMessage(cause); }
   finally { busy.value = ""; }
 }
 function optionLabel(value: string) { return value ? value.replaceAll("_", " ") : "— nepažymėta —"; }
@@ -190,7 +199,9 @@ watch(selectedSet, () => { preview.value = []; selectedIds.value = []; nextCurso
     <div v-if="uncertain" class="ai-alert">
       <strong>AI apskaita neaiški · {{ uncertain.id }}</strong>
       <p>Patikrinkite šią užklausą OpenAI Usage. Įrašykite faktinį bendrą tokenų skaičių; jei Usage patvirtina, kad užklausa nebuvo įvykdyta, įrašykite 0. Dar vykdomą užklausą galima suderinti tik po 2 minučių. Iki suderinimo nauji kvietimai blokuojami.</p>
-      <form @submit.prevent="reconcile"><input v-model.number="reconciliationTokens" type="number" min="0" max="20000" required aria-label="Faktiniai tokenai"><button class="secondary" :disabled="Boolean(busy)">Suderinti</button></form>
+      <p class="ai-request-detail">Būsena: {{ uncertain.status }} · Sukurta: {{ new Date(uncertain.created_at).toLocaleString("lt-LT") }}<template v-if="uncertain.error_code"> · Priežastis: {{ uncertain.error_code }}</template></p>
+      <form novalidate @submit.prevent="reconcile"><label>Faktiniai tokenai<input v-model="reconciliationTokens" type="text" inputmode="numeric" maxlength="5" autocomplete="off"></label><button type="submit" class="secondary" :disabled="Boolean(busy)">{{ busy === "reconcile" ? "Derinama…" : "Suderinti" }}</button></form>
+      <p v-if="reconciliationError" class="ai-reconciliation-error" role="alert">{{ reconciliationError }}</p>
     </div>
 
     <section class="admin-panel ai-setup">
@@ -281,4 +292,8 @@ watch(selectedSet, () => { preview.value = []; selectedIds.value = []; nextCurso
 
 <style scoped>
 .ai-control{display:grid;gap:24px}.ai-heading,.ai-section-heading,.ai-output-heading,.ai-card-title{display:flex;align-items:start;justify-content:space-between;gap:16px}.ai-heading h2{margin:5px 0}.ai-heading p{max-width:730px}.ai-budget{display:grid;gap:4px;min-width:190px;padding:15px;border:1px solid #ddd;background:#fafafa}.ai-budget.ready{border-color:#168347;background:#f2fbf5}.ai-budget small,.ai-budget span,.ai-source,.ai-output small{color:#666}.ai-alert{padding:18px;border:1px solid #d19131;background:#fff8e8}.ai-alert form,.ai-actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.ai-alert input{width:130px;padding:9px}.ai-setup form{display:grid;grid-template-columns:minmax(180px,1fr) minmax(320px,2fr) auto;gap:12px;align-items:end}.ai-setup label,.ai-review-form label{display:grid;gap:6px;font-size:12px;font-weight:700}.ai-setup input,.ai-section-heading select,.ai-review-form select,.ai-review-form textarea{width:100%;padding:10px;border:1px solid #bbb;background:#fff}.ai-preview-grid,.ai-result-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(235px,1fr));gap:14px;margin-top:18px}.ai-preview-card{display:grid;grid-template-columns:18px 64px 1fr;gap:9px;align-items:start;padding:9px;border:1px solid #ddd;cursor:pointer}.ai-preview-card img{width:64px;height:88px;object-fit:contain}.ai-preview-card span{display:grid;gap:5px}.ai-preview-card small{font-size:11px}.ai-preview-card:has(input:checked){border-color:#111;background:#f6f6f6}.ai-more{margin-top:14px}.ai-results h3{margin:0}.ai-result-card{border:1px solid #ddd;background:#fff;overflow:hidden}.ai-result-card>img{width:100%;height:250px;object-fit:contain;background:#f8f8f8}.ai-card-body{padding:15px;display:grid;gap:12px}.ai-card-title h4{margin:4px 0;font-size:14px}.ai-product-link{color:inherit;text-decoration:underline;text-underline-offset:2px}.ai-product-link:hover{color:#126b45}.ai-product-link:focus-visible{outline:2px solid #126b45;outline-offset:3px}.ai-card-title small{text-transform:uppercase;letter-spacing:.06em}.ai-text-button{border:0;background:none;text-decoration:underline;cursor:pointer;font-size:12px}.ai-output,.ai-human{padding:12px;border:1px solid #e1e1e1;background:#fafafa}.ai-human{background:#fff}.ai-attribute-list{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:12px 0}.ai-attribute-list span{display:grid;gap:3px;font-size:12px}.ai-attribute-list b{font-size:10px;color:#666;text-transform:uppercase}.ai-review-flag,.ai-mismatch{color:#9b4818}.ai-mismatch{background:#fff0e6;padding:3px}.ai-empty{color:#666;font-size:12px}.ai-review-form{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding-top:8px}.ai-review-form .ai-note,.ai-review-form .ai-actions{grid-column:1/-1}@media(max-width:850px){.ai-setup form{grid-template-columns:1fr}.ai-heading{display:block}.ai-budget{max-width:300px}}
+.ai-alert label{display:grid;gap:6px;font-size:12px;font-weight:700}
+.ai-alert label input{font-size:14px;font-weight:400}
+.ai-request-detail{font-size:13px;color:#67501d}
+.ai-reconciliation-error{margin:10px 0 0;color:#b42318;font-size:13px}
 </style>
