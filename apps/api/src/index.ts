@@ -2,8 +2,9 @@ import { Hono, type MiddlewareHandler } from "hono";
 import { cors } from "hono/cors";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { BrandTierSchema, CatalogAlertFiltersSchema, CatalogFiltersSchema, CreateAlertSchema, PRODUCT_DETAIL_PARSER_VERSION, UpdateAlertSchema, isAllowedAboutYouUrl } from "@catalog/shared";
+import { AiVisualAttributesSchema, BrandTierSchema, CatalogAlertFiltersSchema, CatalogFiltersSchema, CreateAlertSchema, PRODUCT_DETAIL_PARSER_VERSION, UpdateAlertSchema, isAllowedAboutYouUrl, type CatalogFilters } from "@catalog/shared";
 import { z } from "zod";
+import { aiBudget, analyzeControlItem, type AiEnvironment } from "./ai-control";
 import { alertFilterFingerprint, canonicalAlertFilters, hasMeaningfulAlertFilters, mapAlertRow, processTelegramAlerts, sendTelegramText } from "./telegram";
 
 type Bindings = {
@@ -14,7 +15,7 @@ type Bindings = {
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_BOT_USERNAME?: string;
   TELEGRAM_WEBHOOK_SECRET?: string;
-};
+} & AiEnvironment;
 type SchedulerBindings = Bindings & {
   GITHUB_TOKEN: string;
   GITHUB_OWNER: string;
@@ -436,20 +437,153 @@ app.post("/v1/users/accept-invite", async (c) => {
   return c.json({ accepted: true, acceptedAt: data?.accepted_at ?? null });
 });
 
-app.get("/v1/catalog", async (c) => {
-  const parsed = parseFilters(c.req.query());
-  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
-  const filters = parsed.data;
-  const cacheUrl = catalogCacheUrl(c.req.url, c.get("member").userId);
-  const cacheKey = new Request(cacheUrl, { method: "GET" });
-  const edgeCache = getEdgeCache();
-  const cached = await edgeCache.match(cacheKey);
-  if (cached) return cached;
+const AiSetInputSchema = z.object({ name: z.string().trim().min(1).max(120), catalogUrl: z.string().url().max(2048) });
+const AiItemsInputSchema = z.object({ productIds: z.array(z.string().uuid()).min(1).max(100) });
+const AiReviewSchema = z.object({
+  colorFamily: AiVisualAttributesSchema.shape.dominantColorFamily.nullable(),
+  colorShade: AiVisualAttributesSchema.shape.dominantColorShade.nullable(),
+  temperature: AiVisualAttributesSchema.shape.temperature.nullable(),
+  lightness: AiVisualAttributesSchema.shape.lightness.nullable(),
+  saturation: AiVisualAttributesSchema.shape.saturation.nullable(),
+  contrast: AiVisualAttributesSchema.shape.contrast.nullable(),
+  visualPattern: AiVisualAttributesSchema.shape.visualPattern.nullable(),
+  note: z.string().trim().max(500)
+});
 
-  let query = c.get("db").from("catalog_items_read_with_lpl").select("*", filters.cursor ? undefined : { count: "exact" });
-  if (filters.lplProximityPct !== undefined) {
-    query = query.lte("lpl_price_ratio", 100 + filters.lplProximityPct);
+function filtersFromCatalogUrl(url: URL) {
+  const query = Object.fromEntries(url.searchParams.entries());
+  for (const key of ["price_min", "price_max"]) {
+    if (query[key] !== undefined) {
+      const euros = Number(query[key]);
+      query[key] = String(Math.round(euros * 100));
+    }
   }
+  return parseFilters(query);
+}
+
+app.get("/v1/admin/ai-control/sets", requireAdmin, async (c) => {
+  const { data, error } = await c.get("db").from("ai_control_sets").select("*")
+    .order("created_at", { ascending: false }).limit(50);
+  return error ? c.json({ error: error.message }, 500) : c.json(data ?? []);
+});
+
+app.post("/v1/admin/ai-control/sets", requireAdmin, async (c) => {
+  const input = AiSetInputSchema.safeParse(await c.req.json().catch(() => null));
+  if (!input.success) return c.json({ error: input.error.flatten() }, 400);
+  let url: URL;
+  try { url = new URL(input.data.catalogUrl); } catch { return c.json({ error: "Neteisinga katalogo nuoroda" }, 400); }
+  const appOrigin = new URL(c.env.WEB_APP_URL ?? "https://rinkissaupigiausia.online").origin;
+  if (![appOrigin, "https://rinkissaupigiausia.online"].includes(url.origin) || url.pathname !== "/" || url.username || url.password) {
+    return c.json({ error: "Naudokite šio katalogo filtrų nuorodą" }, 400);
+  }
+  const filters = Object.fromEntries(url.searchParams.entries());
+  const parsed = filtersFromCatalogUrl(url);
+  if (!parsed.success) return c.json({ error: "Neteisingi katalogo filtrai" }, 400);
+  const { data, error } = await c.get("db").from("ai_control_sets")
+    .insert({ name: input.data.name, catalog_url: url.toString(), filters, created_by: c.get("member").userId })
+    .select("*").single();
+  return error ? c.json({ error: error.message }, 500) : c.json(data, 201);
+});
+
+app.get("/v1/admin/ai-control/sets/:id/items", requireAdmin, async (c) => {
+  const setId = z.string().uuid().safeParse(c.req.param("id"));
+  if (!setId.success) return c.json({ error: "Neteisingas rinkinio ID" }, 400);
+  const db = c.get("db");
+  const { data: items, error } = await db.from("ai_control_items")
+    .select("*,products(id,name,brand,product_url,image_urls,color_original,color_family,color_shade,active)")
+    .eq("set_id", setId.data).order("added_at", { ascending: false }).limit(100);
+  if (error) return c.json({ error: error.message }, 500);
+  const ids = (items ?? []).map((item) => item.product_id);
+  const { data: attributes, error: attributesError } = ids.length
+    ? await db.from("product_ai_attributes").select("*").in("product_id", ids)
+    : { data: [], error: null };
+  if (attributesError) return c.json({ error: attributesError.message }, 500);
+  const byProduct = new Map((attributes ?? []).map((row) => [row.product_id, row]));
+  return c.json((items ?? []).map((item) => ({ ...item, ai: byProduct.get(item.product_id) ?? null })));
+});
+
+app.post("/v1/admin/ai-control/sets/:id/items", requireAdmin, async (c) => {
+  const setId = z.string().uuid().safeParse(c.req.param("id"));
+  const input = AiItemsInputSchema.safeParse(await c.req.json().catch(() => null));
+  if (!setId.success || !input.success) return c.json({ error: "Neteisingi produktų ID" }, 400);
+  const db = c.get("db");
+  const ids = [...new Set(input.data.productIds)];
+  const { data: set, error: setError } = await db.from("ai_control_sets")
+    .select("catalog_url").eq("id", setId.data).maybeSingle();
+  if (setError) return c.json({ error: setError.message }, 500);
+  if (!set) return c.json({ error: "Kontrolinis rinkinys nerastas" }, 404);
+  const filters = filtersFromCatalogUrl(new URL(set.catalog_url));
+  if (!filters.success) return c.json({ error: "Rinkinio filtras nebegalioja" }, 409);
+  const [{ count, error: countError }, { data: catalogRows, error: catalogError }] = await Promise.all([
+    db.from("ai_control_items").select("product_id", { count: "exact", head: true }).eq("set_id", setId.data),
+    filteredCatalogQuery(db, filters.data).in("id", ids)
+  ]);
+  if (countError || catalogError) return c.json({ error: countError?.message ?? catalogError?.message }, 500);
+  if ((count ?? 0) + ids.length > 100) return c.json({ error: "Viename kontroliniame rinkinyje gali būti iki 100 prekių" }, 400);
+  if ((catalogRows ?? []).length !== ids.length) return c.json({ error: "Rinktis galima tik šio filtro katalogo prekes" }, 400);
+  const { error } = await db.from("ai_control_items").upsert(ids.map((productId) => ({ set_id: setId.data, product_id: productId })),
+    { onConflict: "set_id,product_id", ignoreDuplicates: true });
+  return error ? c.json({ error: error.message }, 500) : c.json({ added: ids.length });
+});
+
+app.delete("/v1/admin/ai-control/sets/:id/items/:productId", requireAdmin, async (c) => {
+  const { error } = await c.get("db").from("ai_control_items").delete()
+    .eq("set_id", c.req.param("id")).eq("product_id", c.req.param("productId"));
+  return error ? c.json({ error: error.message }, 500) : c.json({ removed: true });
+});
+
+app.put("/v1/admin/ai-control/sets/:id/items/:productId/review", requireAdmin, async (c) => {
+  const input = AiReviewSchema.safeParse(await c.req.json().catch(() => null));
+  if (!input.success) return c.json({ error: input.error.flatten() }, 400);
+  const { data, error } = await c.get("db").from("ai_control_items").update({
+    human_color_family: input.data.colorFamily, human_color_shade: input.data.colorShade,
+    human_temperature: input.data.temperature, human_lightness: input.data.lightness,
+    human_saturation: input.data.saturation, human_contrast: input.data.contrast,
+    human_visual_pattern: input.data.visualPattern, review_note: input.data.note,
+    reviewed_by: c.get("member").userId, reviewed_at: new Date().toISOString()
+  }).eq("set_id", c.req.param("id")).eq("product_id", c.req.param("productId"))
+    .select("*").maybeSingle();
+  if (error) return c.json({ error: error.message }, 500);
+  return data ? c.json(data) : c.json({ error: "Kontrolinė prekė nerasta" }, 404);
+});
+
+app.post("/v1/admin/ai-control/sets/:id/items/:productId/analyze", requireAdmin, async (c) => {
+  const setId = z.string().uuid().safeParse(c.req.param("id"));
+  const productId = z.string().uuid().safeParse(c.req.param("productId"));
+  if (!setId.success || !productId.success) return c.json({ error: "Neteisingas ID" }, 400);
+  try {
+    return c.json(await analyzeControlItem(c.get("db"), c.env, setId.data, productId.data));
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : "AI analizė nepavyko" }, 409);
+  }
+});
+
+app.get("/v1/admin/ai-control/usage", requireAdmin, async (c) => {
+  const day = new Date().toISOString().slice(0, 10);
+  const db = c.get("db");
+  const [{ data: usage, error: usageError }, { data: requests, error: requestsError }] = await Promise.all([
+    db.from("ai_daily_usage").select("*").eq("usage_day", day).maybeSingle(),
+    db.from("ai_control_requests").select("id,set_id,product_id,status,reserved_tokens,actual_tokens,error_code,created_at")
+      .order("created_at", { ascending: false }).limit(20)
+  ]);
+  if (usageError || requestsError) return c.json({ error: usageError?.message ?? requestsError?.message }, 500);
+  return c.json({ budget: aiBudget(c.env), usage, requests: requests ?? [] });
+});
+
+app.post("/v1/admin/ai-control/requests/:id/reconcile", requireAdmin, async (c) => {
+  const input = z.object({ actualTokens: z.number().int().min(0).max(20000) })
+    .safeParse(await c.req.json().catch(() => null));
+  const id = z.string().uuid().safeParse(c.req.param("id"));
+  if (!input.success || !id.success) return c.json({ error: "Neteisingi suderinimo duomenys" }, 400);
+  const { error } = await c.get("db").rpc("reconcile_ai_control_request", {
+    p_request_id: id.data, p_actual_tokens: input.data.actualTokens
+  });
+  return error ? c.json({ error: error.message }, 409) : c.json({ reconciled: true });
+});
+
+function filteredCatalogQuery(db: SupabaseClient, filters: CatalogFilters, count = false) {
+  let query = db.from("catalog_items_read_with_lpl").select("*", count ? { count: "exact" } : undefined);
+  if (filters.lplProximityPct !== undefined) query = query.lte("lpl_price_ratio", 100 + filters.lplProximityPct);
   if (filters.brands.length) query = query.in("brand", filters.brands);
   if (filters.brandTiers.length) query = query.in("brand_tier", filters.brandTiers);
   if (filters.sources.length) query = query.in("source", filters.sources);
@@ -461,11 +595,8 @@ app.get("/v1/catalog", async (c) => {
     const { grouped: groupedSizes, legacy: legacySizes } = splitSizeFilters(filters.sizes);
     if (groupedSizes.length && legacySizes.length) {
       query = query.or(`size_tokens.ov.${postgresArrayLiteral(groupedSizes)},sizes.ov.${postgresArrayLiteral(legacySizes)}`);
-    } else if (groupedSizes.length) {
-      query = query.overlaps("size_tokens", groupedSizes);
-    } else {
-      query = query.overlaps("sizes", legacySizes);
-    }
+    } else if (groupedSizes.length) query = query.overlaps("size_tokens", groupedSizes);
+    else query = query.overlaps("sizes", legacySizes);
   }
   if (filters.otherSizes.length) query = query.overlaps("other_sizes", filters.otherSizes);
   if (filters.materials.length) query = query.overlaps("materials", filters.materials);
@@ -478,16 +609,26 @@ app.get("/v1/catalog", async (c) => {
     const excludedBasics = postgresArrayLiteral(EXCLUDED_BASICS_CATEGORIES);
     query = query.not("category_names", "ov", excludedBasics).not("categories", "ov", excludedBasics);
   }
-  if (filters.excludeAccessories) {
-    query = query.not("category_paths", "ov", postgresArrayLiteral(EXCLUDED_ACCESSORIES_PATHS));
-  }
+  if (filters.excludeAccessories) query = query.not("category_paths", "ov", postgresArrayLiteral(EXCLUDED_ACCESSORIES_PATHS));
   if (filters.priceMin !== undefined) query = query.gte("current_price", filters.priceMin);
   if (filters.priceMax !== undefined) query = query.lte("current_price", filters.priceMax);
   if (filters.discountMin !== undefined) query = query.gte("discount_pct", filters.discountMin);
-  if (filters.belowObserved30d) {
-    query = query.eq(priceComparisonColumn(filters.priceComparison), true);
-  }
+  if (filters.belowObserved30d) query = query.eq(priceComparisonColumn(filters.priceComparison), true);
   if (filters.newOnly) query = query.gte("first_seen_at", newestCatalogCutoff());
+  return query;
+}
+
+app.get("/v1/catalog", async (c) => {
+  const parsed = parseFilters(c.req.query());
+  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+  const filters = parsed.data;
+  const cacheUrl = catalogCacheUrl(c.req.url, c.get("member").userId);
+  const cacheKey = new Request(cacheUrl, { method: "GET" });
+  const edgeCache = getEdgeCache();
+  const cached = await edgeCache.match(cacheKey);
+  if (cached) return cached;
+
+  let query = filteredCatalogQuery(c.get("db"), filters, !filters.cursor);
 
   const cursor = decodeCursor(filters.cursor);
   const sort = sortDefinition(filters.sort);
@@ -1213,6 +1354,25 @@ export default {
     return app.fetch(request, env, ctx);
   },
   async scheduled(controller, env) {
+    if (controller.cron === "17 * * * *") {
+      if (!aiBudget(env).enabled || env.AI_CRON_ENABLED !== "true") return;
+      const db = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+      const { data: pending, error } = await db.from("ai_control_pending")
+        .select("set_id,product_id").order("added_at").limit(1).maybeSingle();
+      if (error) throw new Error(error.message);
+      if (pending) {
+        try {
+          const result = await analyzeControlItem(db, env, pending.set_id, pending.product_id);
+          console.log(JSON.stringify({ event: "ai_control_analyzed", productId: pending.product_id,
+            skipped: result.skipped }));
+        } catch (cause) {
+          console.error(JSON.stringify({ event: "ai_control_failed", productId: pending.product_id,
+            error: cause instanceof Error ? cause.message : String(cause) }));
+          throw cause;
+        }
+      }
+      return;
+    }
     if (controller.cron === "12 0 * * *") {
       const db = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
       const { data: observedOn, error } = await db.rpc("capture_catalog_statistics_snapshot");

@@ -10,12 +10,17 @@
     "TELEGRAM_BOT_USERNAME": "AboutYouTrackerBot",
     "GITHUB_OWNER": "mokinys98",
     "GITHUB_REPO": "AboutYou",
-    "GITHUB_REF": "main"
+    "GITHUB_REF": "main",
+    "AI_ENRICHMENT_ENABLED": "false",
+    "AI_CRON_ENABLED": "false",
+    "AI_INCENTIVE_VERIFIED": "false",
+    "AI_DAILY_TOKEN_CAP": "200000"
   },
   "triggers": {
     "crons": [
       "*/15 * * * *",
       "47 * * * *",
+      "17 * * * *",
       "*/5 * * * *",
       "12 0 * * *"
     ]
@@ -29,7 +34,11 @@
         "TELEGRAM_BOT_USERNAME": "AboutYouTrackerBot",
         "GITHUB_OWNER": "mokinys98",
         "GITHUB_REPO": "AboutYou",
-        "GITHUB_REF": "main"
+        "GITHUB_REF": "main",
+        "AI_ENRICHMENT_ENABLED": "false",
+        "AI_CRON_ENABLED": "false",
+        "AI_INCENTIVE_VERIFIED": "false",
+        "AI_DAILY_TOKEN_CAP": "200000"
       },
       "triggers": {
         "crons": []

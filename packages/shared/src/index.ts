@@ -20,6 +20,25 @@ export const colorShades = [
 export const ColorShadeSchema = z.enum(colorShades);
 export type ColorShade = z.infer<typeof ColorShadeSchema>;
 
+// Versioned visual vocabulary. These are observations about the product image,
+// not a recommendation about a person's colour season.
+export const AI_VISUAL_SCHEMA_VERSION = 1;
+export const AiColorFamilySchema = z.enum([...colorFamilies, "unknown"] as const);
+export const AiColorShadeSchema = z.enum([...colorShades, "unknown"] as const);
+export const AiVisualAttributesSchema = z.object({
+  dominantColorFamily: AiColorFamilySchema,
+  dominantColorShade: AiColorShadeSchema,
+  secondaryColorFamilies: z.array(AiColorFamilySchema).max(2),
+  temperature: z.enum(["warm", "cool", "neutral", "unknown"]),
+  lightness: z.enum(["light", "medium", "dark", "unknown"]),
+  saturation: z.enum(["muted", "medium", "vivid", "unknown"]),
+  contrast: z.enum(["low", "medium", "high", "unknown"]),
+  visualPattern: z.enum(["solid", "striped", "checked", "floral", "graphic", "other", "unknown"]),
+  confidence: z.number().min(0).max(1),
+  needsReview: z.boolean()
+}).strict();
+export type AiVisualAttributes = z.infer<typeof AiVisualAttributesSchema>;
+
 export const brandTiers = ["S", "A", "B", "C", "D"] as const;
 export const BrandTierSchema = z.enum(brandTiers);
 export type BrandTier = z.infer<typeof BrandTierSchema>;

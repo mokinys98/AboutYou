@@ -4,7 +4,7 @@ import { loadAdminResources, type AdminResourceKey, type BrandTierRow, type Dash
 definePageMeta({ middleware: "admin" });
 
 const api = useApi();
-const activeTab = ref<"dashboard" | "tiers" | "sync" | "users">("dashboard");
+const activeTab = ref<"dashboard" | "tiers" | "sync" | "ai" | "users">("dashboard");
 const categoryLevel = ref(2);
 const dashboard = ref<DashboardStats | null>(null);
 const targets = ref<Target[]>([]);
@@ -344,6 +344,7 @@ onBeforeUnmount(() => {
       <button type="button" :class="{ active: activeTab === 'dashboard' }" @click="activeTab = 'dashboard'">Dashboard</button>
       <button type="button" :class="{ active: activeTab === 'tiers' }" @click="activeTab = 'tiers'">Brandų tier'ai</button>
       <button type="button" :class="{ active: activeTab === 'sync' }" @click="activeTab = 'sync'">Sinchronizavimas</button>
+      <button type="button" :class="{ active: activeTab === 'ai' }" @click="activeTab = 'ai'">AI kontrolė</button>
       <button type="button" :class="{ active: activeTab === 'users' }" @click="activeTab = 'users'">Vartotojai</button>
     </nav>
 
@@ -534,6 +535,8 @@ onBeforeUnmount(() => {
         <div class="run-list"><div v-for="run in runs.slice(0, 20)" :key="run.id"><span class="status" :class="run.status">{{ run.status }}</span><strong>{{ run.sync_targets?.label }}</strong><time>{{ new Date(run.started_at).toLocaleString("lt-LT") }}</time><span>{{ run.products_count }} produktų</span></div></div>
       </section>
     </template>
+
+    <AdminAiControl v-else-if="activeTab === 'ai'" />
 
     <template v-else>
       <section class="admin-panel">

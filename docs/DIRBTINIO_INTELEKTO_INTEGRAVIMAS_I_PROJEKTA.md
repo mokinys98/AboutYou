@@ -1,7 +1,7 @@
 # Dirbtinio intelekto integravimo į katalogą planas
 
-> Būsena: perrašytas planas, dar neįgyvendinta.
-> Atnaujinta: 2026-09-29.
+> Būsena: kontrolinio rinkinio kodas parengtas; VPS migraciją ir faktinį API bandymą dar turi atlikti naudotojas.
+> Atnaujinta: 2026-09-30.
 > Pagrindinis tikslas: išnaudoti **OpenAI 1M grupės dienos pasiūlymą, jei organizacija jam tinkama**, ir paversti AI išgautus produkto požymius į filtruojamus katalogo metaduomenis. AI pokalbių pardavėjas nėra šio MVP pagrindas.
 
 ## 1. Sprendimas trumpai
@@ -10,7 +10,7 @@
 2. AI vieną kartą pagal produkto pagrindinę nuotrauką ir kelis jau žinomus metadata laukus grąžina trumpą, griežtos schemos šabloną. Programa, o ne modelis, susieja atsakymą su esamu `products.id`.
 3. Normalizuoti laukai saugomi vienoje kompaktiškoje eilutėje produktui, su išoriniu raktu į `products`. Filtruojami laukai patenka į katalogo skaitymo modelį ir indeksus. Visų AI atsakymų, pokalbių, nuotraukų ar didelių JSON archyvų DB nekaupiame.
 4. Atskirą mažų paketų AI procesą paleidžia **Cloudflare Cron Trigger** esamame API Worker, nepaleisdamas naujo GitHub Actions rinkimo darbo. Procesas turi savo dienos tokenų apskaitą, eilę ir stabdymo jungiklį.
-5. Vartotojo spalvų profilį, individualų 0–100 balą ir „AI shopper“ atidedame. Pirmiausia turi veikti naudingi visam katalogui bendri filtrai.
+5. Vartotojo spalvų profilį, individualų 0–100 balą ir „AI shopper“ atidedame. Kontroliniame rinkinyje jau kaupiame produkto spalvų šeimą, atspalvį, antrines spalvas, temperatūrą, šviesumą, sodrumą, kontrastą ir raštą, kad vėliau asistentas galėtų taikyti aiškias spalvų derinimo taisykles.
 
 ## 2. Ką iš tikrųjų duoda „complimentary daily tokens“
 
@@ -33,13 +33,13 @@ Pradinis `gpt-4.1-2025-04-14` pasirinktas todėl, kad jis yra 1M grupėje, priim
 
 ## 3. Dienos limitas ir saugikliai
 
-Pasiūlymo riba nėra programos konfigūracijos reikšmė. Programoje nustatome **mažesnį vidinį limitą**: pradžioje daugiausia 800 000 tokenų UTC dienai, jei patvirtinta 1M teisė, arba 200 000, jei suteikta 250k. Likę 20 % yra rezervas matavimo netikslumui, vėluojančiai apskaitai ir kitam tos organizacijos srautui. Ribą galima mažinti pagal realų naudojimą; ji automatiškai nedidinama.
+Pasiūlymo riba nėra programos konfigūracijos reikšmė. Pradiniame kontrolinio rinkinio kode vidinis limitas yra **200 000 tokenų UTC dienai**, nepriklausomai nuo 1M ar 250k pakopos. Tai palieka bent 50 000 tokenų atsargą net 250k pakopoje, tačiau kitas tos pačios organizacijos srautas šią atsargą gali sunaudoti. Ribą galima mažinti pagal realų naudojimą; kodas jos automatiškai nedidina ir didesnės nei 200 000 reikšmės nepriima.
 
 Prieš **kiekvieną** OpenAI kvietimą viena DB transakcija rezervuoja konservatyvų blogiausio atvejo tokenų kiekį: įvertintas vaizdas ir promptas, nustatytas `max_output_tokens`, bei papildoma paklaida. Rezervacija turi unikalų užklausos ID ir UTC dieną. Vienu metu vykdomas pradžioje tik **vienas** kvietimas. Po atsakymo rezervacija pakeičiama faktiniu `usage.total_tokens`; jei atsakymas prarastas ar užklausa baigėsi neaiškiai, rezervacija neatlaisvinama be suderinimo. Jei kito kvietimo blogiausio atvejo dydis nebetelpa, procesas sustoja iki kitos UTC dienos. Ties dienos riba naujų kvietimų nepaleidžiame, kol ankstesni baigti ir apskaita suderinta.
 
 Papildomi stabdikliai:
 
-- `AI_ENRICHMENT_ENABLED=false` pagal nutylėjimą; atskiras `AI_DAILY_TOKEN_CAP`, `AI_MAX_PRODUCTS_PER_RUN`, `AI_MAX_REQUEST_TOKENS` ir vykdymo laiko limitas.
+- `AI_ENRICHMENT_ENABLED=false`, `AI_INCENTIVE_VERIFIED=false`, `AI_CRON_ENABLED=false` pagal nutylėjimą; atskiras `AI_DAILY_TOKEN_CAP=200000`, vienas produktas per Cron paleidimą, `max_output_tokens=256` ir 20 s HTTP timeout.
 - Viena pagrindinė nuotrauka, apribotas jos dydis ir pasirinktas vaizdo `detail` pagal kontrolinio rinkinio bandymą. Vaizdo tokenai taip pat skaičiuojami įvestyje ([OpenAI vaizdų tokenų taisyklės](https://developers.openai.com/api/docs/guides/images-vision)).
 - Trumpas promptas, `strict` JSON schema, ribota išvestis; jokių įrankių kvietimų ar daugiapakopio „agentinio“ ciklo ([Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)).
 - Laikinoms klaidoms daugiausia vienas pakartojimas, bet tik po naujos rezervacijos. 429 dėl finansinio ar pasiūlymo limito sustabdo darbą; jis nėra aklai kartojamas.
@@ -59,6 +59,7 @@ Modelis grąžina tik leidžiamas, trumpas reikšmes. Pavyzdys iliustruoja lauku
   "secondaryColorFamilies": [],
   "temperature": "cool",
   "lightness": "dark",
+  "saturation": "muted",
   "contrast": "medium",
   "visualPattern": "solid",
   "confidence": 0.91,
@@ -70,9 +71,9 @@ Modelis **negrąžina** produkto ID, vartotojo ID, kainos, ilgo paaiškinimo ar 
 
 ## 5. DB modelis, dydis ir filtravimas
 
-Siūloma viena nauja `product_ai_attributes` lentelė su `product_id uuid primary key references products(id) on delete cascade`. Joje: aukščiau išvardyti **atskiri tipizuoti stulpeliai**, `status`, `source_image_fingerprint`, `metadata_fingerprint`, `schema_version`, `prompt_version`, `model`, `analyzed_at`, `attempt_count`, `last_error_code`. `secondary_color_families` ribojamas, pavyzdžiui, iki dviejų reikšmių. Galima pridėti mažą papildomą JSONB tik retam nefiltruojamam požymiui, su dydžio riba. Neįrašome OpenAI pilno atsakymo, prompto, base64 vaizdo, dubliuotų šaltinio payload ar kiekvieno bandymo istorijos.
+Dabartinė `product_ai_attributes` lentelė turi `product_id uuid primary key references products(id) on delete cascade`, atskirus normalizuotus požymių stulpelius, `source_image_fingerprint`, `metadata_fingerprint`, `schema_version`, `prompt_version`, `model` ir `analyzed_at`. `secondary_color_families` ribojamas iki dviejų reikšmių. Bandymų būsena ir trumpas klaidos kodas laikomi atskiroje `ai_control_requests` apskaitoje. Neįrašome OpenAI pilno atsakymo, prompto, base64 vaizdo ar dubliuotų šaltinio payload.
 
-Atskirai reikia kompaktiškos `ai_daily_usage` ir trumpai saugomų užklausų rezervacijų apskaitos. Vėluojančių ar neaiškių užklausų negalima užmiršti išvalant istoriją. Prieš migraciją reikia pasirinkti atominių užduočių ir rezervacijų SQL funkcijų teises, RLS ir saugojimo terminą.
+`ai_daily_usage` kaupia UTC dienos tokenų apskaitą, o `ai_control_requests` saugo rezervacijas ir jų baigtį. Neaiškių užklausų eilutės lieka iki rankinio suderinimo. Rezervavimo, užbaigimo ir suderinimo SQL funkcijos pasiekiamos tik serverio `service_role`; naujoms lentelėms įjungta RLS ir atimtos `anon` bei `authenticated` teisės. Istorijos valymo politika dar nenustatyta, todėl rezervacijų automatiškai netriname.
 
 **Susiejimas su preke:** DB užsienio raktas ir unikalus `product_id` leidžia jungti AI požymius prie prekės. JSONB irgi gali būti indeksuojamas, tad problema nėra pats JSON formatas; filtrams patogiau aiškūs, validuojami stulpeliai ir pagal realias užklausas parinkti indeksai ([Supabase JSONB](https://supabase.com/docs/guides/database/json), [indeksai](https://supabase.com/docs/guides/database/postgres/indexes)).
 
@@ -100,18 +101,18 @@ Cloudflare Cron → aktyvių kandidatų paėmimas → tokenų rezervacija
                   paketinis katalogo refresh → indeksuojami filtrai
 ```
 
-Kandidatai: aktyvūs produktai, turintys pagrindinę nuotrauką ir, jei galima, jau užbaigtą source metadata. Prioritetas naujoms arba kataloge matomoms prekėms. Fingerprint keičiasi pasikeitus pagrindiniam vaizdui ar reikšmingiems įvesties metadata; prompto arba schemos keitimas savaime neperanalizuoja viso katalogo – tam reikia aiškiai suplanuoto riboto backfill. Vienu metu vienas workeris paima vieną užduotį su laikina nuoma, kad dubliuotas Cron įvykis nesukeltų dviejų mokamų kvietimų. Laikina klaida grįžta į eilę su atidėjimu, nuolatinė klaida pažymima.
+Dabartinio kontrolinio etapo kandidatai: tik į kontrolinį rinkinį ranka įtraukti aktyvūs produktai su pagrindine nuotrauka. Pagrindinės nuotraukos ar reikšmingų metaduomenų pokytis pakeičia fingerprint; tas pats rezultatas pakartotinai nesiunčiamas. Cron eilėje vėl atsiduria produktai pasikeitus nuotraukai arba schemos/prompto versijai. Vieną aktyvų kvietimą užtikrina DB unikalus indeksas ir tokenų rezervavimo transakcija. Neaiški klaida automatiškai nekartojama: ji sustabdo visą AI srautą iki rankinio Usage suderinimo.
 
 AI kvietimas niekada nevyksta produkto kortelės HTTP užklausos metu. API tik skaito paruoštus požymius. Cloudflare Worker vykdymo trukmei taip pat taikomas atskiras paketo limitas ([Workers ribos](https://developers.cloudflare.com/workers/platform/limits/)).
 
 ## 7. Įgyvendinimo etapai
 
-- [ ] **Tinkamumas ir teisės.** Patvirtinti pasiūlymo prieinamumą, 1M arba 250k pakopą, teigiamą balansą, dalijimosi su OpenAI pasirinkimą ir teisę siųsti pasirinktus produkto vaizdus. Kol tai nepatvirtinta, `AI_ENRICHMENT_ENABLED=false`.
+- [x] **Tinkamumas ir teisės.** Naudotojas patvirtino dalyvavimą programoje ir šio etapo teisingumą 2026-09-30. Faktinė 1M arba 250k pakopa ir pirmo kvietimo priskyrimas pasiūlymui dar tikrinami OpenAI Usage; iki tol `AI_ENRICHMENT_ENABLED=false`.
 - [ ] **Kontrolinis rinkinys.** Rankiniu būdu sužymėti 50–100 įvairių prekių, išmatuoti `gpt-4.1-2025-04-14` tikslumą, `detail` lygį, įvesties ir išvesties tokenus, klaidų dalį. Vienu bandymu patikrinti, kad OpenAI Usage rodo pasiūlymo tier.
-- [ ] **Šablonas.** `packages/shared` pridėti vieną versijuotą požymių schemą ir validaciją; išbandyti `unknown`, nesutapimą su šaltiniu ir netinkamą vaizdą.
-- [ ] **DB migracija.** Parengti `product_ai_attributes`, užduočių rezervavimo ir dienos tokenų apskaitos SQL; FK, RLS, ribas ir indeksus. Parengti atskirą tik skaitymo verifikacijos SQL. Migracijos failą naudotojas pats įkelia į savo VPS Supabase SQL Editor ir paleidžia; tik jo pateikti sėkmingi vykdymo bei patikros rezultatai reiškia, kad migracija pritaikyta.
-- [ ] **Worker.** Pridėti atskirą Cron šaką su išjungta pradine būsena, vieno kvietimo lygiagretumu, atomine rezervacija, timeout, aiškiu stabdymu ir be GitHub workflow.
-- [ ] **Filtrų kelias.** Prijungti išsaugotus laukus prie katalogo skaitymo modelio, API, facet skaičiavimo ir UI. Refresh daryti paketais ir pamatuoti jo kainą DB.
+- [x] **Šablonas.** `packages/shared` pridėta versijuota požymių schema ir validacija; „unknown“ bei `needsReview` yra leistinos išvados. Tikras modelio tikslumas dar nematuotas.
+- [x] **DB migracijos failas parengtas.** `supabase/migrations/20260930120000_ai_control_set.sql` sukuria kontrolinius rinkinius, žmogaus žymas, AI požymius, rezervacijas ir dienos apskaitą. `supabase/tests/ai_control_set_verification.sql` yra atskira tik skaitymo patikra. VPS migracija dar **nepaleista**: naudotojas pats įkelia visą migracijos failą į savo VPS Supabase SQL Editor ir paleidžia; tik jo pateikti sėkmingi vykdymo bei patikros rezultatai reiškia, kad migracija pritaikyta.
+- [x] **Worker kodas parengtas.** Atskira valandinė Cron šaka ir rankinis admin kvietimas turi išjungtą pradinę būseną, vieno kvietimo lygiagretumą, atominę rezervaciją, 20 s timeout ir nepaleidžia GitHub workflow. Nei Cron, nei OpenAI kvietimas dar nepaleisti produkcijoje.
+- [ ] **Viešo katalogo AI filtrų kelias.** Kontrolinis rinkinys naudoja esamą katalogo filtrų nuorodą prekėms atrinkti. AI požymiai kol kas rodomi admin kontrolėje; jų prijungimas prie viešo katalogo skaitymo modelio, facet skaičiavimo ir UI bus atskiras etapas po tikslumo patikros.
 - [ ] **Bandomasis paleidimas.** 50–100 produktų, tada tik ribotas dienos srautas. Palyginti žmogaus žymas, DB dydį, indeksų naudą, refresh trukmę, tokenų apskaitą ir OpenAI Costs. Tik po to didinti dienos paketą.
 - [ ] **Priežiūra.** Stebėti neapdorotų aktyvių prekių skaičių, `needsReview`, klaidas, vidutinį ir blogiausią tokenų skaičių, vidinį dienos likutį bei realų apmokestinimą. Pasiūlymo ar tinkamumo pasikeitimas išjungia automatinį siuntimą.
 
@@ -126,4 +127,19 @@ AI kvietimas niekada nevyksta produkto kortelės HTTP užklausos metu. API tik s
 
 ## Šio plano ribos
 
-Tai architektūros ir darbų planas. Pasiūlymo tinkamumas, tikroji organizacijos pakopa, produkto nuotraukų naudojimo teisės ir VPS DB būsena iš šio repo nepatvirtinti. Nuotolinė VPS DB nebuvo pasiekta; jokia migracija ar AI užklausa nepaleista.
+Naudotojas patvirtino tinkamumo ir teisių etapą. Tikroji organizacijos pakopa, Usage priskyrimas, Costs rezultatas ir VPS DB būsena iš šio repo nepatvirtinti. Nuotolinė VPS DB nebuvo pasiekta; jokia migracija ar AI užklausa nepaleista.
+
+## Kontrolinio rinkinio naudojimas
+
+1. Įkelkite **visą naujausio** `supabase/migrations/20260930120000_ai_control_set.sql` failo turinį į savo VPS Supabase SQL Editor ir paleiskite. Tada tame pačiame SQL Editor paleiskite atskirą tik skaitymo `supabase/tests/ai_control_set_verification.sql` užklausą. Laukiama: `relations_and_rls_ok=true`, `functions_ok=true`, iš pradžių visi trys skaitikliai `0`. PostgreSQL klaida reiškia nepavykusią migraciją: prieš kartojant reikia tik skaitymo diagnostikos ir negalima spėti, kad ankstesni teiginiai atšaukti.
+2. Admin puslapyje atidarykite **AI kontrolė**. Įklijuokite savo katalogo filtro nuorodą, pvz. `?category=vyrams%3Edrabu%C5%BEiai%3Emar%C5%A1kin%C4%97liai&price_min=20&price_max=40`, sukurkite rinkinį, peržiūrėkite filtro prekes ir pasirinkite iki 100. Kaina nuorodoje rašoma eurais, o katalogo API gauna centus.
+3. Žmogaus žymoje pažymėkite vizualines savybes ir pastabą. AI kortelė rodo modelio išvadą, tikrumą, `needsReview`, šaltinio spalvą ir žmogaus žymą. Nesutapimus galima peržiūrėti šalia nuotraukos. Jei nuotrauka pasikeičia, sena AI išvada kortelėje nelaikoma aktualia.
+4. Vieno produkto mygtukas **Analizuoti su AI** veikia tik įjungus toliau aprašytus saugiklius. Valandinis Cron (`17 * * * *`, UTC) papildomai reikalauja `AI_CRON_ENABLED=true` ir apdoroja daugiausia vieną laukiančią kontrolinę prekę per paleidimą. Prieš didesnį paleidimą reikia žmogaus žymomis įvertinti 50–100 prekių tikslumą ir palyginti „low“ vaizdo detalumo rezultatą su poreikiu.
+
+## Kaip valdyti išlaidas
+
+**Vienintelis būdas garantuoti, kad ši integracija neišleis nė vieno euro, yra neleisti jai siųsti OpenAI užklausų:** palikti `AI_ENRICHMENT_ENABLED=false` arba nepridėti `OPENAI_API_KEY`. Dalyvavimas pasiūlyme savaime negarantuoja, kad konkreti užklausa bus nemokama; bandomasis kvietimas taip pat gali būti apmokestintas. Vidinis tokenų limitas ir OpenAI hard spend limitas sumažina riziką, bet negarantuoja absoliutaus 0 €: pasiūlymo krepšelis gali būti bendras su kitais organizacijos projektais, o [hard limit taikymas nėra momentinis](https://developers.openai.com/api/docs/guides/spend-limits).
+
+Jei sutinkate su šia pirmojo bandymo rizika, naudokite atskirą šiai integracijai skirtą OpenAI projektą ir tik tam projektui išduotą raktą. Raktą pridėkite kaip Worker secret `OPENAI_API_KEY`, niekada neįrašykite į `wrangler.jsonc`, `.env` repozitorijoje ar naršyklės `NUXT_PUBLIC_*` reikšmes. OpenAI projekto nustatymuose įjunkite mažiausią leidžiamą **hard spend limit**, papildomai pranešimus, ir patikrinkite Usage/Costs bei 1M ar 250k pasiūlymo pakopą. Jei toje pačioje organizacijoje vyksta kitas tinkamas srautas, jo tokenai gali sumažinti likutį. Po vieno rankinio kvietimo patikrinkite, kad Usage rodo pasiūlymo tier, o Costs šios užklausos kainą `0`; jei ne, palikite automatiką išjungtą ir sustabdykite rankinius kvietimus.
+
+Worker konfigūracijoje `AI_ENRICHMENT_ENABLED=false`, `AI_INCENTIVE_VERIFIED=false`, `AI_CRON_ENABLED=false` pagal nutylėjimą. Patikrinę Data Sharing lange suteiktą pakopą ir šio projekto įtraukimą, nustatykite `AI_INCENTIVE_VERIFIED=true` ir `AI_ENRICHMENT_ENABLED=true` vienam rankiniam kvietimui; `AI_CRON_ENABLED` palikite `false`, kol pirmo kvietimo Usage ir Costs nepatvirtins nemokamo priskyrimo. Tik tada galite įjungti valandinį procesą su `AI_CRON_ENABLED=true`. `AI_DAILY_TOKEN_CAP` pradžioje `200000` (250k pakopai su rezervu); kodas nepriima didesnio nei `200000` limito be peržiūros. Kiekvienam kvietimui atominiu būdu rezervuojama `10000` tokenų, naudojamas tik `gpt-4.1-2025-04-14`, viena nuotrauka su `detail=low`, daugiausia `256` išvesties tokenai, be įrankių ir automatinių pakartojimų. Neaiškus atsakymas užblokuoja kitą kvietimą, kol admin pagal OpenAI Usage įveda faktinį tokenų skaičių į suderinimo lauką. Nerašykite `0`, kol Usage nepatvirtino, kad užklausa nesunaudojo tokenų.
