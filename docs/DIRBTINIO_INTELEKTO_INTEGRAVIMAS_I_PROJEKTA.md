@@ -1,462 +1,129 @@
-# Dirbtinio intelekto integravimas į projektą
-
-> Būsena: planas, dar neįgyvendinta  
-> Parengta: 2026-07-21  
-> Rekomenduojamas kelias: vienas serverio valdomas „OpenAI API“ projektas, produkto vaizdo analizė vieną kartą ir atskiras deterministinis balas kiekvienam vartotojui.
-
-## Įgyvendinimo etapai ir smulkūs žingsniai
-
-Atlikus punktą, `[ ]` pakeisti į `[x]`.
-
-### 0 etapas – apsibrėžti vertinimo taisykles
-
-- [ ] Nuspręsti, ką tiksliai reiškia „man tinka“: tik spalva ar ir raštas, kontrastas bei stilius.
-- [ ] Aprašyti vartotojo spalvų profilį: sezonas, potonis, rekomenduojamos ir vengtinos spalvos, šviesumas, kontrastas.
-- [ ] Pasirinkti pradinę balo formulę nuo 0 iki 100.
-- [ ] Nustatyti balo kategorijas, pvz. `90–100 Puikiai tinka`, `70–89 Tinka`, `50–69 Neutralu`, `<50 Greičiausiai netinka`.
-- [ ] Rankiniu būdu sužymėti 50–100 skirtingų produktų kontrolinį rinkinį.
-- [ ] Nuspręsti, kokį modelio tikslumą laikysime pakankamu.
-
-### 1 etapas – API ir išlaidų pagrindas
-
-- [ ] Sukurti atskirą „OpenAI Platform“ projektą šiai aplikacijai.
-- [ ] Nustatyti projekto mėnesio biudžetą ir perspėjimus apie sunaudojimą.
-- [ ] Sukurti ribotų teisių API raktą.
-- [ ] Lokaliai pridėti `OPENAI_API_KEY` tik į nekomituojamą `.env`.
-- [ ] Produkcijoje raktą pridėti kaip „Cloudflare Worker“ secret, o ne paprastą `vars` reikšmę.
-- [ ] Pridėti `OPENAI_VISION_MODEL`, pradžioje nustatant `gpt-5.4-nano`.
-- [ ] Pridėti `OPENAI_VISION_INTERMEDIATE_MODEL`, pradžioje nustatant `gpt-5.4-mini`.
-- [ ] Pridėti `OPENAI_VISION_FALLBACK_MODEL`, pradžioje nustatant `gpt-5.6-luna`.
-- [ ] Testams numatyti `gpt-4.1-nano` ir `gpt-4.1-mini` kaip pigesnius tos pačios OpenAI šeimos kandidatus.
-- [ ] Numatyti bendrą ir vienam vartotojui taikomą užklausų limitą.
-
-### 2 etapas – duomenų bazės schema
-
-- [ ] Sukurti `user_color_profiles` lentelę.
-- [ ] Sukurti `product_visual_analyses` lentelę bendrai, nuo vartotojo nepriklausomai produkto analizei.
-- [ ] Sukurti `user_product_scores` lentelę vartotojo ir produkto balui.
-- [ ] Pridėti analizės būsenas: `pending`, `processing`, `complete`, `retryable_error`, `permanent_error`.
-- [ ] Pridėti `image_fingerprint`, modelio, prompto ir formulės versijas.
-- [ ] Visoms viešoje schemoje esančioms lentelėms įjungti RLS.
-- [ ] `user_color_profiles` ir `user_product_scores` politikose tikrinti `(select auth.uid()) = user_id`.
-- [ ] Užtikrinti, kad analizės techninės lentelės nebūtų tiesiogiai prieinamos naršyklei.
-- [ ] Paleisti duomenų bazės saugumo ir našumo patikras.
-
-### 3 etapas – bendri tipai ir validacija
-
-- [ ] `packages/shared` pridėti spalvų profilio Zod schemą.
-- [ ] Pridėti AI analizės JSON schemą.
-- [ ] Pridėti vartotojo produkto balo schemą.
-- [ ] Aprašyti leistinas spalvų temperatūros, šviesumo, kontrasto ir rašto reikšmes.
-- [ ] Pridėti schemų validacijos testus.
-
-### 4 etapas – produkto vaizdo analizė
-
-- [ ] Sukurti serverio funkciją, kuri gauna produkto pagrindinės nuotraukos URL ir metaduomenis.
-- [ ] Kviesti „Responses API“ tik iš backend arba sinchronizavimo proceso.
-- [ ] Reikalauti griežto struktūrizuoto JSON atsakymo.
-- [ ] Pirminei analizei naudoti `gpt-5.4-nano` be papildomo reasoning.
-- [ ] Su kontroliniu rinkiniu patikrinti, ar pigesnio `gpt-4.1-nano` tikslumo pakanka; jei ne, palyginti `gpt-4.1-mini`.
-- [ ] Jei pagrindinio modelio pasitikėjimas žemas, prekė daugiaspalvė ar raštuota, pirmiausia pakartoti su `gpt-5.4-mini`.
-- [ ] Į `gpt-5.6-luna` siųsti tik tuos atvejus, kurių patikimai neišsprendė pigesni modeliai.
-- [ ] Patikrinti atsakymą Zod schema ir atmesti netaisyklingus rezultatus.
-- [ ] Analizę išsaugoti pagal produkto ir nuotraukos fingerprint, kad ji nebūtų kartojama.
-- [ ] Įdiegti timeout, iki 2 pakartojimų ir eksponentinį laukimą laikinoms klaidoms.
-- [ ] Nesiųsti visų produkto nuotraukų, jei pakanka vienos pagrindinės.
-- [ ] Pridėti struktūrizuotus logus be API rakto ir jautrių duomenų.
-
-### 5 etapas – deterministinis tinkamumo balas
-
-- [ ] Parašyti gryną funkciją `calculateColorCompatibility(profile, analysis)`.
-- [ ] Pagrindinės spalvos atitikimui skirti pradinį 50 % svorį.
-- [ ] Šiltam arba šaltam atspalviui skirti 20 % svorį.
-- [ ] Šviesumui skirti 15 % svorį.
-- [ ] Kontrastui skirti 10 % svorį.
-- [ ] Raštui ir kelių spalvų deriniui skirti 5 % svorį.
-- [ ] Riboti rezultatą į `0–100` intervalą.
-- [ ] Grąžinti balą, kategoriją, trumpas priežastis ir pasitikėjimą.
-- [ ] Formulę versijuoti, kad pakeitus taisykles būtų galima perskaičiuoti senus balus.
-- [ ] Pridėti vienetinius testus ribiniams ir daugiaspalviams atvejams.
-
-### 6 etapas – API endpointai ir foniniai darbai
-
-- [ ] Pridėti `GET /v1/color-profile`.
-- [ ] Pridėti `PUT /v1/color-profile`.
-- [ ] Pridėti `GET /v1/products/:id/color-score`.
-- [ ] Pridėti administratoriaus arba vidinį analizės paleidimo endpointą.
-- [ ] Nevykdyti lėto AI kvietimo tiesiogiai katalogo kortelės užklausos metu.
-- [ ] Sukurti foninę eilę ar periodinį batch procesą neanalizuotiems produktams.
-- [ ] AI rezultatą skaičiuoti vieną kartą produktui, o vartotojo balą – pigiai iš esamų duomenų.
-- [ ] Katalogo API pridėti balą tik tada, kai jis jau apskaičiuotas.
-- [ ] Jei reikės rūšiavimo pagal balą, balus materializuoti duomenų bazėje.
-- [ ] Atnaujinti katalogo cache invalidavimo taisykles.
+# Dirbtinio intelekto integravimo į katalogą planas
 
-### 7 etapas – vartotojo sąsaja
+> Būsena: perrašytas planas, dar neįgyvendinta.
+> Atnaujinta: 2026-09-29.
+> Pagrindinis tikslas: išnaudoti **OpenAI 1M grupės dienos pasiūlymą, jei organizacija jam tinkama**, ir paversti AI išgautus produkto požymius į filtruojamus katalogo metaduomenis. AI pokalbių pardavėjas nėra šio MVP pagrindas.
 
-- [ ] Profilio puslapyje pridėti spalvų profilio redagavimo formą.
-- [ ] Produkto kortelėje rodyti balą ir trumpą kategoriją.
-- [ ] Produkto puslapyje rodyti išsamesnes balo priežastis.
-- [ ] Aiškiai žymėti būseną „dar neįvertinta“.
-- [ ] Pridėti filtrą, pvz. `Rodyti tik ≥ 70`.
-- [ ] Pridėti rūšiavimą `Labiausiai man tinkantys` tik materializavus balus.
-- [ ] Paaiškinti, kad vertinimas yra rekomendacija, o ne objektyvus spalvos matavimas.
-- [ ] Patikrinti mobilų vaizdą, klaviatūros navigaciją ir ekrano skaitytuvų tekstus.
+## 1. Sprendimas trumpai
 
-### 8 etapas – kokybės, kainos ir saugumo patikra
+1. Esamas ABOUT YOU katalogo ir metadata rinkimas lieka pirminiu produkto faktų šaltiniu. AI apdoroja tik aktyvius produktus, kuriems papildomi **vizualiniai** požymiai naudingi filtrams arba kurių šaltinio požymiai neaiškūs.
+2. AI vieną kartą pagal produkto pagrindinę nuotrauką ir kelis jau žinomus metadata laukus grąžina trumpą, griežtos schemos šabloną. Programa, o ne modelis, susieja atsakymą su esamu `products.id`.
+3. Normalizuoti laukai saugomi vienoje kompaktiškoje eilutėje produktui, su išoriniu raktu į `products`. Filtruojami laukai patenka į katalogo skaitymo modelį ir indeksus. Visų AI atsakymų, pokalbių, nuotraukų ar didelių JSON archyvų DB nekaupiame.
+4. Atskirą mažų paketų AI procesą paleidžia **Cloudflare Cron Trigger** esamame API Worker, nepaleisdamas naujo GitHub Actions rinkimo darbo. Procesas turi savo dienos tokenų apskaitą, eilę ir stabdymo jungiklį.
+5. Vartotojo spalvų profilį, individualų 0–100 balą ir „AI shopper“ atidedame. Pirmiausia turi veikti naudingi visam katalogui bendri filtrai.
 
-- [ ] Palyginti modelio požymius su 50–100 rankiniu būdu sužymėtų produktų.
-- [ ] Išmatuoti balo sutapimą su žmogaus vertinimu.
-- [ ] Patikrinti vienspalvius, daugiaspalvius, raštuotus ir prastai apšviestus produktus.
-- [ ] Išmatuoti vieno produkto analizės kainą ir trukmę.
-- [ ] Patikrinti, kad pakartotinė užklausa nenaudoja AI dar kartą.
-- [ ] Patikrinti vartotojų duomenų izoliaciją ir RLS.
-- [ ] Patikrinti rate limit, piktnaudžiavimo ir netikėto sąnaudų augimo scenarijus.
-- [ ] Patikrinti, kad API raktas nepatenka į frontend bundle, logus ar Git istoriją.
-- [ ] Įdiegti laipsniškai: administratorius → keli vartotojai → visi vartotojai.
+## 2. Ką iš tikrųjų duoda „complimentary daily tokens“
 
-### 9 etapas – produkcijos paleidimas
+Pagal [OpenAI pasiūlymo sąlygas](https://help.openai.com/en/articles/10306912-sharing-feedback-evaluation-and-fine-tuning-data-and-api-inputs-and-outputs-with-openai), dienos tokenai **nėra automatiškai suteikiami visoms organizacijoms**. Organizacijos savininkas turi matyti tinkamumo pranešimą Data Sharing nustatymuose, įjungti API įvesties ir išvesties dalijimąsi pasirinktame projekte ir matyti įtraukimą į pasiūlymą. Reikia teigiamo API paskyros balanso. Dalijami įvesties ir išvesties duomenys gali būti naudojami OpenAI modeliams gerinti; prieš įjungiant reikia įvertinti teisę siųsti trečiosios šalies produkto nuotraukas ir nesiųsti vartotojų ar slaptų duomenų.
 
-- [ ] Pritaikyti patikrintą duomenų bazės migraciją.
-- [ ] Sukonfigūruoti produkcijos secrets ir išlaidų limitus.
-- [ ] Paleisti ribotą pradinių produktų batch.
-- [ ] Stebėti klaidas, kainą, trukmę ir žemo pasitikėjimo atvejus.
-- [ ] Tik po stebėjimo įjungti balus visame kataloge.
-- [ ] Dokumentuoti formulės ar modelio keitimo ir balų perskaičiavimo procedūrą.
+| Pasiūlymo grupė | Dienos riba tinkamai organizacijai | 1–2 naudojimo pakopos | Šiam planui |
+|---|---:|---:|---|
+| 1M grupė | iki 1 000 000 įvesties **ir išvesties kartu** | 250 000 | Naudojama, jei realiai suteikta 1M riba. Pradinis kandidatas `gpt-4.1-2025-04-14`. |
+| 10M grupė | iki 10 000 000 kartu | 2 500 000 | Neįtraukta į šio plano biudžetą. Ankstesnio plano `gpt-5.4-nano`, `gpt-5.4-mini` ir `gpt-5.6-luna` priklauso čia. |
 
----
+Riba bendra visiems atitinkamos grupės modeliams ir organizacijos srautui; atskiras API projektas savaime nesukuria atskiro 1M krepšelio. Skaitiklis atsinaujina **00:00 UTC**, ne po slenkančių 24 valandų. Jei viena užklausa peržengia ribą, **visa ta užklausa** apmokestinama įprastai. Pasiūlymas netaikomas įrankių naudojimui, evals, fine-tuning ir jų modeliams. Sąlygos gali keistis, todėl prieš paleidimą jas reikia dar kartą patikrinti.
 
-## 1. Trumpas atsakymas apie API ir ChatGPT paskyrų limitus
+Pradinis `gpt-4.1-2025-04-14` pasirinktas todėl, kad jis yra 1M grupėje, priima vaizdą ir palaiko struktūrizuotą išvestį ([modelio aprašas](https://developers.openai.com/api/docs/models/gpt-4.1)). Tai **kandidatas bandymui**, o ne pažadas, kad jis geriausiai atpažins kiekvieną spalvą. Kitą 1M grupės modelį galima rinktis tik palyginus tikslumą ir patikrinus jo įtraukimą į tuo metu galiojantį pasiūlymą. Automatinio perėjimo į 10M grupės modelį nebus.
 
-Taip, rekomenduojamame variante būtų naudojamas „OpenAI API“. Jį kviestų projekto backend arba sinchronizavimo procesas, o ne vartotojo naršyklė.
+### Privalomas patikrinimas prieš didesnį paleidimą
 
-Kiekvieno vartotojo ChatGPT Plus, Pro ar kitos ChatGPT prenumeratos limitų ši išorinė aplikacija panaudoti negali. „ChatGPT“ prenumerata ir „OpenAI API Platform“ yra atskiri produktai su atskira apskaita bei apmokėjimu. Vartotojo prisijungimas prie ChatGPT nesuteikia šiam katalogui teisės jo vardu naudoti API ir nurašyti ChatGPT žinučių limitą.
+- Organizacijos savininkas patvirtina, kad Data Sharing lange matomas **1M**, o ne 250k pasiūlymas, ir kad dalijimasis įjungtas tik numatytam projektui.
+- Vienas mažas bandomasis kvietimas parodo `data sharing incentive tier - input/output tokens` OpenAI Usage lange; abu tokenų tipai įtraukti, Costs lange nėra tos užklausos kainos. Jei to nematyti, automatinis procesas lieka išjungtas.
+- Patikrinama, ar toje pačioje organizacijoje nėra kitų 1M grupės užklausų. Jei jų yra, mūsų DB apskaita negalės viena pati garantuoti nemokamo limito; reikia bendros organizacijos naudojimo apskaitos arba rezervuoti dar didesnę dalį ir sustabdyti automatiką, kai jos neįmanoma patikimai suderinti.
 
-Oficialūs šaltiniai:
+## 3. Dienos limitas ir saugikliai
 
-- [ChatGPT ir API atsiskaitymas valdomi atskirai](https://help.openai.com/en/articles/9039756-billing-settings-in-chatgpt-vs-platform)
-- [ChatGPT prenumeratos negalima perkelti į API; API yra apmokestinamas atskirai](https://help.openai.com/en/articles/8156019-is-api-usage-included-in-chatgpt-subscriptions-even-if-i-have-a-paid-chatgpt-account)
-- [ChatGPT Plus neapima API naudojimo](https://help.openai.com/en/articles/6950777-what)
+Pasiūlymo riba nėra programos konfigūracijos reikšmė. Programoje nustatome **mažesnį vidinį limitą**: pradžioje daugiausia 800 000 tokenų UTC dienai, jei patvirtinta 1M teisė, arba 200 000, jei suteikta 250k. Likę 20 % yra rezervas matavimo netikslumui, vėluojančiai apskaitai ir kitam tos organizacijos srautui. Ribą galima mažinti pagal realų naudojimą; ji automatiškai nedidinama.
 
-Todėl praktiškas variantas yra vienas aplikacijos savininko valdomas API projektas su griežtu biudžetu, cache ir rate limitais.
+Prieš **kiekvieną** OpenAI kvietimą viena DB transakcija rezervuoja konservatyvų blogiausio atvejo tokenų kiekį: įvertintas vaizdas ir promptas, nustatytas `max_output_tokens`, bei papildoma paklaida. Rezervacija turi unikalų užklausos ID ir UTC dieną. Vienu metu vykdomas pradžioje tik **vienas** kvietimas. Po atsakymo rezervacija pakeičiama faktiniu `usage.total_tokens`; jei atsakymas prarastas ar užklausa baigėsi neaiškiai, rezervacija neatlaisvinama be suderinimo. Jei kito kvietimo blogiausio atvejo dydis nebetelpa, procesas sustoja iki kitos UTC dienos. Ties dienos riba naujų kvietimų nepaleidžiame, kol ankstesni baigti ir apskaita suderinta.
 
-## 2. Galimi atsiskaitymo ir autentifikavimo variantai
+Papildomi stabdikliai:
 
-### A variantas – vienas projekto API raktas
+- `AI_ENRICHMENT_ENABLED=false` pagal nutylėjimą; atskiras `AI_DAILY_TOKEN_CAP`, `AI_MAX_PRODUCTS_PER_RUN`, `AI_MAX_REQUEST_TOKENS` ir vykdymo laiko limitas.
+- Viena pagrindinė nuotrauka, apribotas jos dydis ir pasirinktas vaizdo `detail` pagal kontrolinio rinkinio bandymą. Vaizdo tokenai taip pat skaičiuojami įvestyje ([OpenAI vaizdų tokenų taisyklės](https://developers.openai.com/api/docs/guides/images-vision)).
+- Trumpas promptas, `strict` JSON schema, ribota išvestis; jokių įrankių kvietimų ar daugiapakopio „agentinio“ ciklo ([Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)).
+- Laikinoms klaidoms daugiausia vienas pakartojimas, bet tik po naujos rezervacijos. 429 dėl finansinio ar pasiūlymo limito sustabdo darbą; jis nėra aklai kartojamas.
+- Dienos Usage ir Costs suderinimas su OpenAI prietaisų skydeliu; įspėjimas ir stabdymas, jei aptikta apmokestinta užklausa.
+- Atskiras projekto **mėnesinis hard spend limit** kaip paskutinė apsauga. Vien perspėjimai nestabdo srauto, o hard limit vykdomas ne momentiškai, todėl juo negalima pakeisti dienos rezervacijų ([OpenAI spend limits](https://developers.openai.com/api/docs/guides/spend-limits)).
 
-Tai rekomenduojamas variantas.
+Po 50–100 kontrolinių produktų matuojame vidutinį ir didžiausią `usage.total_tokens`. Dienos apdorojimo talpa apskaičiuojama iš realių duomenų: `vidinis_dienos_limitas / konservatyvus_tokenų_kiekis_vienam_produktui`. Visam katalogui nesiunčiame užklausų vien tam, kad būtų „išnaudotas“ krepšelis.
 
-Veikimas:
+## 4. Minimalus AI atsakymo šablonas
 
-1. Projekto savininkas sukuria „OpenAI Platform“ projektą.
-2. API raktas saugomas „Cloudflare Worker“ secrets.
-3. Backend analizuoja produkto vaizdą.
-4. Rezultatas išsaugomas duomenų bazėje ir pakartotinai naudojamas visiems vartotojams.
-5. Kiekvienam vartotojui pritaikoma jo asmeninė balo formulė.
-
-Privalumai:
-
-- paprasčiausia vartotojo patirtis;
-- vienoje vietoje kontroliuojamos sąnaudos;
-- galima naudoti cache ir batch;
-- nereikia rinkti svetimų API raktų;
-- tinka dabartinei Hono, Cloudflare Workers ir Supabase architektūrai.
-
-Trūkumai:
-
-- API išlaidas apmoka projekto savininkas;
-- būtini biudžeto, rate limit ir piktnaudžiavimo saugikliai.
-
-Sudėtingumas: vidutinis. Kokybiškam MVP numatyti maždaug 3–5 darbo dienas, o pilnai versijai su batch, UI, testais ir stebėjimu – 1–2 savaites.
-
-### B variantas – kiekvienas vartotojas pateikia savo API raktą
-
-Tai naudotų vartotojo „OpenAI API Platform“ balansą, bet ne jo ChatGPT prenumeratos limitus.
-
-Problemos:
-
-- vartotojui reikia atskiros API paskyros ir mokėjimo metodo;
-- slaptą raktą reikėtų saugiai perduoti ir šifruotai laikyti;
-- reikėtų rakto atšaukimo, rotacijos, klaidų bei kvotų valdymo;
-- prastesnė vartotojo patirtis;
-- didesnė atsakomybė saugant kitų žmonių kredencialus.
-
-„OpenAI“ rekomenduoja rakto niekada nedėti į naršyklę ir visus kvietimus nukreipti per backend: [API raktų saugumo rekomendacijos](https://help.openai.com/en/articles/5112595-best-practices-for-api-key-safety).
-
-Sudėtingumas: aukštas. Prie pagrindinio varianto pridėtų apytiksliai 1–2 savaites saugiam raktų valdymui. Šiam privačiam katalogui nerekomenduojama.
-
-### C variantas – atskira programa ChatGPT viduje
-
-Teoriškai galima kurti ChatGPT programėlę arba GPT, kuris per MCP pasiektų katalogo backend. Tada vartotojas vertinimo prašytų ChatGPT aplinkoje, o ne katalogo svetainėje.
-
-Tai nėra būdas nepastebimai naudoti vartotojo ChatGPT limitą dabartinio katalogo backend. Reikėtų kurti antrą vartotojo sąsają ChatGPT viduje, atskirą autentifikavimo srautą, MCP serverį ir duomenų prieigos teises. Katalogo kortelėse automatiškai rodomų balų šis variantas savaime nesuteiktų.
-
-Sudėtingumas: aukštas, o rezultatas būtų kitas produktas. Galima svarstyti vėliau kaip papildomą sąsają, bet ne kaip pagrindinį integracijos kelią.
-
-### D variantas – savarankiškai hostinamas vaizdo modelis
-
-Galima nenaudoti komercinio API ir vaizdo modelį paleisti savo serveryje. Tačiau tada reikėtų:
-
-- pakankamos CPU arba GPU infrastruktūros;
-- modelio diegimo, atnaujinimo ir stebėjimo;
-- atskiros vaizdų paruošimo bei išvesties validacijos;
-- atlikti gerokai daugiau kokybės vertinimo;
-- užtikrinti našumą batch metu.
-
-Sudėtingumas: aukštas. Mažam privačiam katalogui pradžioje greičiausiai kainuotų daugiau laiko nei taupytų pinigų.
-
-## 3. Rekomenduojamas modelių maršrutas
-
-Pagrindinis modelis: `gpt-5.4-nano`.
-
-Jis priima tekstą ir vaizdą, palaiko struktūrizuotą išvestį ir yra skirtas klasifikavimui, požymių ištraukimui bei reitingavimui. Tai atitinka užduotį, jeigu modelis nekuria galutinio subjektyvaus balo, o tik grąžina standartizuotus vaizdo požymius.
-
-### Toje pačioje OpenAI šeimoje
-
-- **`gpt-4.1-nano`** – dar pigesnis už `gpt-5.4-nano`, taip pat priima vaizdą ir tinka klasifikavimui bei požymių išgavimui, kai reasoning nereikalingas. Jį verta įtraukti į kontrolinio rinkinio testus kaip pigiausią kandidatą.
-- **`gpt-4.1-mini`** – naudoti, jei `gpt-4.1-nano` tikslumo pritrūktų, bet dar nenorima pereiti tiesiai prie brangesnio `gpt-5.6-luna`.
-- **`gpt-5.4-mini`** – tarpinė grandis tarp pagrindinio `gpt-5.4-nano` ir numatyto galutinio fallback `gpt-5.6-luna`.
-
-Galutinį pagrindinį modelį reikia pasirinkti pagal kontrolinio rinkinio tikslumo, kainos ir trukmės matavimus. Praktinė kandidatų seka testams: `gpt-4.1-nano` → `gpt-4.1-mini` → `gpt-5.4-nano`. Produkcijoje nebūtina kviesti visų trijų modelių iš eilės – pasirenkamas pigiausias modelis, pasiekiantis sutartą tikslumo ribą.
-
-Tarpinė eskalacija neaiškiems atvejams: `gpt-5.4-mini`.
-
-Fallback modelis: `gpt-5.6-luna`.
-
-Jį naudoti tik tada, kai:
-
-- prekė yra daugiaspalvė;
-- raštas sudėtingas;
-- nuotraukoje drabužis užima mažą plotą;
-- `confidence` nesiekia nustatytos ribos;
-- pirmo modelio išvestis neatitinka schemos.
-
-Nereikia naudoti brangiausio modelio kiekvienai prekei. Oficialūs modelių aprašymai:
-
-- [`gpt-4.1-nano`](https://developers.openai.com/api/docs/models/gpt-4.1-nano)
-- [`gpt-4.1-mini`](https://developers.openai.com/api/docs/models/gpt-4.1-mini)
-- [`gpt-5.4-nano`](https://developers.openai.com/api/docs/models/gpt-5.4-nano)
-- [`gpt-5.4-mini`](https://developers.openai.com/api/docs/models/gpt-5.4-mini)
-- [`gpt-5.6-luna`](https://developers.openai.com/api/docs/models/gpt-5.6-luna)
-
-## 4. Kodėl AI neturėtų tiesiogiai sugalvoti galutinio balo
-
-Jeigu modeliui būtų siunčiama nuotrauka ir prašoma tiesiog „duok score“, rezultatas galėtų svyruoti keičiantis promptui, modeliui ar net pakartojus tą pačią užklausą.
-
-Patikimesnis procesas:
-
-```text
-Produkto nuotrauka ir žinoma ABOUT YOU spalva
-                ↓
-AI ištraukia standartizuotus spalvų požymius
-                ↓
-Rezultatas validuojamas ir išsaugomas vieną kartą
-                ↓
-Deterministinė formulė + vartotojo spalvų profilis
-                ↓
-Score 0–100, kategorija ir paaiškinimas
-```
-
-AI išvesties pavyzdys:
+Modelis grąžina tik leidžiamas, trumpas reikšmes. Pavyzdys iliustruoja laukus; galutinis enum sąrašas turi būti suderintas su `packages/shared`:
 
 ```json
 {
-  "dominantColors": [
-    {
-      "name": "navy",
-      "hexApproximation": "#253451",
-      "coveragePct": 82
-    }
-  ],
+  "dominantColorFamily": "blue",
+  "dominantColorShade": "navy",
+  "secondaryColorFamilies": [],
   "temperature": "cool",
   "lightness": "dark",
   "contrast": "medium",
-  "pattern": "solid",
-  "isMulticolor": false,
-  "confidence": 0.91
+  "visualPattern": "solid",
+  "confidence": 0.91,
+  "needsReview": false
 }
 ```
 
-Spalvos `hexApproximation` turi būti laikoma apytiksle. Produkto nuotraukos apšvietimas, kompresija ir baltos spalvos balansas reiškia, kad kalbos modelis nėra tikslus kolorimetras.
+Modelis **negrąžina** produkto ID, vartotojo ID, kainos, ilgo paaiškinimo ar neapribotų laisvo teksto laukų. Programa prideda `product_id` iš paimtos DB užduoties. `unknown` ir `needsReview` yra teisėtos baigtys, kai vaizdas netinka klasifikavimui. Schema validuojama programoje net ir naudojant struktūrizuotą išvestį. Spalvos iš nuotraukos yra apytikslės; esamų šaltinio `color_original`, `color_family`, `color_shade` ir `patterns` AI tyliai neperrašo. Nesutapimas žymimas peržiūrai.
 
-## 5. Pradinė balo formulė
+## 5. DB modelis, dydis ir filtravimas
 
-Siūloma pirma versija:
+Siūloma viena nauja `product_ai_attributes` lentelė su `product_id uuid primary key references products(id) on delete cascade`. Joje: aukščiau išvardyti **atskiri tipizuoti stulpeliai**, `status`, `source_image_fingerprint`, `metadata_fingerprint`, `schema_version`, `prompt_version`, `model`, `analyzed_at`, `attempt_count`, `last_error_code`. `secondary_color_families` ribojamas, pavyzdžiui, iki dviejų reikšmių. Galima pridėti mažą papildomą JSONB tik retam nefiltruojamam požymiui, su dydžio riba. Neįrašome OpenAI pilno atsakymo, prompto, base64 vaizdo, dubliuotų šaltinio payload ar kiekvieno bandymo istorijos.
 
-| Požymis | Svoris |
-|---|---:|
-| Pagrindinių spalvų atitikimas vartotojo paletei | 50 % |
-| Šiltas arba šaltas atspalvis | 20 % |
-| Šviesumas | 15 % |
-| Kontrastas | 10 % |
-| Raštas ir kelių spalvų derinys | 5 % |
+Atskirai reikia kompaktiškos `ai_daily_usage` ir trumpai saugomų užklausų rezervacijų apskaitos. Vėluojančių ar neaiškių užklausų negalima užmiršti išvalant istoriją. Prieš migraciją reikia pasirinkti atominių užduočių ir rezervacijų SQL funkcijų teises, RLS ir saugojimo terminą.
 
-Formulė turi veikti programiniame kode, būti versijuojama ir turėti testus. Modelio `confidence` neturėtų automatiškai padidinti spalvos tinkamumo; jis turėtų nusakyti tik analizės patikimumą.
+**Susiejimas su preke:** DB užsienio raktas ir unikalus `product_id` leidžia jungti AI požymius prie prekės. JSONB irgi gali būti indeksuojamas, tad problema nėra pats JSON formatas; filtrams patogiau aiškūs, validuojami stulpeliai ir pagal realias užklausas parinkti indeksai ([Supabase JSONB](https://supabase.com/docs/guides/database/json), [indeksai](https://supabase.com/docs/guides/database/postgres/indexes)).
 
-## 6. Siūlomas duomenų modelis
+**Katalogo kelias:** dabartinis API filtruoja `catalog_items_read_with_lpl`, o kontekstinius filtrų skaičius skaičiuoja `catalog_facets_cached` ir susijusios SQL funkcijos. Migracija turi pridėti pasirinktus AI laukus prie šio skaitymo kelio, jų filtrus prie `CatalogFiltersSchema`, API ir facet skaičiavimo. Vien tik įrašyti lentelę neužtenka. Pirmai versijai siūlomi du filtrai: vizualinis šviesumas ir vizualinis raštas; jų pavadinimai UI aiškiai atskiriami nuo šaltinio spalvos ir rašto. Po bandomųjų `EXPLAIN` užklausų indeksuoti naudojamus laukus, vengiant indeksuoti kiekvieną stulpelį „dėl visa ko“.
 
-### `user_color_profiles`
+Dabartinis katalogo skaitymo modelis yra materializuotas ir atnaujinamas pagal prašomą refresh. AI paketai turi **vieną refresh prašymą po paketo**, o ne po kiekvienos prekės; kartu turi būti atnaujintas arba invaliduotas facet cache. Kol refresh nebaigtas, naujas požymis filtravime dar nematomas – tai numatytas vėlavimas. Reikia pamatuoti refresh trukmę ir DB apkrovą, nes dabartinis metadata sync jau naudoja tą patį mechanizmą.
 
-Vienas aktyvus profilis vartotojui:
+DB dydį vertiname pagal `produktų_skaičius × vidutinis_kompaktiškos_eilutės_dydis + indeksai`, o po pirmo paketo pamatuojame tikrą `pg_total_relation_size`. Jei, tarkime, 70 000 eilučių užimtų po 1 KB, vien eilutės būtų apie 70 MB **prieš** indeksus ir PostgreSQL papildomą vietą. Tai orientyras, ne patvirtintas būsimos DB dydis. Neanalizuoti ir neaktyvūs produktai papildomos eilutės neturi.
 
-- `user_id`;
-- `season`;
-- `undertone`;
-- `preferred_colors` JSON;
-- `avoid_colors` JSON;
-- `lightness_preference`;
-- `contrast_level`;
-- `profile_version`;
-- `created_at`, `updated_at`.
+Viešoje schemoje naujoms lentelėms taikoma RLS ir mažiausios būtinos teisės. Techninė analizės bei tokenų apskaitos lentelė neskaitoma tiesiogiai iš naršyklės. AI laukus klientams grąžina esamas API per valdomą katalogo kelią.
 
-Tai yra vartotojo duomenys, todėl RLS turi tikrinti konkretų `user_id`, ne vien tik `authenticated` rolę.
+## 6. Darbo eiga be naujos GitHub Actions apkrovos
 
-### `product_visual_analyses`
+Dabar `apps/api/wrangler.jsonc` Cron Trigger paleidžia `apps/api/src/index.ts` planuoklį, kuris katalogo ir metadata rinkimui siunčia GitHub `workflow_dispatch`. AI šakoje tame pačiame Worker įdedamas atskiras mažas `scheduled()` apdorojimas, **be GitHub dispatch ir be Playwright**. Cloudflare Cron veikia UTC ([Cloudflare Cron Trigger dokumentacija](https://developers.cloudflare.com/workers/configuration/cron-triggers/)). Pradžioje pakanka vieno trumpo paleidimo per valandą ne tuo pačiu momentu kaip esami rinkimo paleidimai; tik matavimai gali pagrįsti dažninimą.
 
-Bendra produkto analizė:
+```text
+ABOUT YOU katalogas → esamas metadata sync → products + image_urls
+                                              ↓
+Cloudflare Cron → aktyvių kandidatų paėmimas → tokenų rezervacija
+                                              ↓
+                         OpenAI 1M grupės modelis → validacija
+                                              ↓
+                      product_ai_attributes (product_id FK)
+                                              ↓
+                  paketinis katalogo refresh → indeksuojami filtrai
+```
 
-- `product_id`;
-- `image_url`;
-- `image_fingerprint`;
-- `status`;
-- `dominant_colors` JSON;
-- `temperature`;
-- `lightness`;
-- `contrast`;
-- `pattern`;
-- `confidence`;
-- `model`;
-- `prompt_version`;
-- `attempt_count`;
-- `error_code`;
-- `analyzed_at`.
+Kandidatai: aktyvūs produktai, turintys pagrindinę nuotrauką ir, jei galima, jau užbaigtą source metadata. Prioritetas naujoms arba kataloge matomoms prekėms. Fingerprint keičiasi pasikeitus pagrindiniam vaizdui ar reikšmingiems įvesties metadata; prompto arba schemos keitimas savaime neperanalizuoja viso katalogo – tam reikia aiškiai suplanuoto riboto backfill. Vienu metu vienas workeris paima vieną užduotį su laikina nuoma, kad dubliuotas Cron įvykis nesukeltų dviejų mokamų kvietimų. Laikina klaida grįžta į eilę su atidėjimu, nuolatinė klaida pažymima.
 
-Ji neturi `user_id`, nes tas pats produkto vaizdas visiems vartotojams yra vienodas.
+AI kvietimas niekada nevyksta produkto kortelės HTTP užklausos metu. API tik skaito paruoštus požymius. Cloudflare Worker vykdymo trukmei taip pat taikomas atskiras paketo limitas ([Workers ribos](https://developers.cloudflare.com/workers/platform/limits/)).
 
-### `user_product_scores`
+## 7. Įgyvendinimo etapai
 
-Individualus, pigiai perskaičiuojamas rezultatas:
+- [ ] **Tinkamumas ir teisės.** Patvirtinti pasiūlymo prieinamumą, 1M arba 250k pakopą, teigiamą balansą, dalijimosi su OpenAI pasirinkimą ir teisę siųsti pasirinktus produkto vaizdus. Kol tai nepatvirtinta, `AI_ENRICHMENT_ENABLED=false`.
+- [ ] **Kontrolinis rinkinys.** Rankiniu būdu sužymėti 50–100 įvairių prekių, išmatuoti `gpt-4.1-2025-04-14` tikslumą, `detail` lygį, įvesties ir išvesties tokenus, klaidų dalį. Vienu bandymu patikrinti, kad OpenAI Usage rodo pasiūlymo tier.
+- [ ] **Šablonas.** `packages/shared` pridėti vieną versijuotą požymių schemą ir validaciją; išbandyti `unknown`, nesutapimą su šaltiniu ir netinkamą vaizdą.
+- [ ] **DB migracija.** Parengti `product_ai_attributes`, užduočių rezervavimo ir dienos tokenų apskaitos SQL; FK, RLS, ribas ir indeksus. Parengti atskirą tik skaitymo verifikacijos SQL. Migracijos failą naudotojas pats įkelia į savo VPS Supabase SQL Editor ir paleidžia; tik jo pateikti sėkmingi vykdymo bei patikros rezultatai reiškia, kad migracija pritaikyta.
+- [ ] **Worker.** Pridėti atskirą Cron šaką su išjungta pradine būsena, vieno kvietimo lygiagretumu, atomine rezervacija, timeout, aiškiu stabdymu ir be GitHub workflow.
+- [ ] **Filtrų kelias.** Prijungti išsaugotus laukus prie katalogo skaitymo modelio, API, facet skaičiavimo ir UI. Refresh daryti paketais ir pamatuoti jo kainą DB.
+- [ ] **Bandomasis paleidimas.** 50–100 produktų, tada tik ribotas dienos srautas. Palyginti žmogaus žymas, DB dydį, indeksų naudą, refresh trukmę, tokenų apskaitą ir OpenAI Costs. Tik po to didinti dienos paketą.
+- [ ] **Priežiūra.** Stebėti neapdorotų aktyvių prekių skaičių, `needsReview`, klaidas, vidutinį ir blogiausią tokenų skaičių, vidinį dienos likutį bei realų apmokestinimą. Pasiūlymo ar tinkamumo pasikeitimas išjungia automatinį siuntimą.
 
-- `user_id`;
-- `product_id`;
-- `score`;
-- `verdict`;
-- `reasons` JSON;
-- `formula_version`;
-- `profile_version`;
-- `analysis_version`;
-- `calculated_at`.
+## 8. MVP priėmimo kriterijai
 
-Unikalus raktas: `(user_id, product_id)`.
+- Kiekviena patvirtinta AI analizė susieta su tikru `products.id`, o pasikeitus nuotraukai sena išvada nelaikoma nauja.
+- Esami šaltinio metaduomenys išlieka su savo kilme; AI požymiai filtruojami kataloge ir rodomi tik po sėkmingo read-model refresh.
+- Vienam produkto fingerprint ir šablono versijai nėra dubliuotų AI kvietimų; klaidos ir pakartojimai įtraukiami į dienos limitą.
+- Vidinis procesas sustoja prieš nustatytą UTC dienos ribą, net jei Cron paleidžiamas pakartotinai; neaiškus naudojimas blokuoja naujus kvietimus iki suderinimo.
+- Bandomajame paleidime OpenAI Usage patvirtina pasiūlymo tier, Costs nerodo netikėto apmokestinimo, o DB ir filtrų užklausų našumas pamatuotas.
+- AI darbai nepadidina katalogo ir metadata GitHub Actions eilių.
 
-## 7. Integracija su dabartiniu projektu
+## Šio plano ribos
 
-Projektas jau turi didžiąją dalį reikalingo pagrindo:
-
-- produkto tipai ir `imageUrls`, `colorOriginal`, `colorFamily`, `colorShade` yra [`packages/shared/src/index.ts`](packages/shared/src/index.ts);
-- katalogo užklausos ir produkto endpointai yra [`apps/api/src/index.ts`](apps/api/src/index.ts);
-- produkto kortelė yra [`apps/web/components/ProductCard.vue`](apps/web/components/ProductCard.vue);
-- vartotojo profilio puslapis yra [`apps/web/pages/profile.vue`](apps/web/pages/profile.vue);
-- periodinis produktų ir metaduomenų rinkimas jau yra [`apps/sync`](apps/sync);
-- duomenų bazės pakeitimai valdomi [`supabase/migrations`](supabase/migrations).
-
-Logiškiausia AI analizę pridėti prie atskiro foninio proceso `apps/sync`, o ne tiesiai į produkto kortelės užklausą. Hono API turėtų grąžinti tik jau išsaugotą analizę ir vartotojo balą.
-
-## 8. Cache ir sąnaudų kontrolė
-
-Svarbiausia taupymo taisyklė: vienas produkto vaizdas analizuojamas vieną kartą, nepriklausomai nuo vartotojų skaičiaus.
-
-Pakartotinė analizė reikalinga tik kai:
-
-- pasikeitė pagrindinė nuotrauka arba jos fingerprint;
-- pakeistas promptas;
-- pakeistas AI modelis ir sąmoningai pradėtas pervertinimas;
-- ankstesnė analizė baigėsi klaida;
-- administratorius paleido rankinį pervertinimą.
-
-Papildomi saugikliai:
-
-- vienu metu apdorojamų produktų limitas;
-- dienos arba mėnesio biudžetas;
-- perspėjimai pasiekus, pvz., 70 %, 90 % ir 100 % biudžeto;
-- batch vykdymo trukmės limitas;
-- ne daugiau kaip 2 automatiniai retry;
-- fallback modelis tik neaiškiems atvejams;
-- trumpa struktūrizuota išvestis;
-- produkto spalvos tekstą naudoti kaip papildomą signalą.
-
-## 9. API rakto saugumas
-
-`OPENAI_API_KEY`:
-
-- negali būti `NUXT_PUBLIC_*` kintamasis;
-- negali būti perduodamas naršyklei;
-- negali būti įrašytas į repo ar testų fixture;
-- negali būti spausdinamas loguose;
-- produkcijoje turi būti „Cloudflare Worker“ secret;
-- turi turėti ribotas teises, biudžeto perspėjimus ir būti periodiškai rotuojamas.
-
-Visos „OpenAI“ užklausos turi eiti per serverį. Tai atitinka [oficialias API rakto saugumo rekomendacijas](https://help.openai.com/en/articles/5112595-best-practices-for-api-key-safety).
-
-## 10. Privatumas
-
-Jeigu siunčiamos tik viešos ABOUT YOU produktų nuotraukos ir bendri produkto metaduomenys, privatumo rizika yra palyginti maža.
-
-Jeigu ateityje vartotojo spalvų profilis būtų nustatomas iš asmenukės:
-
-- reikėtų aiškaus vartotojo sutikimo;
-- reikėtų nuspręsti, ar originali nuotrauka apskritai saugoma;
-- geriausia po analizės originalą ištrinti;
-- reikėtų aprašyti saugojimo terminą ir ištrynimo procesą;
-- nereikėtų iš nuotraukos nustatinėti nereikalingų jautrių savybių.
-
-Pirmai versijai rekomenduojama leisti spalvų profilį įvesti rankiniu būdu ir nesiųsti vartotojo nuotraukos.
-
-## 11. Kokybės vertinimas
-
-Prieš analizuojant visą katalogą reikia parengti nedidelį reprezentatyvų rinkinį:
-
-- šviesūs ir tamsūs vienspalviai drabužiai;
-- šilti ir šalti atspalviai;
-- balta, kreminė, pilka ir juoda;
-- smulkūs bei stambūs raštai;
-- daugiaspalvės prekės;
-- nuotraukos su modeliu ir be modelio;
-- nuotraukos su neutraliu ir spalvotu fonu.
-
-Vertinti:
-
-- ar teisinga dominuojanti spalva;
-- ar teisinga temperatūra;
-- ar teisingas šviesumas ir kontrastas;
-- ar rezultatas stabilus pakartojus;
-- kuris iš `gpt-4.1-nano`, `gpt-4.1-mini` ir `gpt-5.4-nano` yra pigiausias modelis, pasiekiantis sutartą tikslumo ribą;
-- kiek atvejų pakanka siųsti į `gpt-5.4-mini`;
-- kiek atvejų iš tiesų reikia siųsti į galutinį fallback modelį `gpt-5.6-luna`;
-- kiek kainuoja vienas produktas ir visas katalogas.
-
-Modelį keisti tik remiantis šiais matavimais, o ne vien subjektyviu vienos nuotraukos įspūdžiu.
-
-## 12. Priėmimo kriterijai MVP versijai
-
-MVP laikomas baigtu, kai:
-
-- vartotojas gali išsaugoti spalvų profilį;
-- naujas produktas fone išanalizuojamas ne daugiau kaip vieną kartą tai pačiai nuotraukai;
-- analizė atitinka griežtą schemą arba pažymima klaidos būsena;
-- galutinis balas apskaičiuojamas deterministiškai;
-- produkto kortelėje rodomas balas ir būsena;
-- produkto puslapyje rodomos 2–3 trumpos priežastys;
-- vieno vartotojo profilis ir balai nematomi kitam vartotojui;
-- API raktas nepatenka į frontend ar Git;
-- aiškiai išmatuota vieno produkto ir viso katalogo analizės kaina;
-- egzistuoja testai balo formulei, validacijai ir pagrindiniams API endpointams.
-
-## 13. Galutinė rekomendacija
-
-Pirmai versijai naudoti vieną projekto valdomą „OpenAI API“ raktą. Su kontroliniu rinkiniu palyginti `gpt-4.1-nano`, `gpt-4.1-mini` ir `gpt-5.4-nano`, tada pagrindiniu pasirinkti pigiausią modelį, pasiekiantį sutartą tikslumo ribą. Modelis turi iš produkto nuotraukos ištraukti spalvinius požymius, o galutinį balą turi apskaičiuoti mūsų kodas. Neaiškius atvejus pirmiausia siųsti į `gpt-5.4-mini`, o `gpt-5.6-luna` naudoti tik kaip galutinį fallback.
-
-Nebandyti naudoti kiekvieno vartotojo ChatGPT Plus ar Pro limitų, nes jie nėra skirti išorinės aplikacijos API užklausoms. Taip pat pirmoje versijoje nerinkti vartotojų API raktų ir nekurti atskiros ChatGPT programėlės – abu variantai smarkiai didina sudėtingumą, bet neduoda naudos pagrindiniam katalogo scenarijui.
-
-## Dokumento uždarymas
-
-- [ ] Baigta – galima ištrinti
+Tai architektūros ir darbų planas. Pasiūlymo tinkamumas, tikroji organizacijos pakopa, produkto nuotraukų naudojimo teisės ir VPS DB būsena iš šio repo nepatvirtinti. Nuotolinė VPS DB nebuvo pasiekta; jokia migracija ar AI užklausa nepaleista.
