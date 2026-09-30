@@ -23,6 +23,7 @@ export type ColorShade = z.infer<typeof ColorShadeSchema>;
 // Versioned visual vocabulary. These are observations about the product image,
 // not a recommendation about a person's colour season.
 export const AI_VISUAL_SCHEMA_VERSION = 1;
+export const AI_CONTROL_SET_MAX_ITEMS = 300;
 export const AiColorFamilySchema = z.enum([...colorFamilies, "unknown"] as const);
 export const AiColorShadeSchema = z.enum([...colorShades, "unknown"] as const);
 export const AiVisualAttributesSchema = z.object({

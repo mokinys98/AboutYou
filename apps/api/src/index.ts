@@ -2,7 +2,7 @@ import { Hono, type MiddlewareHandler } from "hono";
 import { cors } from "hono/cors";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { AiVisualAttributesSchema, BrandTierSchema, CatalogAlertFiltersSchema, CatalogFiltersSchema, CreateAlertSchema, PRODUCT_DETAIL_PARSER_VERSION, UpdateAlertSchema, isAllowedAboutYouUrl, type CatalogFilters } from "@catalog/shared";
+import { AI_CONTROL_SET_MAX_ITEMS, AiVisualAttributesSchema, BrandTierSchema, CatalogAlertFiltersSchema, CatalogFiltersSchema, CreateAlertSchema, PRODUCT_DETAIL_PARSER_VERSION, UpdateAlertSchema, isAllowedAboutYouUrl, type CatalogFilters } from "@catalog/shared";
 import { z } from "zod";
 import { aiBudget, analyzeControlItem, type AiEnvironment } from "./ai-control";
 import { alertFilterFingerprint, canonicalAlertFilters, hasMeaningfulAlertFilters, mapAlertRow, processTelegramAlerts, sendTelegramText } from "./telegram";
@@ -491,7 +491,7 @@ app.get("/v1/admin/ai-control/sets/:id/items", requireAdmin, async (c) => {
   const db = c.get("db");
   const { data: items, error } = await db.from("ai_control_items")
     .select("*,products(id,name,brand,product_url,image_urls,color_original,color_family,color_shade,active)")
-    .eq("set_id", setId.data).order("added_at", { ascending: false }).limit(100);
+    .eq("set_id", setId.data).order("added_at", { ascending: false }).limit(AI_CONTROL_SET_MAX_ITEMS);
   if (error) return c.json({ error: error.message }, 500);
   const ids = (items ?? []).map((item) => item.product_id);
   const { data: attributes, error: attributesError } = ids.length
@@ -519,7 +519,7 @@ app.post("/v1/admin/ai-control/sets/:id/items", requireAdmin, async (c) => {
     filteredCatalogQuery(db, filters.data).in("id", ids)
   ]);
   if (countError || catalogError) return c.json({ error: countError?.message ?? catalogError?.message }, 500);
-  if ((count ?? 0) + ids.length > 100) return c.json({ error: "Viename kontroliniame rinkinyje gali būti iki 100 prekių" }, 400);
+  if ((count ?? 0) + ids.length > AI_CONTROL_SET_MAX_ITEMS) return c.json({ error: `Viename kontroliniame rinkinyje gali būti iki ${AI_CONTROL_SET_MAX_ITEMS} prekių` }, 400);
   if ((catalogRows ?? []).length !== ids.length) return c.json({ error: "Rinktis galima tik šio filtro katalogo prekes" }, 400);
   const { error } = await db.from("ai_control_items").upsert(ids.map((productId) => ({ set_id: setId.data, product_id: productId })),
     { onConflict: "set_id,product_id", ignoreDuplicates: true });

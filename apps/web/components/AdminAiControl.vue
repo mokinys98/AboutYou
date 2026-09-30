@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { colorFamilies, colorShades } from "@catalog/shared";
+import { AI_CONTROL_SET_MAX_ITEMS, colorFamilies, colorShades } from "@catalog/shared";
+import { analyzeControlSetSequentially, type AiControlBatchProgress } from "../utils/aiControlBatch";
 
 type ControlSet = { id: string; name: string; catalog_url: string; created_at: string };
 type Product = { id: string; name: string; brand: string; product_url: string; image_urls: string[];
@@ -35,6 +36,8 @@ const error = ref("");
 const editingId = ref("");
 const reconciliationTokens = ref("");
 const reconciliationError = ref("");
+const bulkProgress = ref<AiControlBatchProgress | null>(null);
+const bulkStopRequested = ref(false);
 const review = reactive({ colorFamily: "", colorShade: "", temperature: "", lightness: "", saturation: "",
   contrast: "", visualPattern: "", note: "" });
 const activeSet = computed(() => sets.value.find((set) => set.id === selectedSet.value));
@@ -42,6 +45,7 @@ const uncertain = computed(() => usage.value?.requests.find((request) =>
   request.status === "uncertain" || request.status === "reserved"));
 const analyzedCount = computed(() => items.value.filter((item) => item.ai?.source_image_url === item.products?.image_urls?.[0]).length);
 const reviewedCount = computed(() => items.value.filter((item) => item.reviewed_at).length);
+const remainingSlots = computed(() => Math.max(0, AI_CONTROL_SET_MAX_ITEMS - items.value.length));
 const familyOptions = ["", ...colorFamilies, "unknown"];
 const shadeOptions = ["", ...colorShades, "unknown"];
 const temperatureOptions = ["", "warm", "cool", "neutral", "unknown"];
@@ -84,9 +88,32 @@ async function loadPreview(more = false) {
   busy.value = "preview";
   try {
     const page = await api<CatalogPage>(`/v1/catalog?${catalogQuery(more ? nextCursor.value ?? undefined : undefined)}`);
-    preview.value = more ? [...preview.value, ...page.items] : page.items;
+    preview.value = (more ? [...preview.value, ...page.items] : page.items).slice(0, AI_CONTROL_SET_MAX_ITEMS);
     nextCursor.value = page.nextCursor;
     if (!more) selectedIds.value = [];
+  } catch (cause) { report(cause); }
+  finally { busy.value = ""; }
+}
+async function selectAllFiltered() {
+  if (!activeSet.value || busy.value) return;
+  if (!remainingSlots.value) { error.value = `Rinkinyje jau yra ${AI_CONTROL_SET_MAX_ITEMS} prekių.`; return; }
+  error.value = ""; message.value = ""; busy.value = "select-all";
+  try {
+    const products: CatalogItem[] = [];
+    let cursor: string | null = null;
+    do {
+      const page: CatalogPage = await api<CatalogPage>(`/v1/catalog?${catalogQuery(cursor ?? undefined)}`);
+      products.push(...page.items);
+      cursor = page.items.length ? page.nextCursor : null;
+    } while (cursor && products.length < AI_CONTROL_SET_MAX_ITEMS);
+    preview.value = products.slice(0, AI_CONTROL_SET_MAX_ITEMS);
+    nextCursor.value = cursor;
+    const existingIds = new Set(items.value.map((item) => item.product_id));
+    selectedIds.value = preview.value.filter((product) => !existingIds.has(product.id))
+      .slice(0, remainingSlots.value).map((product) => product.id);
+    message.value = selectedIds.value.length
+      ? `Pažymėta ${selectedIds.value.length} filtro prekių. Spauskite „Pridėti pasirinktas“.${cursor ? ` Rodomos pirmos ${AI_CONTROL_SET_MAX_ITEMS} prekės; jei reikia kitų, susiaurinkite filtrą.` : ""}`
+      : "Šiame filtre nėra naujų prekių rinkiniui.";
   } catch (cause) { report(cause); }
   finally { busy.value = ""; }
 }
@@ -104,19 +131,35 @@ async function createSet() {
   finally { busy.value = ""; }
 }
 async function addSelected() {
-  if (!selectedSet.value || !selectedIds.value.length) return;
+  if (!selectedSet.value || !selectedIds.value.length || busy.value) return;
+  if (selectedIds.value.length > remainingSlots.value) {
+    error.value = `Rinkinyje gali būti iki ${AI_CONTROL_SET_MAX_ITEMS} prekių. Atžymėkite dalį pasirinkimo.`;
+    return;
+  }
   error.value = ""; busy.value = "add";
+  const ids = [...selectedIds.value];
+  const setId = selectedSet.value;
+  let added = 0;
   try {
-    await api(`/v1/admin/ai-control/sets/${selectedSet.value}/items`, {
-      method: "POST", body: { productIds: selectedIds.value }
-    });
-    message.value = `Pridėta ${selectedIds.value.length} prekių.`;
-    selectedIds.value = [];
-    await loadItems();
+    for (let offset = 0; offset < ids.length; offset += 100) {
+      const chunk = ids.slice(offset, offset + 100);
+      await api(`/v1/admin/ai-control/sets/${setId}/items`, {
+        method: "POST", body: { productIds: chunk }
+      });
+      added += chunk.length;
+    }
   } catch (cause) { report(cause); }
-  finally { busy.value = ""; }
+  finally {
+    if (added) {
+      selectedIds.value = ids.slice(added);
+      message.value = `Pridėta ${added} prekių.`;
+      await loadItems().catch(report);
+    }
+    busy.value = "";
+  }
 }
 async function analyze(item: ControlItem) {
+  if (busy.value || uncertain.value || !usage.value?.budget.enabled) return;
   error.value = ""; message.value = ""; busy.value = item.product_id;
   try {
     const result = await api<{ skipped: boolean; totalTokens?: number }>(
@@ -125,6 +168,35 @@ async function analyze(item: ControlItem) {
     await Promise.all([loadItems(), api<Usage>("/v1/admin/ai-control/usage").then((value) => { usage.value = value; })]);
   } catch (cause) { report(cause); await refresh().catch(() => undefined); }
   finally { busy.value = ""; }
+}
+async function analyzeAll() {
+  if (!activeSet.value || !items.value.length || busy.value || !usage.value?.budget.enabled || uncertain.value) return;
+  const setId = selectedSet.value;
+  const ids = items.value.map((item) => item.product_id);
+  if (!window.confirm(`Analizuoti ${ids.length} rinkinio prekių? OpenAI užklausos gali sunaudoti kreditus. Procesas sustos ties pirmąja klaida arba dienos limitu.`)) return;
+  error.value = ""; message.value = ""; bulkStopRequested.value = false;
+  bulkProgress.value = { completed: 0, analyzed: 0, skipped: 0, total: ids.length };
+  busy.value = "bulk";
+  try {
+    const result = await analyzeControlSetSequentially(
+      ids,
+      (productId) => api<{ skipped: boolean }>(
+        `/v1/admin/ai-control/sets/${setId}/items/${productId}/analyze`, { method: "POST" }),
+      (progress) => { bulkProgress.value = progress; },
+      () => bulkStopRequested.value
+    );
+    if (result.error) error.value = `Sustota po ${result.completed} iš ${result.total} prekių: ${errorMessage(result.error)}`;
+    else message.value = result.stopped
+      ? `Sustabdyta po ${result.completed} iš ${result.total} prekių.`
+      : `Baigta: ${result.analyzed} naujų AI išvadų, ${result.skipped} jau išanalizuotų prekių.`;
+  } catch (cause) { report(cause); }
+  finally {
+    await Promise.allSettled([
+      loadItems(),
+      api<Usage>("/v1/admin/ai-control/usage").then((value) => { usage.value = value; })
+    ]);
+    busy.value = "";
+  }
 }
 function editReview(item: ControlItem) {
   editingId.value = item.product_id;
@@ -180,6 +252,7 @@ async function reconcile() {
 function optionLabel(value: string) { return value ? value.replaceAll("_", " ") : "— nepažymėta —"; }
 function mismatch(human: string | null, ai: string | undefined) { return human && ai && human !== ai; }
 onMounted(() => { refresh().catch(report); });
+onUnmounted(() => { bulkStopRequested.value = true; });
 watch(selectedSet, () => { preview.value = []; selectedIds.value = []; nextCursor.value = null; loadItems().catch(report); });
 </script>
 
@@ -187,9 +260,9 @@ watch(selectedSet, () => { preview.value = []; selectedIds.value = []; nextCurso
   <div class="ai-control">
     <div class="ai-heading">
       <div><p class="eyebrow">KONTROLINIS RINKINYS</p><h2>AI spalvų analizė</h2>
-        <p>Pasirinkite katalogo filtrą, iš jo sudarykite 50–100 prekių imtį ir lyginkite AI išvadą su žmogaus žyma.</p></div>
-      <div class="ai-budget" :class="{ ready: usage?.budget.enabled }">
-        <strong>{{ usage?.budget.enabled ? "AI įjungtas" : "AI išjungtas" }}</strong>
+        <p>Pasirinkite katalogo filtrą, iš jo sudarykite iki {{ AI_CONTROL_SET_MAX_ITEMS }} prekių rinkinį ir lyginkite AI išvadą su žmogaus žyma.</p></div>
+      <div class="ai-budget" :class="{ ready: usage?.budget.enabled && !uncertain }">
+        <strong>{{ uncertain ? "AI sustabdytas: reikia suderinti užklausą" : usage?.budget.enabled ? "AI įjungtas" : "AI išjungtas" }}</strong>
         <span>Šiandien: {{ usage?.usage?.actual_total ?? 0 }} / {{ usage?.budget.cap ?? 0 }} tokenų</span>
         <small>Rezervuota: {{ usage?.usage?.reserved_total ?? 0 }}</small>
       </div>
@@ -215,26 +288,32 @@ watch(selectedSet, () => { preview.value = []; selectedIds.value = []; nextCurso
 
     <section class="admin-panel">
       <div class="ai-section-heading"><h3>Rinkinys</h3>
-        <select v-model="selectedSet" aria-label="Pasirinkite rinkinį"><option value="">Pasirinkite</option><option v-for="set in sets" :key="set.id" :value="set.id">{{ set.name }}</option></select>
+        <select v-model="selectedSet" aria-label="Pasirinkite rinkinį" :disabled="Boolean(busy)"><option value="">Pasirinkite</option><option v-for="set in sets" :key="set.id" :value="set.id">{{ set.name }}</option></select>
       </div>
       <template v-if="activeSet">
         <a :href="activeSet.catalog_url" target="_blank" rel="noopener noreferrer">Atidaryti katalogo filtrą ↗</a>
         <p class="panel-note">{{ items.length }} prekių · {{ analyzedCount }} AI išvadų · {{ reviewedCount }} žmogaus žymų</p>
         <div class="ai-actions"><button class="secondary" :disabled="Boolean(busy)" @click="loadPreview(false)">Peržiūrėti filtro prekes</button>
-          <button class="primary" :disabled="!selectedIds.length || Boolean(busy)" @click="addSelected">Pridėti pasirinktas ({{ selectedIds.length }})</button></div>
+          <button class="secondary" :disabled="Boolean(busy) || !remainingSlots" @click="selectAllFiltered">{{ busy === "select-all" ? "Žymima…" : "Pažymėti visas filtro prekes" }}</button>
+          <button class="primary" :disabled="!selectedIds.length || selectedIds.length > remainingSlots || Boolean(busy)" @click="addSelected">Pridėti pasirinktas ({{ selectedIds.length }})</button></div>
         <div v-if="preview.length" class="ai-preview-grid">
           <label v-for="product in preview" :key="product.id" class="ai-preview-card">
-            <input v-model="selectedIds" type="checkbox" :value="product.id" :disabled="items.some((item) => item.product_id === product.id)">
+            <input v-model="selectedIds" type="checkbox" :value="product.id" :disabled="items.some((item) => item.product_id === product.id) || (!selectedIds.includes(product.id) && selectedIds.length >= remainingSlots)">
             <img v-if="product.imageUrls?.[0]" :src="product.imageUrls[0]" alt="" loading="lazy">
             <span><strong>{{ product.brand }}</strong><small>{{ product.name }}</small><small>{{ (product.currentPrice / 100).toFixed(2) }} {{ product.currency }}</small></span>
           </label>
         </div>
-        <button v-if="nextCursor" class="secondary ai-more" :disabled="Boolean(busy)" @click="loadPreview(true)">Rodyti daugiau</button>
+        <button v-if="nextCursor && preview.length < AI_CONTROL_SET_MAX_ITEMS" class="secondary ai-more" :disabled="Boolean(busy)" @click="loadPreview(true)">Rodyti daugiau</button>
+        <p v-if="nextCursor && preview.length >= AI_CONTROL_SET_MAX_ITEMS" class="panel-note">Rodomos pirmos {{ AI_CONTROL_SET_MAX_ITEMS }} filtro prekių. Susiaurinkite filtrą, jei reikia kitų.</p>
       </template>
     </section>
 
     <section v-if="activeSet" class="ai-results">
-      <h3>Kontrolinės prekės</h3>
+      <div class="ai-results-heading"><h3>Kontrolinės prekės</h3>
+        <div class="ai-actions"><button class="primary" :disabled="Boolean(busy) || !items.length || !usage?.budget.enabled || Boolean(uncertain)" @click="analyzeAll">Analizuoti rinkinio prekes ({{ items.length }})</button>
+          <button v-if="busy === 'bulk'" class="secondary" @click="bulkStopRequested = true">{{ bulkStopRequested ? "Stabdoma po šios prekės…" : "Stabdyti" }}</button></div>
+      </div>
+      <p v-if="bulkProgress" class="panel-note" role="status">Apdorota {{ bulkProgress.completed }} / {{ bulkProgress.total }} · Naujos AI išvados: {{ bulkProgress.analyzed }} · Jau išanalizuota: {{ bulkProgress.skipped }}. Pasiekus dienos limitą arba klaidą procesas sustos.</p>
       <p v-if="!items.length" class="panel-note">Pirmiausia pasirinkite prekes iš filtro.</p>
       <div class="ai-result-grid">
         <article v-for="item in items" :key="item.product_id" class="ai-result-card">
@@ -258,7 +337,7 @@ watch(selectedSet, () => { preview.value = []; selectedIds.value = []; nextCurso
               <small>{{ item.ai.model }} · {{ new Date(item.ai.analyzed_at).toLocaleString("lt-LT") }}</small>
             </div>
             <p v-else class="ai-empty">AI išvados nėra arba nuotrauka pasikeitė.</p>
-            <button class="secondary" :disabled="Boolean(busy) || !usage?.budget.enabled" @click="analyze(item)">{{ busy === item.product_id ? "Analizuojama…" : "Analizuoti su AI" }}</button>
+            <button class="secondary" :disabled="Boolean(busy) || !usage?.budget.enabled || Boolean(uncertain)" @click="analyze(item)">{{ busy === item.product_id ? "Analizuojama…" : "Analizuoti su AI" }}</button>
             <div class="ai-human">
               <div class="ai-output-heading"><strong>Žmogaus žyma</strong><button class="ai-text-button" @click="editReview(item)">{{ item.reviewed_at ? "Keisti" : "Žymėti" }}</button></div>
               <div v-if="item.reviewed_at" class="ai-attribute-list">
@@ -296,4 +375,6 @@ watch(selectedSet, () => { preview.value = []; selectedIds.value = []; nextCurso
 .ai-alert label input{font-size:14px;font-weight:400}
 .ai-request-detail{font-size:13px;color:#67501d}
 .ai-reconciliation-error{margin:10px 0 0;color:#b42318;font-size:13px}
+.ai-results-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.ai-results-heading .ai-actions{justify-content:flex-end}
 </style>
