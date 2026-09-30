@@ -24,6 +24,19 @@ export type Run = {
   task_counts?: Partial<Record<"pending" | "processing" | "retryable" | "blocked" | "completed", number>>;
 };
 export type DashboardCategory = { id: string; parentId: string | null; name: string; level: number; path: string; count: number };
+export type CatalogGroupStats = {
+  id: string;
+  label: string;
+  expectedTotal: number | null;
+  catalogProducts: number;
+  lastSuccessAt: string | null;
+};
+export type CatalogHistoryPoint = {
+  date: string;
+  catalogProducts: number;
+  activeProducts: number;
+  enabledTargets: number;
+};
 export type DashboardStats = {
   generatedAt: string;
   parserVersion: number;
@@ -50,6 +63,13 @@ export type DashboardStats = {
     blockedSchema?: number;
     sourceUnavailable?: number;
   };
+  catalogInsights: {
+    catalogProducts: number;
+    activeProducts: number;
+    enabledTargets: number;
+    groups: CatalogGroupStats[];
+  };
+  catalogHistory: CatalogHistoryPoint[];
   categories: DashboardCategory[];
   latestRuns: Run[];
 };
