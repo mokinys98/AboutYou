@@ -11,9 +11,9 @@
     "GITHUB_OWNER": "mokinys98",
     "GITHUB_REPO": "AboutYou",
     "GITHUB_REF": "main",
-    "AI_ENRICHMENT_ENABLED": "false",
+    "AI_ENRICHMENT_ENABLED": "true",
     "AI_CRON_ENABLED": "false",
-    "AI_INCENTIVE_VERIFIED": "false",
+    "AI_INCENTIVE_VERIFIED": "true",
     "AI_DAILY_TOKEN_CAP": "200000"
   },
   "triggers": {
@@ -35,9 +35,9 @@
         "GITHUB_OWNER": "mokinys98",
         "GITHUB_REPO": "AboutYou",
         "GITHUB_REF": "main",
-        "AI_ENRICHMENT_ENABLED": "false",
+        "AI_ENRICHMENT_ENABLED": "true",
         "AI_CRON_ENABLED": "false",
-        "AI_INCENTIVE_VERIFIED": "false",
+        "AI_INCENTIVE_VERIFIED": "true",
         "AI_DAILY_TOKEN_CAP": "200000"
       },
       "triggers": {
