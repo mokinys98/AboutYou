@@ -1,0 +1,8 @@
+
+// Įdėti naują secret
+cd apps/api
+npx wrangler secret put OPENAI_API_KEY
+
+
+// Deployinti CloudFlare worker
+npm run deploy --workspace @catalog/api

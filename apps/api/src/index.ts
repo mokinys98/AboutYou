@@ -1354,25 +1354,6 @@ export default {
     return app.fetch(request, env, ctx);
   },
   async scheduled(controller, env) {
-    if (controller.cron === "17 * * * *") {
-      if (!aiBudget(env).enabled || env.AI_CRON_ENABLED !== "true") return;
-      const db = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
-      const { data: pending, error } = await db.from("ai_control_pending")
-        .select("set_id,product_id").order("added_at").limit(1).maybeSingle();
-      if (error) throw new Error(error.message);
-      if (pending) {
-        try {
-          const result = await analyzeControlItem(db, env, pending.set_id, pending.product_id);
-          console.log(JSON.stringify({ event: "ai_control_analyzed", productId: pending.product_id,
-            skipped: result.skipped }));
-        } catch (cause) {
-          console.error(JSON.stringify({ event: "ai_control_failed", productId: pending.product_id,
-            error: cause instanceof Error ? cause.message : String(cause) }));
-          throw cause;
-        }
-      }
-      return;
-    }
     if (controller.cron === "12 0 * * *") {
       const db = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
       const { data: observedOn, error } = await db.rpc("capture_catalog_statistics_snapshot");
@@ -1409,6 +1390,23 @@ export default {
         error: error instanceof Error ? error.message : String(error)
       }));
       throw error;
+    }
+    if (controller.cron === "47 * * * *" && aiBudget(env).enabled && env.AI_CRON_ENABLED === "true") {
+      const db = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+      const { data: pending, error } = await db.from("ai_control_pending")
+        .select("set_id,product_id").order("added_at").limit(1).maybeSingle();
+      if (error) throw new Error(error.message);
+      if (pending) {
+        try {
+          const result = await analyzeControlItem(db, env, pending.set_id, pending.product_id);
+          console.log(JSON.stringify({ event: "ai_control_analyzed", productId: pending.product_id,
+            skipped: result.skipped }));
+        } catch (cause) {
+          console.error(JSON.stringify({ event: "ai_control_failed", productId: pending.product_id,
+            error: cause instanceof Error ? cause.message : String(cause) }));
+          throw cause;
+        }
+      }
     }
   }
 } satisfies ExportedHandler<SchedulerBindings>;
