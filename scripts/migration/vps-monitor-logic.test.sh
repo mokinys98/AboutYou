@@ -5,7 +5,7 @@ pending_ok() {
   local value="$1"
   printf '%s' "$value" | awk -F'|' -v max_age=900 '
     NF >= 5 && $1 == $2 && ($3 == "refreshed" || $3 == "clean") && $4 == "" {ok=1}
-    NF >= 5 && $1 != $2 && $3 == "pending" && $5 >= 0 && $5 <= max_age {ok=1}
+    NF >= 5 && $1 != $2 && ($3 == "pending" || $3 == "refreshed") && $4 == "" && $5 >= 0 && $5 <= max_age {ok=1}
     END {exit !ok}'
 }
 
@@ -14,6 +14,10 @@ assert_fail() { if pending_ok "$1"; then echo "unexpected PASS: $1" >&2; exit 1;
 
 assert_pass '210|209|pending||300'
 assert_fail '210|209|pending||960'
+assert_fail '210|209|pending|57014: timeout|300'
+assert_pass '1746|1745|refreshed||255'
+assert_fail '1746|1745|refreshed||960'
+assert_fail '1746|1745|refreshed|57014: timeout|255'
 assert_fail '210|209|failed|57014: timeout|0'
 assert_pass '210|210|clean||-1'
 

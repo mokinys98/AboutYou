@@ -169,9 +169,11 @@ fi
 psql_cmd=(docker exec supabase-db psql -v ON_ERROR_STOP=1 -At -U postgres -d postgres)
 refresh="$("${psql_cmd[@]}" -c "select requested_version||'|'||completed_version||'|'||last_status||'|'||replace(coalesce(last_error,''),'|','/')||'|'||coalesce(extract(epoch from (now() - requested_at))::bigint,-1) from public.catalog_read_model_refresh_state;" 2>/dev/null || true)"
 info "refresh_state=${refresh:-missing}"
+# A new request can arrive while a rebuild runs, leaving a fresh dirty version
+# with last_status=refreshed until the next cron pass.
 if printf '%s' "$refresh" | awk -F'|' -v max_age="$READ_MODEL_PENDING_MAX_AGE_SECONDS" '
   NF >= 5 && $1 == $2 && ($3 == "refreshed" || $3 == "clean") && $4 == "" {ok=1}
-  NF >= 5 && $1 != $2 && $3 == "pending" && $5 >= 0 && $5 <= max_age {ok=1}
+  NF >= 5 && $1 != $2 && ($3 == "pending" || $3 == "refreshed") && $4 == "" && $5 >= 0 && $5 <= max_age {ok=1}
   END {exit !ok}'; then
   pass "read model refresh current"
 else
