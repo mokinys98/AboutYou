@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { AI_VISUAL_SCHEMA_VERSION, AiVisualAttributesSchema, colorFamilies, colorShades } from "@catalog/shared";
+import { AI_CONTROL_RESERVATION_TOKENS, AI_VISUAL_SCHEMA_VERSION, AiVisualAttributesSchema, colorFamilies, colorShades } from "@catalog/shared";
 
 export type AiEnvironment = {
   OPENAI_API_KEY?: string;
@@ -10,7 +10,7 @@ export type AiEnvironment = {
 };
 
 export const AI_MODEL = "gpt-4.1-2025-04-14";
-export const AI_REQUEST_RESERVATION = 10000;
+export const AI_REQUEST_RESERVATION = AI_CONTROL_RESERVATION_TOKENS;
 const AI_ATTRIBUTE_ID_BATCH_SIZE = 50;
 const AI_PROMPT_VERSION = 1;
 

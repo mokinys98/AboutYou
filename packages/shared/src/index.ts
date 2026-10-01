@@ -24,6 +24,7 @@ export type ColorShade = z.infer<typeof ColorShadeSchema>;
 // not a recommendation about a person's colour season.
 export const AI_VISUAL_SCHEMA_VERSION = 1;
 export const AI_CONTROL_SET_MAX_ITEMS = 300;
+export const AI_CONTROL_RESERVATION_TOKENS = 10000;
 export const AiColorFamilySchema = z.enum([...colorFamilies, "unknown"] as const);
 export const AiColorShadeSchema = z.enum([...colorShades, "unknown"] as const);
 export const AiVisualAttributesSchema = z.object({

@@ -10,11 +10,11 @@
 
 ## VPS Supabase access rule
 
-- The project's Supabase instance runs on the user's VPS. Codex has no permission to connect to, query, inspect, migrate, or modify that remote Supabase instance.
-- Never use the project's Supabase URL, service-role key, REST RPC endpoints, Supabase MCP tools, `psql`, or any other network/database method to access the VPS Supabase unless the user explicitly grants permission in the current turn.
-- When a VPS Supabase action is required, provide SQL for the user to run in Supabase SQL Editor. For migrations, follow the SQL-file handoff below. Do not run it on the user's behalf.
-- Local code, migrations, and tests may be edited or run in the workspace, but remote migration application and remote verification must always be performed by the user.
-- Do not read or use `.env` secrets for remote Supabase access. Treat all remote connection details and service-role keys as user-controlled secrets.
+- The user grants standing permission for Codex to connect to the project's VPS Supabase for read-only inspection and queries without requesting permission each time. Use the user's existing PuTTY SSH tunnel and the `codex_reader` PostgreSQL login from the Windows `%APPDATA%\postgresql\pgpass.conf` file. The current local tunnel endpoint is `127.0.0.1:15432`; check that the tunnel is active before connecting.
+- This standing permission applies only to read-only PostgreSQL work through that tunnel. Do not use the project's `.env` secrets, service-role key, REST/RPC endpoints, Supabase MCP tools, or other remote access routes under this permission. Never print or copy the password into the repository, commands, logs, or chat.
+- Start each database work session with `BEGIN READ ONLY` before inspecting data or metadata. Run only read-only SQL, avoid functions or commands with side effects, and end with `ROLLBACK` and close the connection. Keep result sets bounded where practical.
+- Do not rely on the login itself to enforce read-only access: `codex_reader` has `BYPASSRLS`, its default transaction mode is writable, and some objects grant write or `SECURITY DEFINER` function privileges through `PUBLIC`. Never run writes, DDL, migrations, or privilege changes on the VPS through the tunnel, even if PostgreSQL would allow them.
+- Local code, migrations, and tests may be edited or run in the workspace. The user applies all VPS database changes manually in Supabase SQL Editor using the handoff below. Codex may perform read-only diagnostics and post-application verification through the authorized tunnel without a new permission request.
 
 ### Known VPS migration handoff
 
@@ -35,8 +35,9 @@ For each migration:
 2. Explain briefly what the migration changes and tell the user to load that
    file into their VPS Supabase SQL Editor and run it. If the file changes after
    an earlier handoff, explicitly tell the user to load the latest contents.
-3. Provide a separate read-only verification SQL query, with the expected
-   result, for the user to run in the same SQL Editor.
+3. Provide a separate read-only verification SQL query with the expected
+   result. The user may run it in SQL Editor; Codex may also run it through the
+   authorized read-only tunnel after the user reports applying the migration.
 4. Treat any PostgreSQL error as a failed migration. Inspect the pasted error
    and provide read-only diagnostic SQL before proposing another attempt; do
    not assume that all preceding statements were rolled back. In particular,
@@ -44,9 +45,11 @@ For each migration:
    functions, change owners, grant role membership, or broaden privileges merely
    to bypass the error.
 5. Record remote application as verified only after the user provides successful
-   execution output and verification results. Preparing or committing a SQL file
-   does not mean the migration has been applied.
+   execution output. Record read-only verification results separately, using
+   either the user's pasted SQL Editor results or Codex's authorized read-only
+   tunnel queries. Preparing or committing a SQL file does not mean the
+   migration has been applied.
 
 Codex must not operate SQL Editor or apply the migration on the user's behalf.
 Its role is to prepare the file and verification SQL, inspect the user's pasted
-results, and document the verified outcome.
+results or run authorized read-only verification, and document the outcome.

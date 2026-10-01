@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { AI_CONTROL_SET_MAX_ITEMS, colorFamilies, colorShades } from "@catalog/shared";
-import { analyzeControlSetSequentially, type AiControlBatchProgress } from "../utils/aiControlBatch";
+import { AI_CONTROL_RESERVATION_TOKENS, AI_CONTROL_SET_MAX_ITEMS, colorFamilies, colorShades } from "@catalog/shared";
+import { AI_CONTROL_MAX_CONCURRENCY, allowedAiControlConcurrency, analyzeControlSetConcurrent, type AiControlBatchProgress } from "../utils/aiControlBatch";
 
 type ControlSet = { id: string; name: string; catalog_url: string; created_at: string };
 type Product = { id: string; name: string; brand: string; product_url: string; image_urls: string[];
@@ -38,14 +38,30 @@ const reconciliationTokens = ref("");
 const reconciliationError = ref("");
 const bulkProgress = ref<AiControlBatchProgress | null>(null);
 const bulkStopRequested = ref(false);
+const bulkConcurrency = ref(AI_CONTROL_MAX_CONCURRENCY);
+const bulkRunConcurrency = ref(AI_CONTROL_MAX_CONCURRENCY);
+const bulkActiveProductIds = ref<string[]>([]);
+const bulkStartedAt = ref<number | null>(null);
+const bulkNow = ref(Date.now());
+let bulkTimer: ReturnType<typeof setInterval> | null = null;
 const review = reactive({ colorFamily: "", colorShade: "", temperature: "", lightness: "", saturation: "",
   contrast: "", visualPattern: "", note: "" });
 const activeSet = computed(() => sets.value.find((set) => set.id === selectedSet.value));
-const uncertain = computed(() => usage.value?.requests.find((request) =>
-  request.status === "uncertain" || request.status === "reserved"));
+const uncertain = computed(() => usage.value?.requests.find((request) => request.status === "uncertain") ??
+  (busy.value === "bulk" ? undefined : usage.value?.requests.find((request) => request.status === "reserved")));
 const analyzedCount = computed(() => items.value.filter((item) => item.ai?.source_image_url === item.products?.image_urls?.[0]).length);
 const reviewedCount = computed(() => items.value.filter((item) => item.reviewed_at).length);
 const remainingSlots = computed(() => Math.max(0, AI_CONTROL_SET_MAX_ITEMS - items.value.length));
+const bulkActiveProductNames = computed(() => bulkActiveProductIds.value.slice(0, 3).map((id) =>
+  items.value.find((item) => item.product_id === id)?.products?.name ?? id).join(", ") +
+  (bulkActiveProductIds.value.length > 3 ? ` ir dar ${bulkActiveProductIds.value.length - 3}` : ""));
+const bulkPercent = computed(() => bulkProgress.value?.total
+  ? Math.round(bulkProgress.value.completed / bulkProgress.value.total * 100) : 0);
+const bulkElapsedSeconds = computed(() => bulkStartedAt.value === null ? 0 :
+  Math.max(0, Math.floor((bulkNow.value - bulkStartedAt.value) / 1000)));
+const bulkEtaSeconds = computed(() => !bulkProgress.value?.averageAiMs ? null :
+  Math.ceil((bulkProgress.value.total - bulkProgress.value.completed) * bulkProgress.value.averageAiMs /
+    Math.max(1, bulkRunConcurrency.value) / 1000));
 const familyOptions = ["", ...colorFamilies, "unknown"];
 const shadeOptions = ["", ...colorShades, "unknown"];
 const temperatureOptions = ["", "warm", "cool", "neutral", "unknown"];
@@ -60,6 +76,10 @@ function errorMessage(cause: unknown) {
   return typeof detail === "string" ? detail : cause instanceof Error ? cause.message : "Veiksmas nepavyko.";
 }
 function report(cause: unknown) { error.value = errorMessage(cause); }
+function formatDuration(seconds: number) {
+  const minutes = Math.floor(seconds / 60);
+  return minutes ? `${minutes} min ${seconds % 60} s` : `${seconds} s`;
+}
 async function refresh() {
   const [setRows, budget] = await Promise.all([
     api<ControlSet[]>("/v1/admin/ai-control/sets"),
@@ -173,17 +193,44 @@ async function analyzeAll() {
   if (!activeSet.value || !items.value.length || busy.value || !usage.value?.budget.enabled || uncertain.value) return;
   const setId = selectedSet.value;
   const ids = items.value.map((item) => item.product_id);
-  if (!window.confirm(`Analizuoti ${ids.length} rinkinio prekių? OpenAI užklausos gali sunaudoti kreditus. Procesas sustos ties pirmąja klaida arba dienos limitu.`)) return;
-  error.value = ""; message.value = ""; bulkStopRequested.value = false;
-  bulkProgress.value = { completed: 0, analyzed: 0, skipped: 0, total: ids.length };
+  const availableTokens = (usage.value?.budget.cap ?? 0) - (usage.value?.usage?.reserved_total ?? 0);
+  const concurrency = allowedAiControlConcurrency(bulkConcurrency.value, availableTokens, AI_CONTROL_RESERVATION_TOKENS);
+  if (concurrency < 1) { error.value = "Dienos tokenų likučio nepakanka kitai rezervacijai."; return; }
+  if (!window.confirm(`Analizuoti ${ids.length} rinkinio prekių, vienu metu vykdant iki ${concurrency} užklausų? OpenAI užklausos gali sunaudoti kreditus. Po pirmos klaidos nauji kvietimai nebus pradedami, o jau pradėti bus užbaigti.`)) return;
+  error.value = ""; message.value = ""; bulkStopRequested.value = false; bulkActiveProductIds.value = [];
+  bulkProgress.value = { completed: 0, analyzed: 0, skipped: 0, total: ids.length, averageAiMs: null };
+  bulkRunConcurrency.value = concurrency;
+  bulkStartedAt.value = Date.now();
+  bulkNow.value = bulkStartedAt.value;
+  bulkTimer = setInterval(() => { bulkNow.value = Date.now(); }, 1000);
   busy.value = "bulk";
+  let latestRefresh = 0;
   try {
-    const result = await analyzeControlSetSequentially(
+    const result = await analyzeControlSetConcurrent(
       ids,
       (productId) => api<{ skipped: boolean }>(
         `/v1/admin/ai-control/sets/${setId}/items/${productId}/analyze`, { method: "POST" }),
-      (progress) => { bulkProgress.value = progress; },
-      () => bulkStopRequested.value
+      {
+        concurrency,
+        onStart: (productId) => { bulkActiveProductIds.value = [...bulkActiveProductIds.value, productId]; },
+        onSettled: (productId) => {
+          bulkActiveProductIds.value = bulkActiveProductIds.value.filter((id) => id !== productId);
+        },
+        onProgress: async (progress, _productId, response) => {
+          bulkProgress.value = progress;
+          if (response.skipped) return;
+          const version = ++latestRefresh;
+          const [rows, budget] = await Promise.all([
+            api<ControlItem[]>(`/v1/admin/ai-control/sets/${setId}/items`),
+            api<Usage>("/v1/admin/ai-control/usage")
+          ]);
+          if (version === latestRefresh && selectedSet.value === setId) {
+            items.value = rows;
+            usage.value = budget;
+          }
+        },
+        shouldStop: () => bulkStopRequested.value
+      }
     );
     if (result.error) error.value = `Sustota po ${result.completed} iš ${result.total} prekių: ${errorMessage(result.error)}`;
     else message.value = result.stopped
@@ -191,6 +238,10 @@ async function analyzeAll() {
       : `Baigta: ${result.analyzed} naujų AI išvadų, ${result.skipped} jau išanalizuotų prekių.`;
   } catch (cause) { report(cause); }
   finally {
+    if (bulkTimer) clearInterval(bulkTimer);
+    bulkTimer = null;
+    bulkNow.value = Date.now();
+    bulkActiveProductIds.value = [];
     await Promise.allSettled([
       loadItems(),
       api<Usage>("/v1/admin/ai-control/usage").then((value) => { usage.value = value; })
@@ -252,8 +303,8 @@ async function reconcile() {
 function optionLabel(value: string) { return value ? value.replaceAll("_", " ") : "— nepažymėta —"; }
 function mismatch(human: string | null, ai: string | undefined) { return human && ai && human !== ai; }
 onMounted(() => { refresh().catch(report); });
-onUnmounted(() => { bulkStopRequested.value = true; });
-watch(selectedSet, () => { preview.value = []; selectedIds.value = []; nextCursor.value = null; loadItems().catch(report); });
+onUnmounted(() => { bulkStopRequested.value = true; if (bulkTimer) clearInterval(bulkTimer); });
+watch(selectedSet, () => { preview.value = []; selectedIds.value = []; nextCursor.value = null; bulkProgress.value = null; bulkStartedAt.value = null; loadItems().catch(report); });
 </script>
 
 <template>
@@ -310,10 +361,20 @@ watch(selectedSet, () => { preview.value = []; selectedIds.value = []; nextCurso
 
     <section v-if="activeSet" class="ai-results">
       <div class="ai-results-heading"><h3>Kontrolinės prekės</h3>
-        <div class="ai-actions"><button class="primary" :disabled="Boolean(busy) || !items.length || !usage?.budget.enabled || Boolean(uncertain)" @click="analyzeAll">Analizuoti rinkinio prekes ({{ items.length }})</button>
-          <button v-if="busy === 'bulk'" class="secondary" @click="bulkStopRequested = true">{{ bulkStopRequested ? "Stabdoma po šios prekės…" : "Stabdyti" }}</button></div>
+        <div class="ai-actions"><label class="ai-concurrency">Vienu metu
+            <select v-model.number="bulkConcurrency" :disabled="Boolean(busy)" aria-label="Vienu metu vykdomų AI užklausų skaičius">
+              <option v-for="count in AI_CONTROL_MAX_CONCURRENCY" :key="count" :value="count">{{ count }}</option>
+            </select></label>
+          <button class="primary" :disabled="Boolean(busy) || !items.length || !usage?.budget.enabled || Boolean(uncertain)" @click="analyzeAll">Analizuoti rinkinio prekes ({{ items.length }})</button>
+          <button v-if="busy === 'bulk'" class="secondary" :disabled="bulkStopRequested" @click="bulkStopRequested = true">{{ bulkStopRequested ? "Laukiama vykdomų užklausų…" : "Stabdyti" }}</button></div>
       </div>
-      <p v-if="bulkProgress" class="panel-note" role="status">Apdorota {{ bulkProgress.completed }} / {{ bulkProgress.total }} · Naujos AI išvados: {{ bulkProgress.analyzed }} · Jau išanalizuota: {{ bulkProgress.skipped }}. Pasiekus dienos limitą arba klaidą procesas sustos.</p>
+      <div v-if="bulkProgress" class="ai-bulk-progress" role="status" aria-live="polite">
+        <div class="ai-bulk-progress-heading"><strong>{{ busy === "bulk" ? "Vyksta AI analizė" : "AI analizės eiga" }}</strong><span>{{ bulkPercent }} %</span></div>
+        <progress :value="bulkProgress.completed" :max="bulkProgress.total" aria-label="Išanalizuotų rinkinio prekių eiga" />
+        <p>Apdorota {{ bulkProgress.completed }} / {{ bulkProgress.total }} · Naujos AI išvados: {{ bulkProgress.analyzed }} · Jau išanalizuota: {{ bulkProgress.skipped }}</p>
+        <p>Praėjo {{ formatDuration(bulkElapsedSeconds) }}<template v-if="bulkProgress.averageAiMs !== null"> · Vidutinė AI užklausa {{ (bulkProgress.averageAiMs / 1000).toFixed(1) }} s</template><template v-if="busy === 'bulk' && bulkEtaSeconds !== null"> · Apytiksliai liko {{ formatDuration(bulkEtaSeconds) }}</template></p>
+        <p v-if="busy === 'bulk'">Vykdoma {{ bulkActiveProductIds.length }} / {{ bulkRunConcurrency }}<template v-if="bulkActiveProductIds.length"> · {{ bulkActiveProductNames }}</template><template v-else> · Atnaujinamos prekių kortelės…</template></p>
+      </div>
       <p v-if="!items.length" class="panel-note">Pirmiausia pasirinkite prekes iš filtro.</p>
       <div class="ai-result-grid">
         <article v-for="item in items" :key="item.product_id" class="ai-result-card">
@@ -377,4 +438,6 @@ watch(selectedSet, () => { preview.value = []; selectedIds.value = []; nextCurso
 .ai-reconciliation-error{margin:10px 0 0;color:#b42318;font-size:13px}
 .ai-results-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
 .ai-results-heading .ai-actions{justify-content:flex-end}
+.ai-concurrency{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:700}.ai-concurrency select{padding:9px;border:1px solid #bbb;background:#fff}
+.ai-bulk-progress{padding:14px 16px;border:1px solid #d6d6d6;background:#fafafa}.ai-bulk-progress-heading{display:flex;justify-content:space-between;gap:12px;margin-bottom:9px}.ai-bulk-progress progress{display:block;width:100%;height:14px;accent-color:#168347}.ai-bulk-progress p{margin:8px 0 0;font-size:13px}
 </style>
