@@ -4,7 +4,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { AI_CONTROL_SET_MAX_ITEMS, AiVisualAttributesSchema, BrandTierSchema, CatalogAlertFiltersSchema, CatalogFiltersSchema, CreateAlertSchema, PRODUCT_DETAIL_PARSER_VERSION, UpdateAlertSchema, isAllowedAboutYouUrl, type CatalogFilters } from "@catalog/shared";
 import { z } from "zod";
-import { aiBudget, analyzeControlItem, type AiEnvironment } from "./ai-control";
+import { aiBudget, analyzeControlItem, loadControlAttributes, type AiEnvironment } from "./ai-control";
 import { alertFilterFingerprint, canonicalAlertFilters, hasMeaningfulAlertFilters, mapAlertRow, processTelegramAlerts, sendTelegramText } from "./telegram";
 
 type Bindings = {
@@ -494,11 +494,10 @@ app.get("/v1/admin/ai-control/sets/:id/items", requireAdmin, async (c) => {
     .eq("set_id", setId.data).order("added_at", { ascending: false }).limit(AI_CONTROL_SET_MAX_ITEMS);
   if (error) return c.json({ error: error.message }, 500);
   const ids = (items ?? []).map((item) => item.product_id);
-  const { data: attributes, error: attributesError } = ids.length
-    ? await db.from("product_ai_attributes").select("*").in("product_id", ids)
-    : { data: [], error: null };
-  if (attributesError) return c.json({ error: attributesError.message }, 500);
-  const byProduct = new Map((attributes ?? []).map((row) => [row.product_id, row]));
+  let attributes: Awaited<ReturnType<typeof loadControlAttributes>>;
+  try { attributes = await loadControlAttributes(db, ids); }
+  catch (cause) { return c.json({ error: cause instanceof Error ? cause.message : "AI atributų nuskaityti nepavyko" }, 500); }
+  const byProduct = new Map(attributes.map((row) => [row.product_id, row]));
   return c.json((items ?? []).map((item) => ({ ...item, ai: byProduct.get(item.product_id) ?? null })));
 });
 

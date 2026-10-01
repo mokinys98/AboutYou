@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { aiBudget, aiOutputFormat, analyzeControlItem } from "./ai-control";
+import { aiBudget, aiOutputFormat, analyzeControlItem, loadControlAttributes } from "./ai-control";
 
 const env = { AI_ENRICHMENT_ENABLED: "true", AI_INCENTIVE_VERIFIED: "true",
   AI_DAILY_TOKEN_CAP: "200000", OPENAI_API_KEY: "test-only" };
@@ -31,6 +31,39 @@ function fakeDb(response: unknown, status = 200) {
 }
 
 afterEach(() => vi.unstubAllGlobals());
+
+describe("AI control set attribute loading", () => {
+  it("loads all 300 attributes through short URLs and combines every batch", async () => {
+    const ids = Array.from({ length: 300 }, (_, index) =>
+      `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`);
+    const batches: string[][] = [];
+    const db = { from: () => ({ select: () => ({ in: async (_column: string, batch: string[]) => {
+      batches.push(batch);
+      return { data: batch.map((product_id) => ({ product_id })), error: null };
+    } }) }) } as unknown as SupabaseClient;
+
+    const rows = await loadControlAttributes(db, ids);
+
+    expect(batches).toHaveLength(6);
+    expect(batches.every((batch) => batch.length === 50)).toBe(true);
+    expect(batches.flat()).toEqual(ids);
+    expect(rows.map((row) => row.product_id)).toEqual(ids);
+    expect(Math.max(...batches.map((batch) =>
+      new URL(`https://example.test/rest/v1/product_ai_attributes?product_id=in.(${batch.join(",")})`).href.length)))
+      .toBeLessThan(4096);
+  });
+
+  it("stops when an attribute batch fails", async () => {
+    let calls = 0;
+    const db = { from: () => ({ select: () => ({ in: async () => {
+      calls++;
+      return calls === 2 ? { data: null, error: { message: "batch failed" } } : { data: [], error: null };
+    } }) }) } as unknown as SupabaseClient;
+
+    await expect(loadControlAttributes(db, Array(150).fill("id"))).rejects.toThrow("batch failed");
+    expect(calls).toBe(2);
+  });
+});
 
 describe("AI control cost gate", () => {
   it("rejects missing proof, key and oversized caps before any DB or network call", async () => {

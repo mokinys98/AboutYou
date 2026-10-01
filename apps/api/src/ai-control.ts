@@ -11,7 +11,20 @@ export type AiEnvironment = {
 
 export const AI_MODEL = "gpt-4.1-2025-04-14";
 export const AI_REQUEST_RESERVATION = 10000;
+const AI_ATTRIBUTE_ID_BATCH_SIZE = 50;
 const AI_PROMPT_VERSION = 1;
+
+export async function loadControlAttributes(db: SupabaseClient, productIds: string[]) {
+  const attributes: Array<{ product_id: string; [key: string]: unknown }> = [];
+  // PostgREST sends .in() values in the GET URL. A full 300-item set exceeds proxy URI limits.
+  for (let offset = 0; offset < productIds.length; offset += AI_ATTRIBUTE_ID_BATCH_SIZE) {
+    const ids = productIds.slice(offset, offset + AI_ATTRIBUTE_ID_BATCH_SIZE);
+    const { data, error } = await db.from("product_ai_attributes").select("*").in("product_id", ids);
+    if (error) throw new Error(error.message);
+    attributes.push(...(data ?? []));
+  }
+  return attributes;
+}
 
 const enumField = (values: readonly string[]) => ({ type: "string", enum: values });
 export const aiOutputFormat = {
