@@ -6,3 +6,6 @@ npx wrangler secret put OPENAI_API_KEY
 
 // Deployinti CloudFlare worker
 npm run deploy --workspace @catalog/api
+
+
+python scripts/benchmarks/catalog_facets_api.py run --auto-manifest --api-base https://aboutyou-private-catalog-api.aurimas-zvirb.workers.dev --output docs/katalogo-filtravimas/API_BANDYMAS_3.jsonl --per-group 1
