@@ -26,6 +26,7 @@ Tikras `GET /v1/catalog/facets` cache miss / hit HTTP p50 ir p95, naudojant pris
 
 - Naudotojo pateiktame `pg_stat_statements` rezultate pradinė `CREATE MATERIALIZED VIEW public.catalog_effective_size_membership_read` užklausa turėjo vieną vykdymą per **6 429,2 ms**. Kitos matomos brangiausios užklausos buvo pavyzdžių sutikrinimas (**20 911,8 ms**) ir jau žinomi `EXPLAIN` bei scenarijų generatoriaus skaitymai. Šiame išraše nėra atskiro `REFRESH MATERIALIZED VIEW` vykdymo, todėl 6,4 s **nėra** periodinio atnaujinimo trukmės įrodymas. Nutrauktos ar funkcijos viduje vykdomos komandos gali nepatekti į šią statistiką; tiksliai priežasčiai reikia cron vykdymų istorijos ir vykdymo fazių laiko.
 - 16:09:21 UTC skaitymo režimo patikroje `requested_version = 2056`, `completed_version = 2051`, paskutinė klaida `57014: canceling statement due to statement timeout`, `last_duration_ms = 300214`. Naujas procesas turėjo `catalog_effective_size_membership_read` užraktą. `codex_reader` nemato to proceso pilnos `pg_stat_activity.query` dėl teisių. Cron užduoties eilutės ir `cron.job_run_details` rezultatų naudotojas dar nepateikė.
+- Serverio `pg_stat_statements.track` reikšmė yra `top`. Tai paaiškina, kodėl PL/pgSQL funkcijos viduje vykdomas `REFRESH MATERIALIZED VIEW` nepatenka į šios statistikos išrašą; jo trukmės iš pateiktos lentelės apskaičiuoti negalima.
 
 ## Būsena ir tęsinys
 
