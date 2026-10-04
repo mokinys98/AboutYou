@@ -22,6 +22,11 @@ Tikras `GET /v1/catalog/facets` cache miss / hit HTTP p50 ir p95, naudojant pris
 - `codex_reader` neturi prieigos prie `cron` ir `extensions` schemų, todėl iš šios sesijos neprieinami cron istorijos ir `pg_stat_statements` įrašai. Nėra pagrindo vien iš dabartinių duomenų teigti, kad tai vienintelė laiko limito priežastis.
 - Atskirai pastebėta dydžių rakto korektiškumo problema: materializuotas modelis turi `shirts:-l` su etikete `XL` (15 405 eilutės) ir `clothing:--l` su etikete `XXL` (13 091 eilutė). Dabartinė `catalog_size_value_key()` išraiška `×` ir raidę `x` keičia į `-`, todėl šie raktai nėra žmogui aiškūs. Tai nepakeičia šio API matavimo blokavimo priežasties, bet turi būti įtraukta į atskirą dydžių normalizavimo regresiją.
 
+## 16:09 UTC papildoma cron diagnostika
+
+- Naudotojo pateiktame `pg_stat_statements` rezultate pradinė `CREATE MATERIALIZED VIEW public.catalog_effective_size_membership_read` užklausa turėjo vieną vykdymą per **6 429,2 ms**. Kitos matomos brangiausios užklausos buvo pavyzdžių sutikrinimas (**20 911,8 ms**) ir jau žinomi `EXPLAIN` bei scenarijų generatoriaus skaitymai. Šiame išraše nėra atskiro `REFRESH MATERIALIZED VIEW` vykdymo, todėl 6,4 s **nėra** periodinio atnaujinimo trukmės įrodymas. Nutrauktos ar funkcijos viduje vykdomos komandos gali nepatekti į šią statistiką; tiksliai priežasčiai reikia cron vykdymų istorijos ir vykdymo fazių laiko.
+- 16:09:21 UTC skaitymo režimo patikroje `requested_version = 2056`, `completed_version = 2051`, paskutinė klaida `57014: canceling statement due to statement timeout`, `last_duration_ms = 300214`. Naujas procesas turėjo `catalog_effective_size_membership_read` užraktą. `codex_reader` nemato to proceso pilnos `pg_stat_activity.query` dėl teisių. Cron užduoties eilutės ir `cron.job_run_details` rezultatų naudotojas dar nepateikė.
+
 ## Būsena ir tęsinys
 
 **API benchmark nepradėtas.** Prieš jį reikia pašalinti arba atskirai įvertinti katalogo refresh 300 s timeout, pasiekti `requested_version = completed_version`, atnaujinti scenarijų manifestą pagal tą versiją ir turėti prisijungusią aplikacijos sesiją. Po to bandomoji serija ir pilnas matavimas bus išsaugoti atskiruose datos bei laiko žymą turinčiuose JSONL failuose. Užklausų cache įrašai nebus trinami vien dėl matavimo.
