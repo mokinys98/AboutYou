@@ -31,8 +31,31 @@ Bazinis planas yra dokumentuotas VPS analizėje ir saugomas pradiniuose `*_expla
 - `codex_reader` sesijos `statement_timeout` buvo `0`; tai nėra `authenticator` RPC 8 s limitas. Todėl 6,891 s dviejų dalių suma dar negarantuoja, kad visas RPC ar API atsakys per 8 s.
 - Laikas svyravo tarp pakartojimų, todėl mažus pokyčius vertinti kaip triukšmo ribose. Matavimai neatspindi kontroliuoto šalto cache ir nėra realaus API p95.
 
-## Tolimesni veiksmai
+## Ankstesnė išvada po pirminės optimizacijos
 
 1. Optimizuoti effective dydžių narystės skaičiavimą, kuris vien „juoda“ scenarijuje tebėra apie 6 s.
 2. Po šio pakeitimo pakartoti tuos pačius planus ir atskirai išmatuoti realaus cache miss RPC/API p95 per įprastą aplikacijos kelią.
 3. OpenSearch svarstyti tik jei optimizuotas PostgreSQL kelias vis tiek nepasiekia našumo tikslo.
+
+## Pakartojimas po effective dydžių modelio ir semantikos migracijų
+
+2026-10-04 15:11 UTC skaitymo režimu PostgreSQL 17.6 per tą patį PuTTY tunelį pakartoti tie patys keturi `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` scenarijai. VPS metaduomenyse matomi `20261004110000`, `20261004120000` ir `20261004130000` migracijų pakeitimai. Tai bendras rezultatas po visų trijų pakeitimų, o ne izoliuotas vienos migracijos poveikis. Kaip ankstesniuose matavimuose, vykdyti gyvų funkcijų skaitantys SQL kūnai, neveikiantys `excludeBasics` ir `excludeAccessories` pagalbiniai kvietimai pakeisti tuščiais masyvais, o `catalog_simple_facet()` apvalkalas – `to_jsonb()`. Visi matavimai atlikti `BEGIN READ ONLY` / `ROLLBACK` sesijose; cache RPC nekviestas.
+
+| Scenarijus | Po pirminės optimizacijos B | Po trijų migracijų | Pokytis |
+| --- | ---: | ---: | ---: |
+| Ne dydžių facetai: juoda | 4 944,411 ms | 4 235,849 ms | −14,3 % |
+| Dydžių facetai: juoda | 5 970,691 ms | 889,822 ms | −85,1 % |
+| Ne dydžių facetai: žemiau LPL + juoda | 1 797,183 ms | 1 996,154 ms | +11,1 % |
+| Dydžių facetai: žemiau LPL + juoda | 5 093,993 ms | 243,121 ms | −95,2 % |
+
+Dviejų SQL dalių suma „tik juoda“ sumažėjo nuo **10,915 s iki 5,126 s** (apie −53 %), o „žemiau LPL + juoda“ – nuo **6,891 s iki 2,239 s** (apie −67 %). Tai pavieniai SQL planų matavimai, ne API cache miss p50/p95; mažesni ne dydžių dalies skirtumai gali būti matavimo svyravimas. Dabartinė SQL dalių suma abiem scenarijais mažesnė už 8 s, tačiau galutinis RPC ir API limitas dar nepatikrintas.
+
+Žali planai: [ne dydžių facetai, juoda](catalog_facets_black_after_effective_model_explain_2026-10-04.json), [dydžių facetai, juoda](catalog_sizes_black_after_effective_model_explain_2026-10-04.json), [ne dydžių facetai, LPL + juoda](catalog_facets_lpl_black_after_effective_model_explain_2026-10-04.json), [dydžių facetai, LPL + juoda](catalog_sizes_lpl_black_after_effective_model_explain_2026-10-04.json).
+
+Effective narystės materializuotas modelis turi **364 401** eilutę. Jo lentelė užima **48 734 208 B**, indeksai **37 036 032 B**, iš viso **85 819 392 B** (apie **81,8 MiB**). Refresh trukmė ir CPU pokytis dar neišmatuoti.
+
+## Tolimesni veiksmai dabar
+
+1. Patikrinti realius facetų ir produktų kiekius su „juoda“, „žemiau LPL + juoda“, grupuotais ir senais dydžių tokenais, `otherSizes`, override ir alertais.
+2. Po API ir web pakeitimų diegimo per įprastą autentifikuotą aplikacijos kelią išmatuoti cache miss ir hit p50/p95 bei timeout skaičių; SQL planų sumų nelaikyti šio matavimo pakaitalu.
+3. Per katalogo refresh ir klasifikacijos override užfiksuoti materializuoto modelio atnaujinimo trukmę bei VPS CPU. Jei API p95 vis dar viršija tikslą, pagal naujus planus optimizuoti likusią brangiausią dalį.

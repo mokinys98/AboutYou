@@ -2,13 +2,13 @@
 
 **Atnaujinta:** 2026-10-04  
 **Bendras progresas:** 20/100 – patikrintas vienas iš penkių etapų. Kiekvienas etapas sudaro 20 balų; dalinis įgyvendinimas balų neprideda.  
-**Dabartinė būsena:** spalio 4 d. SQL optimizacija pritaikyta ir išmatuota, tačiau „tik juoda“ filtro cache miss skaitančios dalys vis dar trunka apie 10,9 s. Tikrasis API p95 dar neišmatuotas.
+**Dabartinė būsena:** po trijų naujų migracijų VPS skaitančių SQL dalių suma „tik juoda“ scenarijuje sumažėjo nuo 10,915 iki 5,126 s, o „žemiau LPL + juoda“ – nuo 6,891 iki 2,239 s. Tai nėra tikras API cache miss laikas; jo p95 dar neišmatuotas.
 
 Šis skyrius yra **einamasis planas**. Toliau esanti 2026-07-31 analizė yra istorinis auditas: jos senos būsenos ir procentai neaprašo dabartinės VPS ar kodo būklės. Keičiant etapo būseną būtina čia pat įrašyti datą, rezultatą ir nuorodą į patikros įrodymą. `patikrinta` reiškia, kad veikia reikalingas kodas, o VPS pakeitimo atveju naudotojas pateikė sėkmingą „SQL Editor“ vykdymo rezultatą ir atskirai užfiksuota skaitymo režimo patikra.
 
 ## Dabartinė atskaitos vieta
 
-[Spalio 4 d. VPS analizė](KATALOGO_FILTRAVIMO_VPS_ANALIZE_2026-10-04.md) nustatė, kad produktų puslapis užtruko 155–187 ms, o pagrindinė gaištis yra nuosekliai skaičiuojami facetai po cache miss. [Pakartotiniai matavimai](KATALOGO_FILTRAVIMO_MATAVIMAI_2026-10-04.md) po `20261004100000_optimize_catalog_facet_prefilter.sql` rodo „žemiau LPL + juoda“ sumažėjimą nuo 10,051 iki 6,891 s. „Tik juoda“ nepagreitėjo: paskutinių dviejų SQL planų suma yra 10,915 s (4,944 + 5,971 s). Tai tiesioginių SQL kūnų, o ne viso RPC ar API p95, matavimai. `authenticator` užklausos limitas VPS yra 8 s.
+[Spalio 4 d. VPS analizė](KATALOGO_FILTRAVIMO_VPS_ANALIZE_2026-10-04.md) nustatė, kad produktų puslapis užtruko 155–187 ms, o pagrindinė gaištis yra nuosekliai skaičiuojami facetai po cache miss. [Pakartotiniai matavimai](KATALOGO_FILTRAVIMO_MATAVIMAI_2026-10-04.md) po `20261004100000_optimize_catalog_facet_prefilter.sql` rodė „žemiau LPL + juoda“ sumažėjimą nuo 10,051 iki 6,891 s, o „tik juoda“ liko 10,915 s. Po trijų naujų migracijų abu scenarijai sumažėjo atitinkamai iki 2,239 ir 5,126 s. Tai tiesioginių SQL kūnų, o ne viso RPC ar API p95, matavimai. `authenticator` užklausos limitas VPS yra 8 s.
 
 ## Etapai ir įrodymai
 
@@ -18,15 +18,17 @@
 | 1. Effective dydžių narystės našumas | **vykdoma** | Migracijos vykdymo rezultatas, skaitymo režimo patikra, keturi palyginami planai, atnaujinimo CPU / trukmė / disko dydis. |
 | 2. Filtrų ir alertų rezultatų tikslumas | **vykdoma** | Regresiniai DB / API scenarijai ir realių duomenų kiekiai visoms žemiau nurodytoms filtrų kombinacijoms. |
 | 3. Cache ir UI patikimumas | **vykdoma** | Desktop ir mobile scenarijai, užklausų lenktynių ir klaidų patikra, prieš / po užklausų skaičius. |
-| 4. Galutiniai matavimai ir uždarymas | **nepradėta** | Tikro cache miss ir hit API p50/p95, 8 s limito patikra, VPS resursai, suderintas šio dokumento ir `docs/TURINYS.md` progresas. |
+| 4. Galutiniai matavimai ir uždarymas | **vykdoma** | [Keturi nauji SQL planai](KATALOGO_FILTRAVIMO_MATAVIMAI_2026-10-04.md); dar reikia tikro cache miss ir hit API p50/p95, 8 s limito patikros, refresh sąnaudų ir galutinio progreso suderinimo. |
 
 ### 2026-10-04 įgyvendinimo įrašas
 
-Lokaliai paruoštos trys nuoseklios migracijos; **VPS jos dar nepritaikytos**:
+Lokaliai paruoštos trys nuoseklios migracijos. 2026-10-04 skaitymo režimu VPS jau matomi trečios migracijos pagalbiniai normalizavimo metodai, atnaujintas effective dydžių vaizdas ir `catalog_facets_cached()` apibrėžimas; tai patvirtina, kad pakeitimai įrašyti DB. Materializuotoje narystėje yra **364 401** eilutė, **0** dešimtainio kablelio tokenų ir **0** likusių išvardytų nenormalizuotų „vieno dydžio“ tokenų; `catalog_facets_cache` yra tuščias. SQL Editor paskutinės užklausos atsakyme pateikė kliento validavimo klaidą (`code` ir `formattedError` trūko), o ne PostgreSQL sėkmės išvestį. Todėl pagal VPS taikymo taisyklę **formalus migracijų vykdymo patvirtinimas dar laukiamas**; ši skaitymo režimo patikra registruojama atskirai. Migracijos iš naujo neleisti vien dėl šio SQL Editor pranešimo. [Keturi skaitymo režimo našumo planai](KATALOGO_FILTRAVIMO_MATAVIMAI_2026-10-04.md) jau išmatuoti, tačiau API p95 po šių migracijų dar neišmatuotas.
 
-1. [Effective dydžių read modelis](../../supabase/migrations/20261004110000_materialize_catalog_effective_sizes.sql) ir [jo skaitymo režimo patikra](../../supabase/tests/verify_catalog_effective_sizes_read_only.sql). Pirmiausia pritaikyti šį failą, patikrinti `true` požymius bei `sample_mismatches = 0`, tada išmatuoti keturis palyginamus SQL planus ir read modelio disko bei refresh sąnaudas.
-2. [Filtrų ir alertų semantika](../../supabase/migrations/20261004120000_align_catalog_filter_semantics.sql) ir [jos patikra](../../supabase/tests/verify_catalog_filter_semantics_read_only.sql). Taikyti tik po sėkmingo pirmo etapo; iš naujo patikrinti skaičius ir keturis planus.
-3. [Dydžių tokenų normalizavimas](../../supabase/migrations/20261004130000_normalize_effective_catalog_sizes.sql) ir [jo patikra](../../supabase/tests/verify_catalog_size_normalization_read_only.sql). Taikyti po antro etapo; patikrinti senų URL ir alertų tokenų suderinamumą.
+Naudotojas pateikė trijų patikros SQL rezultatų dalis: `sample_mismatches = 0`, penki filtrų semantikos apibrėžimų požymiai yra `true`, `decimal_comma_tokens = 0` ir `unnormalized_one_size_tokens = 0`. Codex papildomai skaitymo režimu patvirtino keturis effective modelio struktūros požymius (`true`) ir tuos pačius penkis semantikos požymius (`true`). Tai patvirtina modelio struktūrą, 20 produktų narystės imtį ir nurodytų normalizavimo tokenų nebuvimą materializuotame rezultate; dar trūksta pagalbinių funkcijų reikšmių iš normalizavimo patikros pirmos lentelės ir elgsenos scenarijų.
+
+1. [Effective dydžių read modelis](../../supabase/migrations/20261004110000_materialize_catalog_effective_sizes.sql) ir [jo skaitymo režimo patikra](../../supabase/tests/verify_catalog_effective_sizes_read_only.sql). VPS materializuotas modelis užpildytas, keturi struktūros požymiai yra `true`, 20 produktų imtyje `sample_mismatches = 0`; keturi SQL planai išmatuoti, liko refresh sąnaudos.
+2. [Filtrų ir alertų semantika](../../supabase/migrations/20261004120000_align_catalog_filter_semantics.sql) ir [jos patikra](../../supabase/tests/verify_catalog_filter_semantics_read_only.sql). Penki apibrėžimų požymiai yra `true`, keturi SQL planai išmatuoti; realius produktų bei facetų kiekius dar reikia patikrinti.
+3. [Dydžių tokenų normalizavimas](../../supabase/migrations/20261004130000_normalize_effective_catalog_sizes.sql) ir [jo patikra](../../supabase/tests/verify_catalog_size_normalization_read_only.sql). Materializuotų nenormalizuotų tokenų kiekiai yra `0`; dar reikia pagalbinių funkcijų rezultatų bei senų URL ir alertų tokenų suderinamumo patikros.
 
 API ir web kodo pakeitimus diegti **po visų trijų migracijų**, nes admin override API naudoja antrame faile sukurtas RPC funkcijas, o URL dydžių tokenai remiasi trečio failo normalizavimu. Lokaliai praėjo 163/163 testų ir API, web bei shared TypeScript patikros. Tai nepatvirtina VPS SQL vykdymo, realių facetų kiekių, cache miss p95 ar desktop/mobile elgsenos.
 
@@ -38,7 +40,7 @@ Skaitymo režimu patikrinta dabartinės VPS funkcijų nuosavybė: šiomis migrac
 - [ ] Indeksuoti paiešką pagal produkto ID ir tokeną; papildomą atvirkštinį indeksą pridėti tik jei planas parodys jo naudą. Užfiksuoti lentelės ir indeksų dydį bei refresh trukmę.
 - [ ] Išsaugoti dabartinę facetų API struktūrą, kontekstinius kiekius ir savos filtro grupės ignoravimą.
 - [ ] Paruošti pilną SQL migraciją, atskirą skaitymo režimo patikros SQL ir lokalius elgsenos scenarijus. Naudotojas migraciją pritaiko VPS „Supabase SQL Editor“; Codex jos nevykdo.
-- [ ] Po pritaikymo pakartoti keturis spalio 4 d. `EXPLAIN (ANALYZE, BUFFERS)` scenarijus vienodais filtrais ir palyginti su baziniais bei naujausiais planais.
+- [x] Po pritaikymo pakartoti keturis spalio 4 d. `EXPLAIN (ANALYZE, BUFFERS)` scenarijus vienodais filtrais ir palyginti su baziniais bei naujausiais planais. [Rezultatai ir žali planai](KATALOGO_FILTRAVIMO_MATAVIMAI_2026-10-04.md).
 
 ### 2 etapas – rezultatų tikslumas
 
