@@ -112,6 +112,9 @@ def catalog_version() -> dict:
 
 
 def generate(path: Path) -> None:
+    version_before = catalog_version()
+    if version_before["completed"] != version_before["requested"]:
+        raise RuntimeError(f"Catalog refresh is pending: {version_before}")
     rows = read_only_query("""
         select i.brand, i.color_shade, i.category_paths, i.current_price,
                i.source_lpl_30, i.below_source_lpl_30d, i.discount_pct,
@@ -202,9 +205,13 @@ def generate(path: Path) -> None:
     price = buckets["price_lpl"]
     buckets["price_lpl"] = [item for quartet in zip(price[:10], price[10:20], price[20:30], price[30:]) for item in quartet]
     scenarios = [buckets[group][index] for index in range(40) for group in GROUPS]
+    version_after = catalog_version()
+    if (version_after["completed"] != version_before["completed"]
+            or version_after["requested"] != version_after["completed"]):
+        raise RuntimeError(f"Catalog version changed while generating scenarios: {version_before} -> {version_after}")
     manifest = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
-        "catalog_version_at_generation": catalog_version(),
+        "catalog_version_at_generation": version_after,
         "source": "VPS catalog_items_read + catalog_effective_size_membership_read; 12000 deterministic product samples",
         "groups": list(GROUPS),
         "scenarios": scenarios,

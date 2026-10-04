@@ -1,9 +1,9 @@
 {
-  "generated_at_utc": "2026-10-04T15:42:12.409625+00:00",
+  "generated_at_utc": "2026-10-04T17:14:27.805089+00:00",
   "catalog_version_at_generation": {
-    "completed": 2051,
-    "requested": 2054,
-    "updated_at": "2026-10-04T15:35:02.254694+00:00"
+    "completed": 2059,
+    "requested": 2059,
+    "updated_at": "2026-10-04T17:10:00.028814+00:00"
   },
   "source": "VPS catalog_items_read + catalog_effective_size_membership_read; 12000 deterministic product samples",
   "groups": [
@@ -7652,15 +7652,15 @@
       "id": "single-34",
       "group": "single",
       "params": {
-        "category": "vyrams>drabužiai>džinsai"
+        "category": "vyrams>drabužiai>marškiniai>kasdieniniai marškiniai"
       },
-      "query": "category=vyrams%3Edrabu%C5%BEiai%3Ed%C5%BEinsai",
+      "query": "category=vyrams%3Edrabu%C5%BEiai%3Emar%C5%A1kiniai%3Ekasdieniniai+mar%C5%A1kiniai",
       "cache_filters": {
         "brands": [],
         "brandTiers": [],
         "sources": [],
         "categories": [
-          "vyrams>drabužiai>džinsai"
+          "vyrams>drabužiai>marškiniai>kasdieniniai marškiniai"
         ],
         "colors": [],
         "colorShades": [],
@@ -7677,7 +7677,7 @@
         "belowObserved30d": false,
         "newOnly": false,
         "priceComparison": "observed",
-        "categoryPath": "vyrams>drabužiai>džinsai"
+        "categoryPath": "vyrams>drabužiai>marškiniai>kasdieniniai marškiniai"
       }
     },
     {
@@ -7881,15 +7881,15 @@
       "id": "single-35",
       "group": "single",
       "params": {
-        "category": "vyrams>drabužiai>striukės>demisezoninės striukės"
+        "category": "vyrams>drabužiai>džinsai"
       },
-      "query": "category=vyrams%3Edrabu%C5%BEiai%3Estriuk%C4%97s%3Edemisezonin%C4%97s+striuk%C4%97s",
+      "query": "category=vyrams%3Edrabu%C5%BEiai%3Ed%C5%BEinsai",
       "cache_filters": {
         "brands": [],
         "brandTiers": [],
         "sources": [],
         "categories": [
-          "vyrams>drabužiai>striukės>demisezoninės striukės"
+          "vyrams>drabužiai>džinsai"
         ],
         "colors": [],
         "colorShades": [],
@@ -7906,7 +7906,7 @@
         "belowObserved30d": false,
         "newOnly": false,
         "priceComparison": "observed",
-        "categoryPath": "vyrams>drabužiai>striukės>demisezoninės striukės"
+        "categoryPath": "vyrams>drabužiai>džinsai"
       }
     },
     {
@@ -8114,15 +8114,15 @@
       "id": "single-36",
       "group": "single",
       "params": {
-        "category": "vyrams>drabužiai>marškiniai>kasdieniniai marškiniai"
+        "category": "vyrams>drabužiai>striukės>demisezoninės striukės"
       },
-      "query": "category=vyrams%3Edrabu%C5%BEiai%3Emar%C5%A1kiniai%3Ekasdieniniai+mar%C5%A1kiniai",
+      "query": "category=vyrams%3Edrabu%C5%BEiai%3Estriuk%C4%97s%3Edemisezonin%C4%97s+striuk%C4%97s",
       "cache_filters": {
         "brands": [],
         "brandTiers": [],
         "sources": [],
         "categories": [
-          "vyrams>drabužiai>marškiniai>kasdieniniai marškiniai"
+          "vyrams>drabužiai>striukės>demisezoninės striukės"
         ],
         "colors": [],
         "colorShades": [],
@@ -8139,7 +8139,7 @@
         "belowObserved30d": false,
         "newOnly": false,
         "priceComparison": "observed",
-        "categoryPath": "vyrams>drabužiai>marškiniai>kasdieniniai marškiniai"
+        "categoryPath": "vyrams>drabužiai>striukės>demisezoninės striukės"
       }
     },
     {
