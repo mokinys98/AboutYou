@@ -7,15 +7,18 @@ const route = useRoute(); const router = useRouter(); const api = useApi();
 const isNews = computed(() => route.path === "/naujienos");
 const products = ref<CatalogResponse["items"]>([]); const facets = ref<CatalogFacets | null>(null);
 const nextCursor = ref<string | null>(null); const loading = ref(true); const error = ref(""); const filtersOpen = ref(false);
+const facetsLoading = ref(false); const facetsError = ref("");
 const totalCount = ref(0);
 const gridColumns = ref<3 | 4>(3);
 const expandedRootPath = ref<string | null>(null);
 let lastFacetsKey = "";
-let pendingFacets: { key: string; request: Promise<CatalogFacets | null> } | null = null;
+const pendingFacets = new Map<string, Promise<CatalogFacets>>();
+let facetsRequestId = 0;
+let productRequestId = 0;
 // The database caches each exact filter context. Keep the browser cache short so
 // a catalog refresh or a classification override cannot remain stale all day.
 const facetsCacheTtlMs = 5 * 60 * 1000;
-const facetsCachePrefix = "catalog-facets:v3:";
+const facetsCachePrefix = "catalog-facets:v4:";
 const filterKeys = ["brands", "brand_tiers", "categories", "category", "colors", "color_shades", "sources", "sizes", "other_sizes", "materials", "patterns", "features", "styles", "product_types", "premium", "exclude_basics", "exclude_accessories", "price_min", "price_max", "discount_min", "lpl_proximity_pct", "below_observed_30d", "price_comparison", "catalog_version", "sort"];
 const filters = computed<Record<string, string>>(() => Object.fromEntries(filterKeys.flatMap((key) => typeof route.query[key] === "string" && route.query[key] ? [[key, route.query[key] as string]] : [])));
 const fallbackCategoryFacets = createFallbackCategoryFacets();
@@ -88,11 +91,7 @@ function restoreCachedFacets(key: string) {
   }
 }
 function hydrateFacetsFromCache(key: string) {
-  if (restoreCachedFacets(key)) return;
-  if (lastFacetsKey !== key) {
-    facets.value = null;
-    lastFacetsKey = "";
-  }
+  restoreCachedFacets(key);
 }
 function storeCachedFacets(key: string, value: CatalogFacets) {
   if (!import.meta.client) return;
@@ -106,7 +105,6 @@ function clearStoredFacetCache() {
   if (!import.meta.client) return;
   for (const key of Object.keys(localStorage)) if (key.startsWith(facetsCachePrefix)) localStorage.removeItem(key);
   lastFacetsKey = "";
-  facets.value = null;
 }
 function handleFacetCacheInvalidation() {
   if (!import.meta.client || !localStorage.getItem("catalog-facets:invalidate")) return;
@@ -115,34 +113,51 @@ function handleFacetCacheInvalidation() {
   void loadFacets(filters.value, { force: true });
 }
 async function load(reset = true) {
+  const requestId = ++productRequestId;
   loading.value = true; error.value = "";
   try {
     const query = apiParams(filters.value);
     if (!reset && nextCursor.value) query.set("cursor", nextCursor.value);
     const result = await api<CatalogResponse>(`/v1/catalog?${query}`);
+    if (requestId !== productRequestId) return;
     products.value = reset ? result.items : [...products.value, ...result.items];
     nextCursor.value = result.nextCursor;
     if (reset) totalCount.value = result.totalCount ?? result.items.length;
-  } catch (cause) { error.value = cause instanceof Error ? cause.message : "Katalogo užkrauti nepavyko"; }
-  finally { loading.value = false; }
+  } catch (cause) { if (requestId === productRequestId) error.value = cause instanceof Error ? cause.message : "Katalogo užkrauti nepavyko"; }
+  finally { if (requestId === productRequestId) loading.value = false; }
 }
 async function loadFacets(value = filters.value, options: { force?: boolean } = {}) {
+  const requestId = ++facetsRequestId;
   const query = apiParams(value);
   query.delete("sort");
   const key = query.toString();
-  if (key === lastFacetsKey && facets.value && !options.force) return facets.value;
-  if (!options.force && restoreCachedFacets(key)) return facets.value;
-  if (pendingFacets?.key === key) return pendingFacets.request;
-  const request = api<CatalogFacets>(`/v1/catalog/facets?${query}`).catch(() => null);
-  pendingFacets = { key, request };
-  const result = await request;
-  if (pendingFacets?.request === request) pendingFacets = null;
-  if (result) {
-    facets.value = result;
-    lastFacetsKey = key;
-    storeCachedFacets(key, result);
+  facetsError.value = "";
+  if (key === lastFacetsKey && facets.value && !options.force) { facetsLoading.value = false; return facets.value; }
+  if (!options.force && restoreCachedFacets(key)) { facetsLoading.value = false; return facets.value; }
+  facetsLoading.value = true;
+  if (options.force) pendingFacets.delete(key);
+  let request = pendingFacets.get(key);
+  if (!request) {
+    request = api<CatalogFacets>(`/v1/catalog/facets?${query}`);
+    pendingFacets.set(key, request);
   }
-  return result;
+  try {
+    const result = await request;
+    if (pendingFacets.get(key) === request) storeCachedFacets(key, result);
+    if (requestId === facetsRequestId) {
+      facets.value = result;
+      lastFacetsKey = key;
+    }
+    return result;
+  } catch {
+    if (requestId === facetsRequestId) facetsError.value = facets.value
+      ? "Filtrų atnaujinti nepavyko. Rodomi paskutiniai turimi filtrai."
+      : "Filtrų įkelti nepavyko.";
+    return null;
+  } finally {
+    if (pendingFacets.get(key) === request) pendingFacets.delete(key);
+    if (requestId === facetsRequestId) facetsLoading.value = false;
+  }
 }
 async function updateFilters(value: Record<string, string>) {
   const next = { ...value };
@@ -164,11 +179,11 @@ async function selectCategory(category: string) {
 const updateWatch = ({ id, isWatched }: { id: string; isWatched: boolean }) => {
   products.value = products.value.map((product) => product.id === id ? { ...product, isWatched } : product);
 };
-watch(() => route.query, () => {
+watch([() => route.path, () => route.query], () => {
   const query = apiParams(filters.value);
   query.delete("sort");
   hydrateFacetsFromCache(query.toString());
-  void Promise.all([load(true), loadFacets(filters.value, { force: true })]);
+  void Promise.all([load(true), loadFacets(filters.value)]);
 }, { deep: true });
 onMounted(() => {
   const query = apiParams(filters.value);
@@ -206,9 +221,11 @@ watch(gridColumns, (value) => localStorage.setItem("catalog-grid-columns", Strin
         </header>
         <div class="catalog-mobile-toolbar"><button class="filter-trigger" @click="filtersOpen = true">Filtrai</button><label>Rūšiuoti<select :value="filters.sort || 'newest'" @change="updateFilters({ ...filters, sort: ($event.target as HTMLSelectElement).value })"><option v-for="option in catalogSortOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select></label></div>
         <CatalogFilters :model-value="filters" :facets="facets" :total-count="totalCount" :open="filtersOpen" @update:model-value="updateFilters" @update:open="filtersOpen = $event" />
+        <p v-if="facetsLoading" class="catalog-facets-status" role="status">Atnaujinami filtrai…</p>
+        <p v-if="facetsError" class="error-state" role="alert">{{ facetsError }} <button type="button" @click="loadFacets(filters, { force: true })">Bandyti dar kartą</button></p>
         <div class="catalog-alert-row"><FilterAlertDialog :filters="filters" :total-count="totalCount" :title="isNews ? 'Naujienos' : catalogTitle" /></div>
         <p v-if="error" class="error-state">{{ error }}</p>
-        <div v-else-if="loading && !products.length" class="loading-grid" :style="{ '--catalog-columns': gridColumns }" role="status" aria-label="Kraunamos prekės"><div v-for="n in 8" :key="n" /></div>
+        <div v-if="loading && !products.length" class="loading-grid" :style="{ '--catalog-columns': gridColumns }" role="status" aria-label="Kraunamos prekės"><div v-for="n in 8" :key="n" /></div>
         <div v-else-if="products.length" class="product-grid-shell" :class="{ 'is-refreshing': loading }" :aria-busy="loading">
           <div v-if="loading" class="catalog-refresh-anchor">
             <div class="catalog-refresh-status" role="status" aria-live="polite">

@@ -2,7 +2,7 @@ import { Hono, type MiddlewareHandler } from "hono";
 import { cors } from "hono/cors";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { AI_CONTROL_SET_MAX_ITEMS, AiVisualAttributesSchema, BrandTierSchema, CatalogAlertFiltersSchema, CatalogFiltersSchema, CreateAlertSchema, PRODUCT_DETAIL_PARSER_VERSION, UpdateAlertSchema, isAllowedAboutYouUrl, type CatalogFilters } from "@catalog/shared";
+import { AI_CONTROL_SET_MAX_ITEMS, AiVisualAttributesSchema, BrandTierSchema, CatalogAlertFiltersSchema, CatalogFiltersSchema, CreateAlertSchema, PRODUCT_DETAIL_PARSER_VERSION, UpdateAlertSchema, canonicalCatalogSizeToken, isAllowedAboutYouUrl, parseCatalogSizeFilters, type CatalogFilters } from "@catalog/shared";
 import { z } from "zod";
 import { aiBudget, analyzeControlItem, loadControlAttributes, type AiEnvironment } from "./ai-control";
 import { alertFilterFingerprint, canonicalAlertFilters, hasMeaningfulAlertFilters, mapAlertRow, processTelegramAlerts, sendTelegramText } from "./telegram";
@@ -748,23 +748,22 @@ app.put("/v1/products/:id/debug/classification", requireAdmin, async (c) => {
   if (!id.success) return c.json({ error: "Neteisingas produkto ID" }, 400);
   const input = SizeClassificationOverrideInput.safeParse(await c.req.json().catch(() => null));
   if (!input.success) return c.json({ error: input.error.flatten() }, 400);
-  const { data, error } = await c.get("db").from("catalog_size_classification_overrides")
-    .upsert({ product_id: id.data, size_domain: input.data.sizeDomain, exclude_from_size_filter: input.data.excludeFromSizeFilter, size_value_overrides: input.data.sizeValueOverrides, note: input.data.note, updated_at: new Date().toISOString() })
-    .select("size_domain,exclude_from_size_filter,size_value_overrides,note")
-    .single();
+  const { data, error } = await c.get("db").rpc("save_catalog_size_classification_override", {
+    p_product_id: id.data,
+    p_size_domain: input.data.sizeDomain,
+    p_exclude_from_size_filter: input.data.excludeFromSizeFilter,
+    p_size_value_overrides: input.data.sizeValueOverrides,
+    p_note: input.data.note
+  });
   if (error) return c.json({ error: error.message }, 500);
-  const cacheError = (await c.get("db").rpc("invalidate_catalog_facets_cache")).error;
-  if (cacheError) return c.json({ error: cacheError.message }, 500);
-  return c.json({ sizeDomain: data.size_domain, excludeFromSizeFilter: data.exclude_from_size_filter, sizeValueOverrides: data.size_value_overrides ?? {}, note: data.note });
+  return c.json(data);
 });
 
 app.delete("/v1/products/:id/debug/classification", requireAdmin, async (c) => {
   const id = z.string().uuid().safeParse(c.req.param("id"));
   if (!id.success) return c.json({ error: "Neteisingas produkto ID" }, 400);
-  const { error } = await c.get("db").from("catalog_size_classification_overrides").delete().eq("product_id", id.data);
+  const { error } = await c.get("db").rpc("delete_catalog_size_classification_override", { p_product_id: id.data });
   if (error) return c.json({ error: error.message }, 500);
-  const cacheError = (await c.get("db").rpc("invalidate_catalog_facets_cache")).error;
-  if (cacheError) return c.json({ error: cacheError.message }, 500);
   return c.json({ deleted: true });
 });
 
@@ -1078,7 +1077,7 @@ export function parseFilters(query: Record<string, string>) {
   return CatalogFiltersSchema.safeParse({
     brands: list(query.brands), brandTiers: list(query.brand_tiers), sources: list(query.sources), categories: list(query.categories), categoryPath: query.category ? decodeFilterValue(query.category) : undefined, colors: list(query.colors),
     colorShades: list(query.color_shades),
-    sizes: list(query.sizes), otherSizes: list(query.other_sizes), materials: list(query.materials),
+    sizes: parseCatalogSizeFilters(query.sizes).map(canonicalCatalogSizeToken), otherSizes: parseCatalogSizeFilters(query.other_sizes), materials: list(query.materials),
     patterns: list(query.patterns), features: list(query.features), styles: list(query.styles),
     productTypes: list(query.product_types),
     isPremium: query.premium === "true",

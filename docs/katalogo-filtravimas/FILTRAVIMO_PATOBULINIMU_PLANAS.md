@@ -1,8 +1,74 @@
 # Katalogo filtravimo patobulinimų planas
 
-**Bendras progresas:** 34/100 (kontekstinio cache pataisa pritaikyta ir patikrinta VPS; likę normalizavimo bei UX blokatoriai)
-**Būsena:** `5cf9817` nepriimtas, tačiau kategorijos ir viso filtro kontekstą naudojanti dydžių cache pataisa jau veikia VPS; kelių filtrų UX, alertų predikatų suvienodinimas ir likę normalizavimo darbai dar neįgyvendinti
-**Prioritetas:** aukštas, nes dabartinis elgesys lėtina kasdienę produktų paiešką
+**Atnaujinta:** 2026-10-04  
+**Bendras progresas:** 20/100 – patikrintas vienas iš penkių etapų. Kiekvienas etapas sudaro 20 balų; dalinis įgyvendinimas balų neprideda.  
+**Dabartinė būsena:** spalio 4 d. SQL optimizacija pritaikyta ir išmatuota, tačiau „tik juoda“ filtro cache miss skaitančios dalys vis dar trunka apie 10,9 s. Tikrasis API p95 dar neišmatuotas.
+
+Šis skyrius yra **einamasis planas**. Toliau esanti 2026-07-31 analizė yra istorinis auditas: jos senos būsenos ir procentai neaprašo dabartinės VPS ar kodo būklės. Keičiant etapo būseną būtina čia pat įrašyti datą, rezultatą ir nuorodą į patikros įrodymą. `patikrinta` reiškia, kad veikia reikalingas kodas, o VPS pakeitimo atveju naudotojas pateikė sėkmingą „SQL Editor“ vykdymo rezultatą ir atskirai užfiksuota skaitymo režimo patikra.
+
+## Dabartinė atskaitos vieta
+
+[Spalio 4 d. VPS analizė](KATALOGO_FILTRAVIMO_VPS_ANALIZE_2026-10-04.md) nustatė, kad produktų puslapis užtruko 155–187 ms, o pagrindinė gaištis yra nuosekliai skaičiuojami facetai po cache miss. [Pakartotiniai matavimai](KATALOGO_FILTRAVIMO_MATAVIMAI_2026-10-04.md) po `20261004100000_optimize_catalog_facet_prefilter.sql` rodo „žemiau LPL + juoda“ sumažėjimą nuo 10,051 iki 6,891 s. „Tik juoda“ nepagreitėjo: paskutinių dviejų SQL planų suma yra 10,915 s (4,944 + 5,971 s). Tai tiesioginių SQL kūnų, o ne viso RPC ar API p95, matavimai. `authenticator` užklausos limitas VPS yra 8 s.
+
+## Etapai ir įrodymai
+
+| Etapas | Būsena | Užbaigimo įrodymas |
+| --- | --- | --- |
+| 0. Atskaitos vieta ir pirminis SQL pakeitimas | **patikrinta** | [2026-10-04 matavimai](KATALOGO_FILTRAVIMO_MATAVIMAI_2026-10-04.md); VPS patvirtinta bendro filtro vieta SQL plane. |
+| 1. Effective dydžių narystės našumas | **vykdoma** | Migracijos vykdymo rezultatas, skaitymo režimo patikra, keturi palyginami planai, atnaujinimo CPU / trukmė / disko dydis. |
+| 2. Filtrų ir alertų rezultatų tikslumas | **vykdoma** | Regresiniai DB / API scenarijai ir realių duomenų kiekiai visoms žemiau nurodytoms filtrų kombinacijoms. |
+| 3. Cache ir UI patikimumas | **vykdoma** | Desktop ir mobile scenarijai, užklausų lenktynių ir klaidų patikra, prieš / po užklausų skaičius. |
+| 4. Galutiniai matavimai ir uždarymas | **nepradėta** | Tikro cache miss ir hit API p50/p95, 8 s limito patikra, VPS resursai, suderintas šio dokumento ir `docs/TURINYS.md` progresas. |
+
+### 2026-10-04 įgyvendinimo įrašas
+
+Lokaliai paruoštos trys nuoseklios migracijos; **VPS jos dar nepritaikytos**:
+
+1. [Effective dydžių read modelis](../../supabase/migrations/20261004110000_materialize_catalog_effective_sizes.sql) ir [jo skaitymo režimo patikra](../../supabase/tests/verify_catalog_effective_sizes_read_only.sql). Pirmiausia pritaikyti šį failą, patikrinti `true` požymius bei `sample_mismatches = 0`, tada išmatuoti keturis palyginamus SQL planus ir read modelio disko bei refresh sąnaudas.
+2. [Filtrų ir alertų semantika](../../supabase/migrations/20261004120000_align_catalog_filter_semantics.sql) ir [jos patikra](../../supabase/tests/verify_catalog_filter_semantics_read_only.sql). Taikyti tik po sėkmingo pirmo etapo; iš naujo patikrinti skaičius ir keturis planus.
+3. [Dydžių tokenų normalizavimas](../../supabase/migrations/20261004130000_normalize_effective_catalog_sizes.sql) ir [jo patikra](../../supabase/tests/verify_catalog_size_normalization_read_only.sql). Taikyti po antro etapo; patikrinti senų URL ir alertų tokenų suderinamumą.
+
+API ir web kodo pakeitimus diegti **po visų trijų migracijų**, nes admin override API naudoja antrame faile sukurtas RPC funkcijas, o URL dydžių tokenai remiasi trečio failo normalizavimu. Lokaliai praėjo 163/163 testų ir API, web bei shared TypeScript patikros. Tai nepatvirtina VPS SQL vykdymo, realių facetų kiekių, cache miss p95 ar desktop/mobile elgsenos.
+
+Skaitymo režimu patikrinta dabartinės VPS funkcijų nuosavybė: šiomis migracijomis keičiamos funkcijos ir vaizdai priklauso `postgres`; `postgres` turi `EXECUTE` teisę atskirai `supabase_admin` valdomai statinio dydžių cache funkcijai. Naujos dydžių bei ne dydžių SQL užklausų ir alerto predikato išraiškos buvo suplanuotos su `EXPLAIN` dabartinėje VPS, laikinai pakeitus dar nesukurtą read modelį esamu vaizdu ir neprieinamus pagalbinius apvalkalus skaitymo režimo atitikmenimis. Tai sintaksės ir plano patikra, **ne** naujų migracijų našumo matavimas.
+
+### 1 etapas – dydžių facetų našumas
+
+- [ ] Įdėti iš anksto apskaičiuotą effective dydžių narystės read modelį. Jį atnaujinti po katalogo read modelio refresh ir po klasifikacijos override; kartu invaliuoti paveiktą facetų cache. Nauji filtrų deriniai turi jungti jau atrinktus produktų ID su paruošta naryste, o ne išplėsti visas ~363 tūkst. dydžių eilučių.
+- [ ] Indeksuoti paiešką pagal produkto ID ir tokeną; papildomą atvirkštinį indeksą pridėti tik jei planas parodys jo naudą. Užfiksuoti lentelės ir indeksų dydį bei refresh trukmę.
+- [ ] Išsaugoti dabartinę facetų API struktūrą, kontekstinius kiekius ir savos filtro grupės ignoravimą.
+- [ ] Paruošti pilną SQL migraciją, atskirą skaitymo režimo patikros SQL ir lokalius elgsenos scenarijus. Naudotojas migraciją pritaiko VPS „Supabase SQL Editor“; Codex jos nevykdo.
+- [ ] Po pritaikymo pakartoti keturis spalio 4 d. `EXPLAIN (ANALYZE, BUFFERS)` scenarijus vienodais filtrais ir palyginti su baziniais bei naujausiais planais.
+
+### 2 etapas – rezultatų tikslumas
+
+- [ ] Suvienodinti produktų, ne dydžių facetų, dydžių facetų ir alertų grupuotų bei senų dydžių tokenų narystės taisykles. Toje pačioje grupėje pasirinkimai veikia su `OR`, tarp grupių – su `AND`; skaičiuojamas facetas ignoruoja savo grupės filtrą.
+- [ ] Taikyti `lplProximityPct` visų facetų bendrame filtre ir grąžinti realius `otherSizes` su teisingais kiekiais.
+- [ ] Saugiai išlaikyti `42,5` kaip vieną dydžio tokeną; sutvarkyti „vieno dydžio“, `W × L` ir likusių dydžių normalizavimą, nepaslepiant neatpažintų reikšmių.
+- [ ] Patikrinti kategorijos, „juoda“, „žemiau LPL“, jų kombinacijos, grupuoto ir seno dydžio, override ir alerto rezultatus. Po kiekvieno SQL pakeitimo pakartoti keturis našumo planus.
+
+### 3 etapas – cache ir sąsajos patikimumas
+
+- [ ] Maršruto keitimo metu panaudoti galiojantį facetų cache arba jau vykstančią to paties filtro užklausą; pašalinti besąlyginį `force: true`.
+- [ ] Atskiriems produktų ir facetų atsakymams taikyti filtro raktą arba sekos numerį, kad senas atsakymas nepakeistų naujausios būsenos. Klaidos atveju palikti paskutinį tinkamą facetų sąrašą ir parodyti aiškią klaidą.
+- [ ] Stabilizuoti atidarytą filtrų meniu, išsaugoti pažymėtas reikšmes net kai jų kiekis tampa nulis, užbaigti kelių pasirinkimų taikymą desktop ir mobile.
+- [ ] Patikrinti greitą kelių dydžių žymėjimą, lėtą tinklą, puslapio perkrovimą, naršyklės istoriją ir klaviatūros valdymą.
+
+### 4 etapas – galutinis patvirtinimas
+
+- [ ] Išmatuoti tikro API kelio cache miss ir hit p50/p95; tikslas – cache miss p95 su aiškia atsarga mažesnis už 8 s, pageidautina 1–2 s. SQL planų sumos nelaikyti API matavimu.
+- [ ] API matavimui užfiksuoti bent 30 skirtingų neužkešuotų filtrų kombinacijų ir 30 pakartotinių tų pačių kombinacijų užklausų; įrašyti p50, p95, timeout skaičių, katalogo versiją ir matavimo laiką. Tai atlikti per įprastą autentifikuotą aplikacijos kelią po diegimo.
+- [ ] Per katalogo refresh ir override pamatuoti VPS CPU, disko prieaugį, atnaujinimo trukmę ir cache teisingumą.
+- [ ] Jei tikslas nepasiektas, pagal naujus planus optimizuoti didžiausią likusią išlaidą. Atskirą paieškos paslaugą svarstyti tik palyginus šį kelią su jos infrastruktūros ir priežiūros sąnaudomis.
+- [ ] Įrašyti galutinius rezultatus, atnaujinti etapų būsenas ir `docs/TURINYS.md` progresą.
+
+## VPS migracijų taisyklė
+
+Kiekvienam DB pakeitimui paruošti atskirą pilną failą `supabase/migrations/` ir skaitymo režimu vykdomą patikros SQL su laukiamu rezultatu. Naudotojas pats įkelia naujausią failo turinį į VPS „Supabase SQL Editor“ ir paleidžia. VPS pritaikymas laikomas patvirtintu tik gavus sėkmingo vykdymo išvestį; Codex per PuTTY tunelį gali atskirai atlikti tik skaitymo režimo diagnostiką. SQL klaidos atveju pirmiausia tirti esamą būseną, nelaikant ankstesnių sakinių automatiškai atšauktais.
+
+## Istorinis 2026-07-31 auditas ir ankstesnis planas
+
+Žemiau esanti medžiaga saugoma kaip ankstesnių sprendimų ir neatitikimų istorija. Jos TODO žymos nėra einamojo plano progreso matas.
 
 ## 2026-07-31 commit `5cf9817` atitikties auditas
 

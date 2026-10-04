@@ -136,6 +136,12 @@ describe("catalog API", () => {
     }
   });
 
+  it("keeps a decimal comma inside an encoded grouped size token", () => {
+    const parsed = parseFilters({ sizes: "shoes%3A42%2C5,M", other_sizes: "42%2C5,OneSize" });
+    expect(parsed.success && parsed.data.sizes).toEqual(["shoes:42.5", "M"]);
+    expect(parsed.success && parsed.data.otherSizes).toEqual(["42,5", "OneSize"]);
+  });
+
   it("parses decoded material names containing a literal percent sign", () => {
     const decoded = parseFilters({ materials: "100% Medvilnė" });
     const encoded = parseFilters({ materials: "100%25%20Medviln%C4%97" });

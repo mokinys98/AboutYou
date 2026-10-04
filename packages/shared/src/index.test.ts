@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { buildCategoryTree, catalogRootCategories, cents, CreateAlertSchema, expandClothingCategoryPath, isAllowedAboutYouUrl, normalizeCategoryPath, normalizeColor, normalizeColorShade, ProductAlertConditionsSchema, ProductSchema, UpdateAlertSchema } from "./index";
+import { buildCategoryTree, canonicalCatalogSizeToken, catalogRootCategories, cents, CreateAlertSchema, expandClothingCategoryPath, isAllowedAboutYouUrl, normalizeCategoryPath, normalizeColor, normalizeColorShade, parseCatalogSizeFilters, ProductAlertConditionsSchema, ProductSchema, serializeCatalogSizeFilters, UpdateAlertSchema } from "./index";
 
 describe("shared catalog rules", () => {
+  it("round trips grouped decimal sizes and accepts old comma-separated URLs", () => {
+    const values = ["shoes:42,5", "trousers:w32-l34"];
+    expect(parseCatalogSizeFilters(serializeCatalogSizeFilters(values))).toEqual(values);
+    expect(parseCatalogSizeFilters("shoes:42,M")).toEqual(["shoes:42", "M"]);
+    expect(canonicalCatalogSizeToken("shoes:42,5")).toBe("shoes:42.5");
+    expect(canonicalCatalogSizeToken("bags:Vienas-dydis")).toBe("bags:one-size");
+  });
   it("validates filter and product alert contracts", () => {
     expect(CreateAlertSchema.safeParse({ kind: "filter", name: "Nike", filters: { brands: ["Nike"] } }).success).toBe(true);
     expect(UpdateAlertSchema.parse({ conditions: { newMatches: true } }).conditions).toEqual({ newMatches: true });

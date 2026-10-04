@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Alert, CatalogAlertFilters } from "@catalog/shared";
+import { serializeCatalogSizeFilters, type Alert, type CatalogAlertFilters } from "@catalog/shared";
 
 export type TelegramEnv = {
   TELEGRAM_BOT_TOKEN?: string;
@@ -117,7 +117,7 @@ export function notificationUrl(payload: TelegramNotification, webAppUrl: string
   ];
   for (const [property, key] of lists) {
     const value = filters[property];
-    if (Array.isArray(value) && value.length) query.set(key, value.join(","));
+    if (Array.isArray(value) && value.length) query.set(key, key === "sizes" || key === "other_sizes" ? serializeCatalogSizeFilters(value) : value.join(","));
   }
   if (filters.categoryPath) query.set("category", filters.categoryPath);
   if (filters.isPremium) query.set("premium", "true");

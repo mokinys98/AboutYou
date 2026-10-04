@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { brandTierLabels, colorShadeLabels, type BrandTier, type CatalogFacets, type ColorShade } from "@catalog/shared";
+import { brandTierLabels, canonicalCatalogSizeToken, colorShadeLabels, parseCatalogSizeFilters, serializeCatalogSizeFilters, type BrandTier, type CatalogFacets, type ColorShade } from "@catalog/shared";
 import { catalogFiltersEqual, compactCatalogFilters } from "~/utils/catalogFilterDraft";
 
 type FacetItem = { value: string; count?: number; label?: string; domainKey?: string; domainLabel?: string; valueKey?: string; sortOrder?: number };
@@ -9,6 +9,7 @@ const props = defineProps<{ facets: CatalogFacets | null; modelValue: Record<str
 const emit = defineEmits<{ "update:modelValue": [value: Record<string, string>]; "update:open": [value: boolean] }>();
 const local = reactive<Record<string, string>>({ ...props.modelValue });
 const activeFilter = ref<string | null>(null);
+const activeItemSnapshot = ref<{ key: string; items: FacetItem[] } | null>(null);
 const searches = reactive<Record<string, string>>({});
 
 const replaceLocal = (value: Record<string, string>) => {
@@ -24,6 +25,7 @@ const hasPendingChanges = computed(() => !catalogFiltersEqual(local, props.model
 
 const groups = computed<FilterGroup[]>(() => [
   { key: "sizes", label: "Dydis", items: props.facets?.sizes ?? [] },
+  { key: "other_sizes", label: "Kiti dydžiai", items: props.facets?.otherSizes ?? [] },
   { key: "color_shades", label: "Spalva", items: (props.facets?.colorShades ?? []).map((item) => ({ ...item, label: colorShadeLabels[item.value] })) },
   { key: "brands", label: "Prekės ženklas", items: props.facets?.brands ?? [] },
   { key: "brand_tiers", label: "Brando lygis", items: (props.facets?.brandTiers ?? []).map((item) => ({ ...item, label: `${item.value} · ${brandTierLabels[item.value as BrandTier]}` })) },
@@ -36,8 +38,9 @@ const groups = computed<FilterGroup[]>(() => [
 const showMoreFilters = ref(false);
 const primaryGroupKeys = ["sizes", "color_shades", "brands", "brand_tiers"];
 const visibleGroups = computed(() => groups.value.filter((group) => showMoreFilters.value || primaryGroupKeys.includes(group.key)));
-const selected = (key: string, value: string) => (local[key] || "").split(",").includes(value);
-const activeCount = (key: string) => (local[key] || "").split(",").filter(Boolean).length;
+const selectedValues = (key: string) => key === "sizes" ? parseCatalogSizeFilters(local[key]).map(canonicalCatalogSizeToken) : key === "other_sizes" ? parseCatalogSizeFilters(local[key]) : (local[key] || "").split(",").filter(Boolean);
+const selected = (key: string, value: string) => selectedValues(key).includes(key === "sizes" ? canonicalCatalogSizeToken(value) : value);
+const activeCount = (key: string) => selectedValues(key).length;
 const saleDiscount = computed({
   get: () => Number(local.discount_min) || 0,
   set: (value: number) => { local.discount_min = value ? String(value) : ""; }
@@ -51,14 +54,25 @@ const premiumOnly = computed(() => local.premium === "true");
 const excludeBasics = computed(() => local.exclude_basics === "true");
 const excludeAccessories = computed(() => local.exclude_accessories === "true");
 const formattedTotalCount = computed(() => new Intl.NumberFormat("lt-LT").format(props.totalCount ?? 0));
+const availableItems = (group: FilterGroup) => {
+  const items = activeFilter.value === group.key && activeItemSnapshot.value?.key === group.key ? activeItemSnapshot.value.items : group.items;
+  const known = new Set(items.map((item) => group.key === "sizes" ? canonicalCatalogSizeToken(item.value) : item.value));
+  const missing = selectedValues(group.key).filter((value) => !known.has(value)).map((value) => ({
+    value, label: value, count: 0,
+    ...(group.key === "sizes" ? { domainKey: value.split(":")[0] || "other", domainLabel: value.split(":")[0] || "Kita" } : {})
+  }));
+  return [...items, ...missing];
+};
 const filteredItems = (group: FilterGroup) => {
   const query = (searches[group.key] || "").trim().toLocaleLowerCase("lt");
-  if (!query) return group.items.slice(0, 80);
-  return group.items.filter((item) => (item.label || item.value).toLocaleLowerCase("lt").includes(query)).slice(0, 80);
+  const items = availableItems(group);
+  const matches = query ? items.filter((item) => selected(group.key, item.value) || `${item.label || item.value} ${item.domainLabel || ""}`.toLocaleLowerCase("lt").includes(query)) : items;
+  if (group.key === "sizes") return matches;
+  return [...matches.slice(0, 80), ...matches.slice(80).filter((item) => selected(group.key, item.value))];
 };
 const groupedSizeItems = (items: FacetItem[]) => {
   const filtered = filteredItems({ key: "sizes", label: "Dydis", items });
-  return filtered.reduce<Array<{ key: string; label: string; items: FacetItem[] }>>((groups, item) => {
+  const groups = filtered.reduce<Array<{ key: string; label: string; items: FacetItem[] }>>((groups, item) => {
     const key = item.domainKey || "other";
     let group = groups.find((candidate) => candidate.key === key);
     if (!group) {
@@ -68,6 +82,10 @@ const groupedSizeItems = (items: FacetItem[]) => {
     group.items.push(item);
     return groups;
   }, []);
+  return groups.map((group) => ({ ...group, items: [
+    ...group.items.slice(0, 80),
+    ...group.items.slice(80).filter((item) => selected("sizes", item.value))
+  ] }));
 };
 
 const apply = () => {
@@ -75,20 +93,24 @@ const apply = () => {
   emit("update:modelValue", compactCatalogFilters(local));
 };
 const resetDraft = () => replaceLocal(props.modelValue);
+const focusFilterTrigger = () => { void nextTick(() => document.querySelector<HTMLButtonElement>(".filter-trigger")?.focus()); };
 const closeDrawer = () => {
   resetDraft();
   activeFilter.value = null;
   emit("update:open", false);
+  focusFilterTrigger();
 };
 const applyAndClose = () => {
   apply();
   activeFilter.value = null;
   emit("update:open", false);
+  focusFilterTrigger();
 };
 const toggle = (key: string, value: string) => {
-  const values = new Set((local[key] || "").split(",").filter(Boolean));
-  values.has(value) ? values.delete(value) : values.add(value);
-  local[key] = Array.from(values).join(",");
+  const values = new Set(selectedValues(key));
+  const normalized = key === "sizes" ? canonicalCatalogSizeToken(value) : value;
+  values.has(normalized) ? values.delete(normalized) : values.add(normalized);
+  local[key] = key === "sizes" || key === "other_sizes" ? serializeCatalogSizeFilters(Array.from(values)) : Array.from(values).join(",");
   activeFilter.value = key;
 };
 const toggleBelowLpl = () => {
@@ -118,7 +140,8 @@ const clear = () => {
 };
 const removeFilter = (key: string, value?: string) => {
   if (value) {
-    local[key] = (local[key] || "").split(",").filter((item) => item !== value).join(",");
+    const values = selectedValues(key).filter((item) => item !== value);
+    local[key] = key === "sizes" || key === "other_sizes" ? serializeCatalogSizeFilters(values) : values.join(",");
   } else {
     local[key] = "";
     if (key === "price") { local.price_min = ""; local.price_max = ""; }
@@ -128,8 +151,8 @@ const removeFilter = (key: string, value?: string) => {
 const activeChips = computed(() => {
   const chips: Array<{ key: string; value?: string; label: string }> = [];
   for (const group of groups.value) {
-    for (const value of (local[group.key] || "").split(",").filter(Boolean)) {
-      const item = group.items.find((candidate) => candidate.value === value);
+    for (const value of selectedValues(group.key)) {
+      const item = group.items.find((candidate) => (group.key === "sizes" ? canonicalCatalogSizeToken(candidate.value) : candidate.value) === value);
       chips.push({ key: group.key, value, label: group.key === "sizes" && item?.domainLabel ? `${item.domainLabel} · ${item.label || value}` : (item?.label || value) });
     }
   }
@@ -153,7 +176,10 @@ const shadeColors: Record<ColorShade, string> = {
 };
 const swatchStyle = (value: string) => ({ background: shadeColors[value as ColorShade] ?? shadeColors.other });
 const toggleFilter = (key: string) => {
-  activeFilter.value = activeFilter.value === key ? null : key;
+  const next = activeFilter.value === key ? null : key;
+  const items = groups.value.find((group) => group.key === next)?.items ?? [];
+  activeItemSnapshot.value = next && items.length ? { key: next, items: [...items] } : null;
+  activeFilter.value = next;
 };
 const onDocumentPointerDown = (event: PointerEvent) => {
   const target = event.target as Element | null;

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Alert, CatalogAlertFilters, TelegramConnection } from "@catalog/shared";
+import { canonicalCatalogSizeToken, parseCatalogSizeFilters, type Alert, type CatalogAlertFilters, type TelegramConnection } from "@catalog/shared";
 
 const props = defineProps<{ filters: Record<string, string>; totalCount: number; title: string }>();
 const api = useApi();
@@ -13,13 +13,14 @@ function alertFilters(): Partial<CatalogAlertFilters> {
     brands: list("brands"), brandTiers: list("brand_tiers") as CatalogAlertFilters["brandTiers"], sources: list("sources"),
     categories: list("categories"), categoryPath: props.filters.category || undefined,
     colors: list("colors") as CatalogAlertFilters["colors"], colorShades: list("color_shades") as CatalogAlertFilters["colorShades"],
-    sizes: list("sizes"), otherSizes: list("other_sizes"), materials: list("materials"), patterns: list("patterns"),
+    sizes: parseCatalogSizeFilters(props.filters.sizes).map(canonicalCatalogSizeToken), otherSizes: parseCatalogSizeFilters(props.filters.other_sizes), materials: list("materials"), patterns: list("patterns"),
     features: list("features"), styles: list("styles"), productTypes: list("product_types"),
     isPremium: props.filters.premium === "true", excludeBasics: props.filters.exclude_basics === "true",
     excludeAccessories: props.filters.exclude_accessories === "true",
     priceMin: props.filters.price_min ? Math.round(Number(props.filters.price_min) * 100) : undefined,
     priceMax: props.filters.price_max ? Math.round(Number(props.filters.price_max) * 100) : undefined,
     discountMin: props.filters.discount_min ? Number(props.filters.discount_min) : undefined,
+    lplProximityPct: props.filters.lpl_proximity_pct ? Number(props.filters.lpl_proximity_pct) : undefined,
     belowObserved30d: props.filters.below_observed_30d === "true",
     priceComparison: props.filters.price_comparison === "source_lpl" ? "source_lpl" : "observed"
   };

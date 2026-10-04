@@ -1,5 +1,30 @@
 import { z } from "zod";
 
+// Size tokens can contain a decimal comma. Encode each token before joining
+// the URL list so a comma inside a token is never treated as a separator.
+export function serializeCatalogSizeFilters(values: readonly string[]): string {
+  return values.map((value) => encodeURIComponent(value)).join(",");
+}
+
+export function parseCatalogSizeFilters(value?: string): string[] {
+  if (!value) return [];
+  return value.split(",").filter(Boolean).map((part) => {
+    try { return decodeURIComponent(part); } catch { return part; }
+  });
+}
+
+export function canonicalCatalogSizeToken(value: string): string {
+  const separator = value.indexOf(":");
+  if (separator < 0) return value;
+  const domain = value.slice(0, separator);
+  const key = value.slice(separator + 1).toLocaleLowerCase("lt");
+  const collapsed = key.replace(/[\s_-]+/g, "");
+  const normalized = ["vienasdydis", "onesize", "1size", "ns"].includes(collapsed)
+    ? "one-size"
+    : key.replace(/(\d),(\d)/g, "$1.$2");
+  return `${domain}:${normalized}`;
+}
+
 export const PRODUCT_DETAIL_PARSER_VERSION = 5;
 
 export const colorFamilies = [

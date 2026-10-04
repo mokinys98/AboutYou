@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { parseCatalogSizeFilters } from "@catalog/shared";
 import { alertFilterFingerprint, canonicalAlertFilters, hasMeaningfulAlertFilters, notificationText, notificationUrl, selectNotificationImages, sendTelegramNotification, type TelegramNotification } from "./telegram";
 
 const filters = {
@@ -40,6 +41,8 @@ describe("Telegram alerts", () => {
     expect(notificationUrl(filterPayload, "https://catalog.example/")).toContain("price_max=50");
     expect(notificationUrl(filterPayload, "https://catalog.example/")).toContain("exclude_accessories=true");
     expect(notificationUrl(filterPayload, "https://catalog.example/")).toContain("catalog_version=42");
+    const decimalUrl = notificationUrl({ ...filterPayload, filters: { ...filters, sizes: ["shoes:42,5", "M"] } }, "https://catalog.example/");
+    expect(parseCatalogSizeFilters(new URL(decimalUrl).searchParams.get("sizes") ?? "")).toEqual(["shoes:42,5", "M"]);
     expect(notificationText(filterPayload)).toContain("A&amp;B &lt;nauji&gt;");
     expect(notificationUrl({ ...filterPayload, kind: "product" }, "https://catalog.example")).toBe("https://catalog.example/products/1");
   });
