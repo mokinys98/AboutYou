@@ -1,8 +1,9 @@
 """Repeatable, paced catalog facet API benchmark.
 
 Generate a fixed scenario manifest from the read-only PostgreSQL tunnel, then
-run authenticated HTTP miss/hit pairs. The bearer token is read only from
-CATALOG_BENCH_TOKEN and is never written to the output.
+run authenticated HTTP miss/hit pairs. The bearer token is read from
+CATALOG_BENCH_TOKEN or a hidden interactive prompt and is never written to
+the output.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 from datetime import datetime, timezone
+import getpass
 import hashlib
 import http.client
 import json
@@ -263,7 +265,11 @@ def run(manifest_path: Path, api_base: str, output_path: Path, per_group: int) -
         raise RuntimeError("Manifest was generated from another or pending catalog version; regenerate it before benchmarking")
     token = os.environ.get("CATALOG_BENCH_TOKEN", "").strip()
     if not token:
-        raise RuntimeError("CATALOG_BENCH_TOKEN is missing; never put it in a command argument or repository file")
+        if not sys.stdin.isatty():
+            raise RuntimeError("CATALOG_BENCH_TOKEN is missing and no interactive terminal is available")
+        token = getpass.getpass("Paste the signed-in API access token (hidden input): ").strip()
+    if not token:
+        raise RuntimeError("An API access token is required; never put it in a command argument or repository file")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     counts = Counter()
     measurements = []
