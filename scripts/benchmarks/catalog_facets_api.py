@@ -249,12 +249,34 @@ def request(host: str, path: str, token: str) -> dict:
         connection.close()
 
 
-def run(manifest_path: Path, api_base: str, output_path: Path, per_group: int) -> None:
+def run(manifest_path: Path | None, api_base: str, output_path: Path,
+        per_group: int, auto_manifest: bool = False) -> None:
     parsed = urlparse(api_base)
     if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.path not in ("", "/") or parsed.port not in (None, 443):
         raise ValueError("--api-base must be an HTTPS origin with no path or credentials")
     if parsed.hostname not in ALLOWED_API_HOSTS:
         raise ValueError("--api-base is not the project's confirmed production API host")
+    if output_path.exists():
+        raise RuntimeError(f"Output already exists; choose a new --output path: {output_path}")
+    if auto_manifest:
+        if manifest_path is not None:
+            raise ValueError("--auto-manifest cannot be combined with --manifest")
+        manifest_path = output_path.with_suffix(".manifest.json")
+        if manifest_path.exists():
+            raise RuntimeError(f"Manifest already exists; choose a new --output path: {manifest_path}")
+        token = os.environ.get("CATALOG_BENCH_TOKEN", "").strip()
+        if not token:
+            if not sys.stdin.isatty():
+                raise RuntimeError("CATALOG_BENCH_TOKEN is missing and no interactive terminal is available")
+            token = getpass.getpass("Paste the signed-in API access token (hidden input): ").strip()
+        if not token:
+            raise RuntimeError("An API access token is required; never put it in a command argument or repository file")
+        generate(manifest_path)
+    else:
+        if manifest_path is None:
+            raise ValueError("--manifest is required unless --auto-manifest is used")
+        token = ""
+    assert manifest_path is not None
     manifest_bytes = manifest_path.read_bytes()
     manifest = json.loads(manifest_bytes)
     version_before = catalog_version()
@@ -263,13 +285,14 @@ def run(manifest_path: Path, api_base: str, output_path: Path, per_group: int) -
     manifest_version = manifest.get("catalog_version_at_generation", {})
     if manifest_version.get("completed") != version_before["completed"] or manifest_version.get("requested") != manifest_version.get("completed"):
         raise RuntimeError("Manifest was generated from another or pending catalog version; regenerate it before benchmarking")
-    token = os.environ.get("CATALOG_BENCH_TOKEN", "").strip()
     if not token:
-        if not sys.stdin.isatty():
-            raise RuntimeError("CATALOG_BENCH_TOKEN is missing and no interactive terminal is available")
-        token = getpass.getpass("Paste the signed-in API access token (hidden input): ").strip()
-    if not token:
-        raise RuntimeError("An API access token is required; never put it in a command argument or repository file")
+        token = os.environ.get("CATALOG_BENCH_TOKEN", "").strip()
+        if not token:
+            if not sys.stdin.isatty():
+                raise RuntimeError("CATALOG_BENCH_TOKEN is missing and no interactive terminal is available")
+            token = getpass.getpass("Paste the signed-in API access token (hidden input): ").strip()
+        if not token:
+            raise RuntimeError("An API access token is required; never put it in a command argument or repository file")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     counts = Counter()
     measurements = []
@@ -340,7 +363,9 @@ def main() -> None:
     make = sub.add_parser("generate", help="Generate deterministic DB-witnessed scenarios in read-only mode")
     make.add_argument("--output", type=Path, required=True)
     measure = sub.add_parser("run", help="Measure authenticated API miss/hit pairs")
-    measure.add_argument("--manifest", type=Path, required=True)
+    measure.add_argument("--manifest", type=Path)
+    measure.add_argument("--auto-manifest", action="store_true",
+                         help="Generate a fresh manifest beside --output immediately before measuring")
     measure.add_argument("--api-base", required=True)
     measure.add_argument("--output", type=Path, required=True)
     measure.add_argument("--per-group", type=int, choices=(2, 20), default=2)
@@ -349,7 +374,7 @@ def main() -> None:
         if args.command == "generate":
             generate(args.output)
         else:
-            run(args.manifest, args.api_base, args.output, args.per_group)
+            run(args.manifest, args.api_base, args.output, args.per_group, args.auto_manifest)
     except (RuntimeError, ValueError) as exc:
         print(f"Benchmark not started: {exc}", file=sys.stderr)
         raise SystemExit(2) from None

@@ -100,10 +100,15 @@ Tikras `GET /v1/catalog/facets` cache miss / hit HTTP p50 ir p95, naudojant pris
 
 ### Pakartojamas API bandomosios serijos paleidimas
 
-Prisijungusioje naršyklėje „DevTools → Network“ atidaryti savo `GET /v1/catalog/facets` užklausą ir nukopijuoti tik jos `Authorization: Bearer ...` antraštės **žetono dalį**. Projekto šaknyje savo terminale paleisti žemiau esančią komandą; ji žetoną paprašys įvesti paslėptai. Jo neįrašyti į komandą, failą ar pokalbį. Jei 2068 katalogo versija jau pasikeitė, skriptas saugiai nepradės matavimo; pirma reikia sugeneruoti naujos versijos manifestą ir pakeisti `--manifest` kelią.
+Prisijungusioje naršyklėje „DevTools → Network“ atidaryti savo `GET /v1/catalog/facets` užklausą ir nukopijuoti tik jos `Authorization: Bearer ...` antraštės **žetono dalį**. Projekto šaknyje savo terminale paleisti žemiau esančią komandą; ji žetoną paprašys įvesti paslėptai. Jo neįrašyti į komandą, failą ar pokalbį. `--auto-manifest` iš dabartinės stabilios katalogo versijos iškart prieš matavimą sukuria naują manifestą šalia JSONL, todėl istorinio 2068 failo keisti nereikia.
 
 ```powershell
-python scripts/benchmarks/catalog_facets_api.py run --manifest docs/katalogo-filtravimas/API_SCENARIJAI_2026-10-04_V2068.json --api-base https://aboutyou-private-catalog-api.aurimas-zvirb.workers.dev --output docs/katalogo-filtravimas/API_BANDYMAS_V2068_1.jsonl --per-group 2
+python scripts/benchmarks/catalog_facets_api.py run --auto-manifest --api-base https://aboutyou-private-catalog-api.aurimas-zvirb.workers.dev --output docs/katalogo-filtravimas/API_BANDYMAS_2.jsonl --per-group 2
 ```
 
-Skriptas siunčia nuoseklias **12** cache miss / hit porų, prieš kiekvieną tikrina, kad DB cache rakto nėra, o po abiejų prašymų – kad įrašas atsirado ir jo `created_at` nepasikeitė. JSONL turi laikus, HTTP būsenas, klaidas, manifesto SHA-256 ir katalogo versiją, bet **neturi žetono**. Jei po dviejų nesėkmingų porų arba pasikeitus versijai bandymas nutrūksta, išsaugotą JSONL palikti diagnostikai; naujam bandymui naudoti naują `--output` vardą. Pateikus bandomojo failo rezultatus, ta pačia tvarka suplanuoti 20 porų kiekvienai grupei.
+Skriptas siunčia nuoseklias **12** cache miss / hit porų, prieš kiekvieną tikrina, kad DB cache rakto nėra, o po abiejų prašymų – kad įrašas atsirado ir jo `created_at` nepasikeitė. Kartu sukuriamas `API_BANDYMAS_2.manifest.json`; JSONL turi laikus, HTTP būsenas, klaidas, manifesto SHA-256 ir katalogo versiją, bet **neturi žetono**. Jei katalogas tuo metu atnaujinamas, matavimas saugiai neprasideda; jį pakartoti pasibaigus refresh. Jei po dviejų nesėkmingų porų arba pasikeitus versijai bandymas nutrūksta, išsaugotus failus palikti diagnostikai ir naujam bandymui naudoti naują `--output` vardą. Pateikus bandomojo failo rezultatus, ta pačia tvarka suplanuoti 20 porų kiekvienai grupei.
+
+### 20:04 UTC pirmas bandomosios serijos sustojimas
+
+- Naudotojas paleido komandą su 2068 versijos manifestu; skriptas grąžino `Benchmark not started: Manifest was generated from another or pending catalog version`. API užklausų jis **neišsiuntė**, rezultatų JSONL nesukūrė. Skaitymo režimu VPS tuo metu buvo `requested = completed = 2069`, būsena `refreshed`; 20:00–20:04 UTC ciklas truko **247 625 ms**.
+- Kad šis natūralus katalogo versijos pokytis nereikalautų rankinio manifesto perrašymo, matavimo skriptas papildytas `--auto-manifest` režimu. Jis naują manifestą rašo šalia kiekvieno unikalaus rezultatų failo, o versijos patikras prieš užklausas ir jų metu palieka galioti. Sena versija ir jos manifestas lieka istorijoje.
