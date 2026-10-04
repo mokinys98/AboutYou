@@ -2,7 +2,7 @@
 
 **Atnaujinta:** 2026-10-04  
 **Bendras progresas:** 20/100 – patikrintas vienas iš penkių etapų. Kiekvienas etapas sudaro 20 balų; dalinis įgyvendinimas balų neprideda.  
-**Dabartinė būsena:** po trijų naujų migracijų VPS skaitančių SQL dalių suma „tik juoda“ scenarijuje sumažėjo nuo 10,915 iki 5,126 s, o „žemiau LPL + juoda“ – nuo 6,891 iki 2,239 s. Tai nėra tikras API cache miss laikas; jo p95 dar neišmatuotas.
+**Dabartinė būsena:** po trijų naujų migracijų VPS skaitančių SQL dalių suma „tik juoda“ scenarijuje sumažėjo nuo 10,915 iki 5,126 s, o „žemiau LPL + juoda“ – nuo 6,891 iki 2,239 s. Tikras API p95 dar neišmatuotas. [2026-10-04 API matavimo diagnostika](API_MATAVIMO_ZURNALAS_2026-10-04.md) parodė kartotinį katalogo read modelio refresh **300 s timeout** ir atsilikusias versijas; šią kliūtį reikia sutvarkyti prieš API benchmark.
 
 Šis skyrius yra **einamasis planas**. Toliau esanti 2026-07-31 analizė yra istorinis auditas: jos senos būsenos ir procentai neaprašo dabartinės VPS ar kodo būklės. Keičiant etapo būseną būtina čia pat įrašyti datą, rezultatą ir nuorodą į patikros įrodymą. `patikrinta` reiškia, kad veikia reikalingas kodas, o VPS pakeitimo atveju naudotojas pateikė sėkmingą „SQL Editor“ vykdymo rezultatą ir atskirai užfiksuota skaitymo režimo patikra.
 
@@ -15,10 +15,10 @@
 | Etapas | Būsena | Užbaigimo įrodymas |
 | --- | --- | --- |
 | 0. Atskaitos vieta ir pirminis SQL pakeitimas | **patikrinta** | [2026-10-04 matavimai](KATALOGO_FILTRAVIMO_MATAVIMAI_2026-10-04.md); VPS patvirtinta bendro filtro vieta SQL plane. |
-| 1. Effective dydžių narystės našumas | **vykdoma** | Migracijos vykdymo rezultatas, skaitymo režimo patikra, keturi palyginami planai, atnaujinimo CPU / trukmė / disko dydis. |
+| 1. Effective dydžių narystės našumas | **vykdoma** | [Keturi SQL planai](KATALOGO_FILTRAVIMO_MATAVIMAI_2026-10-04.md) rodo užklausų pagreitėjimą, tačiau [refresh pasiekia 300 s timeout](API_MATAVIMO_ZURNALAS_2026-10-04.md). Reikia pataisyti atnaujinimo kelią ir pamatuoti jo CPU / trukmę / disko dydį. |
 | 2. Filtrų ir alertų rezultatų tikslumas | **vykdoma** | Regresiniai DB / API scenarijai ir realių duomenų kiekiai visoms žemiau nurodytoms filtrų kombinacijoms. |
 | 3. Cache ir UI patikimumas | **vykdoma** | Desktop ir mobile scenarijai, užklausų lenktynių ir klaidų patikra, prieš / po užklausų skaičius. |
-| 4. Galutiniai matavimai ir uždarymas | **vykdoma** | [Keturi nauji SQL planai](KATALOGO_FILTRAVIMO_MATAVIMAI_2026-10-04.md); dar reikia tikro cache miss ir hit API p50/p95, 8 s limito patikros, refresh sąnaudų ir galutinio progreso suderinimo. |
+| 4. Galutiniai matavimai ir uždarymas | **vykdoma** | [Keturi nauji SQL planai](KATALOGO_FILTRAVIMO_MATAVIMAI_2026-10-04.md) ir [pakartojamas API scenarijų rinkinys](API_MATAVIMO_ZURNALAS_2026-10-04.md); aktyvų benchmark stabdo nesėkmingas katalogo refresh. Liko tikras API p50/p95, 8 s limito patikra ir galutinis progresas. |
 
 ### 2026-10-04 įgyvendinimo įrašas
 
