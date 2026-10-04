@@ -31,4 +31,11 @@ Tikras `GET /v1/catalog/facets` cache miss / hit HTTP p50 ir p95, naudojant pris
 
 ## Būsena ir tęsinys
 
+### 16:16 UTC cron istorija ir taisymo paruošimas
+
+- Naudotojo SQL Editor rezultatas patvirtino: `catalog-read-model-refresh` aktyvus, paleidžiamas kas 5 min. (`*/5 * * * *`), komandoje `statement_timeout = '5min'` ir `lock_timeout = '3s'`.
+- `cron.job_run_details` 15:20–16:15 UTC ciklus žymi `succeeded` su `return_message = '1 row'`. Tai rodo tik SQL komandos užbaigimą: `process_catalog_items_read_refresh()` pagauna `query_canceled`, įrašo `last_status = failed` ir grąžina JSON eilutę, todėl cron istorijos `succeeded` **nereiškia**, kad katalogas atnaujintas.
+- 16:16:15 UTC tiesioginė skaitymo režimo patikra rodė `requested_version = 2056`, `completed_version = 2051`; 16:10:04 UTC pradėtas ciklas baigėsi 16:15:04 UTC po **300 326 ms** su `57014`. Ankstesni užraktų stebėjimai rodė užsitęsusią naujojo effective dydžių vaizdo atnaujinimo fazę.
+- Paruošta [mažos apimties taisymo migracija](../../supabase/migrations/20261004140000_unblock_effective_size_refresh.sql): tik effective dydžių vaizdo atnaujinimas keičiamas iš `CONCURRENTLY` į pilną `REFRESH`, nekeičiant API ir kitų trijų read modelių. Ji dar **nepritaikyta VPS**. Pilnas atnaujinimas gali trumpam blokuoti šio vaizdo skaitytojus; tikroji trukmė ir poveikis bus aiškūs tik po pritaikymo. [Atskira skaitymo režimo patikra](../../supabase/tests/verify_catalog_refresh_recovery_read_only.sql) tikrina funkcijos apibrėžimą ir versijų būseną po kito cron ciklo.
+
 **API benchmark nepradėtas.** Prieš jį reikia pašalinti arba atskirai įvertinti katalogo refresh 300 s timeout, pasiekti `requested_version = completed_version`, atnaujinti scenarijų manifestą pagal tą versiją ir turėti prisijungusią aplikacijos sesiją. Po to bandomoji serija ir pilnas matavimas bus išsaugoti atskiruose datos bei laiko žymą turinčiuose JSONL failuose. Užklausų cache įrašai nebus trinami vien dėl matavimo.

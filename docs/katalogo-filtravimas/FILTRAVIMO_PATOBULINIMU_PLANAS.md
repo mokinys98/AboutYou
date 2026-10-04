@@ -2,7 +2,7 @@
 
 **Atnaujinta:** 2026-10-04  
 **Bendras progresas:** 20/100 – patikrintas vienas iš penkių etapų. Kiekvienas etapas sudaro 20 balų; dalinis įgyvendinimas balų neprideda.  
-**Dabartinė būsena:** po trijų naujų migracijų VPS skaitančių SQL dalių suma „tik juoda“ scenarijuje sumažėjo nuo 10,915 iki 5,126 s, o „žemiau LPL + juoda“ – nuo 6,891 iki 2,239 s. Tikras API p95 dar neišmatuotas. [2026-10-04 API matavimo diagnostika](API_MATAVIMO_ZURNALAS_2026-10-04.md) parodė kartotinį katalogo read modelio refresh **300 s timeout** ir atsilikusias versijas; šią kliūtį reikia sutvarkyti prieš API benchmark.
+**Dabartinė būsena:** po trijų naujų migracijų VPS skaitančių SQL dalių suma „tik juoda“ scenarijuje sumažėjo nuo 10,915 iki 5,126 s, o „žemiau LPL + juoda“ – nuo 6,891 iki 2,239 s. Tikras API p95 dar neišmatuotas. [2026-10-04 API matavimo diagnostika](API_MATAVIMO_ZURNALAS_2026-10-04.md) parodė kartotinį katalogo read modelio refresh **300 s timeout** ir atsilikusias versijas; cron `succeeded` žymi tik grąžintą SQL eilutę, nors funkcijos vidinė būsena yra `failed`. Paruošta [refresh taisymo migracija](../../supabase/migrations/20261004140000_unblock_effective_size_refresh.sql), kurią VPS dar turi pritaikyti naudotojas. Kliūtį reikia sutvarkyti prieš API benchmark.
 
 Šis skyrius yra **einamasis planas**. Toliau esanti 2026-07-31 analizė yra istorinis auditas: jos senos būsenos ir procentai neaprašo dabartinės VPS ar kodo būklės. Keičiant etapo būseną būtina čia pat įrašyti datą, rezultatą ir nuorodą į patikros įrodymą. `patikrinta` reiškia, kad veikia reikalingas kodas, o VPS pakeitimo atveju naudotojas pateikė sėkmingą „SQL Editor“ vykdymo rezultatą ir atskirai užfiksuota skaitymo režimo patikra.
 
@@ -40,6 +40,7 @@ Skaitymo režimu patikrinta dabartinės VPS funkcijų nuosavybė: šiomis migrac
 - [ ] Indeksuoti paiešką pagal produkto ID ir tokeną; papildomą atvirkštinį indeksą pridėti tik jei planas parodys jo naudą. Užfiksuoti lentelės ir indeksų dydį bei refresh trukmę.
 - [ ] Išsaugoti dabartinę facetų API struktūrą, kontekstinius kiekius ir savos filtro grupės ignoravimą.
 - [ ] Paruošti pilną SQL migraciją, atskirą skaitymo režimo patikros SQL ir lokalius elgsenos scenarijus. Naudotojas migraciją pritaiko VPS „Supabase SQL Editor“; Codex jos nevykdo.
+- [ ] Pritaikius [effective dydžių refresh taisymą](../../supabase/migrations/20261004140000_unblock_effective_size_refresh.sql), atskirai [patikrinti funkcijos apibrėžimą ir katalogo versijas](../../supabase/tests/verify_catalog_refresh_recovery_read_only.sql). Fiksuoti pirmojo sėkmingo ciklo trukmę ir ar pilnas `REFRESH` trumpam blokavo dydžių skaitymą; tik po to atnaujinti API scenarijų manifestą.
 - [x] Po pritaikymo pakartoti keturis spalio 4 d. `EXPLAIN (ANALYZE, BUFFERS)` scenarijus vienodais filtrais ir palyginti su baziniais bei naujausiais planais. [Rezultatai ir žali planai](KATALOGO_FILTRAVIMO_MATAVIMAI_2026-10-04.md).
 
 ### 2 etapas – rezultatų tikslumas
