@@ -113,6 +113,21 @@ def catalog_version() -> dict:
     return {"completed": completed, "requested": requested, "updated_at": updated_at.isoformat()}
 
 
+def wait_for_current_catalog(deadline: float) -> dict:
+    last_notice = 0.0
+    while True:
+        version = catalog_version()
+        if version["completed"] == version["requested"]:
+            return version
+        now = time.monotonic()
+        if now >= deadline:
+            raise RuntimeError(f"Catalog did not become current within 15 minutes: {version}")
+        if now - last_notice >= 30:
+            print(f"Catalog refresh pending ({version['completed']} -> {version['requested']}); waiting automatically...", flush=True)
+            last_notice = now
+        time.sleep(min(10, deadline - now))
+
+
 def generate(path: Path) -> None:
     version_before = catalog_version()
     if version_before["completed"] != version_before["requested"]:
@@ -271,20 +286,40 @@ def run(manifest_path: Path | None, api_base: str, output_path: Path,
             token = getpass.getpass("Paste the signed-in API access token (hidden input): ").strip()
         if not token:
             raise RuntimeError("An API access token is required; never put it in a command argument or repository file")
-        generate(manifest_path)
+        deadline = time.monotonic() + 15 * 60
+        while True:
+            wait_for_current_catalog(deadline)
+            try:
+                generate(manifest_path)
+            except RuntimeError as exc:
+                if "Catalog refresh is pending" not in str(exc) and "Catalog version changed while generating" not in str(exc):
+                    raise
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("Catalog did not stay current long enough to generate a manifest") from None
+                continue
+            manifest_bytes = manifest_path.read_bytes()
+            manifest = json.loads(manifest_bytes)
+            version_before = catalog_version()
+            manifest_version = manifest.get("catalog_version_at_generation", {})
+            if (version_before["completed"] == version_before["requested"]
+                    and manifest_version.get("completed") == version_before["completed"]):
+                break
+            print("Catalog version changed before measuring; waiting for the next current version...", flush=True)
+            if time.monotonic() >= deadline:
+                raise RuntimeError("Catalog did not stay current long enough to start the benchmark")
     else:
         if manifest_path is None:
             raise ValueError("--manifest is required unless --auto-manifest is used")
         token = ""
+        manifest_bytes = manifest_path.read_bytes()
+        manifest = json.loads(manifest_bytes)
+        version_before = catalog_version()
+        if version_before["completed"] != version_before["requested"]:
+            raise RuntimeError(f"Catalog refresh is pending; benchmark not started: {version_before}")
+        manifest_version = manifest.get("catalog_version_at_generation", {})
+        if manifest_version.get("completed") != version_before["completed"] or manifest_version.get("requested") != manifest_version.get("completed"):
+            raise RuntimeError("Manifest was generated from another or pending catalog version; regenerate it before benchmarking")
     assert manifest_path is not None
-    manifest_bytes = manifest_path.read_bytes()
-    manifest = json.loads(manifest_bytes)
-    version_before = catalog_version()
-    if version_before["completed"] != version_before["requested"]:
-        raise RuntimeError(f"Catalog refresh is pending; benchmark not started: {version_before}")
-    manifest_version = manifest.get("catalog_version_at_generation", {})
-    if manifest_version.get("completed") != version_before["completed"] or manifest_version.get("requested") != manifest_version.get("completed"):
-        raise RuntimeError("Manifest was generated from another or pending catalog version; regenerate it before benchmarking")
     if not token:
         token = os.environ.get("CATALOG_BENCH_TOKEN", "").strip()
         if not token:
@@ -368,7 +403,7 @@ def main() -> None:
                          help="Generate a fresh manifest beside --output immediately before measuring")
     measure.add_argument("--api-base", required=True)
     measure.add_argument("--output", type=Path, required=True)
-    measure.add_argument("--per-group", type=int, choices=(2, 20), default=2)
+    measure.add_argument("--per-group", type=int, choices=(1, 2, 20), default=1)
     args = parser.parse_args()
     try:
         if args.command == "generate":
