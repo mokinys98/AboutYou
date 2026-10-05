@@ -332,15 +332,40 @@ funkcinis tikslumas ir sąsajos patikimumas.
   patikra per tunelį grąžino `requested_version = completed_version = 2115`,
   būseną `clean`, stebimuose modeliuose refresh užraktų nebuvo, `{}` facetų
   cache įrašas buvo. Produkcinėje DB nieko nekeista.
-- Tikras API bandymas **dar nepradėtas**: įrankio paslėptas tokeno įvesties
-  terminalas naudotojui nebuvo matomas. Įvestis atšaukta prieš JSONL
-  žurnalavimo ir prieš API užklausas; joks tokenas nebuvo įrašytas ar išsiųstas.
-  Todėl `API_REFRESH_PROBE_2026-10-05.jsonl` šiame bandyme dar nesukurtas, o
-  statusai ir trukmės nepatvirtinti.
-- Atkūrimas matomame IDE PowerShell terminale: iš repo šaknies paleisti
-  `.\.venv\Scripts\python.exe scripts/benchmarks/catalog_refresh_probe.py`
-  ir įvesti šviežią API access token tik į paslėptą
-  terminalo promptą. Palikti procesą veikti: jis laukia iki 30 min. natūralaus
-  refresh, jo neinicijuoja, o pradėjęs ciklą laukia iki 6 min. pabaigos. Tada
-  išsaugoti sugeneruotą JSONL ir papildyti šį žurnalą faktiniais rezultatais.
-  120 porų imtis nekartojama.
+- Po šio įrašo probe paleistas matomame PowerShell lange su šviežiu tokenu;
+  tokenas į failą ar šį žurnalą nepateko. Žali įrašai:
+  `API_REFRESH_PROBE_2026-10-05.jsonl`. Jokio refresh bandymo tikslais
+  neinicijavau; 120 porų imtis nekartota.
+
+## 09:50–09:59 UTC: API matavimas per natūralų refresh
+
+- Abi pradinės užklausos stabilioje versijoje `2115/2115` grąžino HTTP 200:
+  `/v1/catalog` **225 ms** (80 586 baitų), `/v1/catalog/facets` **784 ms**
+  (2 056 862 baitai). Tuo metu refresh užraktų nebuvo, `{}` facetų cache
+  įrašas buvo.
+- Natūralus refresh pakėlė prašomą versiją `2115 → 2116`. Aktyvus langas
+  užfiksuotas, kai `catalog_items_read` turėjo suteiktą `ExclusiveLock`, o
+  versijos buvo `2116/2115`, būsena `pending`. Abu API atsakymai išmatuoti šio
+  lango viduje ir prieš bei po jų DB snapshot patvirtino tą pačią versijų
+  neatitiktį bei užraktą: `/v1/catalog` HTTP 200, **3 448 ms**, 80 586 baitų;
+  `/v1/catalog/facets` HTTP 200, **652 ms**, 2 056 862 baitai. Kitų dviejų
+  stebėtų read modelių užraktai snapshotuose tuo metu nepasirodė.
+- Ciklas baigėsi sėkmingai: `2116/2116`, `last_status = refreshed`, be klaidos,
+  trukmė **264 465 ms** (~4 min. 24 s); po jo stebimų refresh užraktų neliko.
+  Po ciklo `/v1/catalog` grąžino HTTP 200 per **286 ms** (80 586 baitų), o
+  `/v1/catalog/facets` HTTP 200 per **4 771 ms** (2 057 226 baitų). Visi šeši
+  API atsakymai buvo HTTP 200 ir trumpesni už dokumentuotą **8 s** ribą; 401,
+  403, 5xx, timeout ar kitų transporto klaidų neužfiksuota.
+- Facetų `{}` cache įrašas buvo prieš refresh ir per aktyvaus lango užklausą;
+  iškart po refresh, prieš facetų API kvietimą, jo nebuvo, o po kvietimo atsirado.
+  Tai suderinama su įprastu facetų endpointo cache užpildymu; cache rankiniu būdu
+  nekeistas. `/v1/catalog` Cloudflare cache būsena prieš ir po refresh buvo
+  `HIT`; aktyviame etape ši antraštė negrąžinta, todėl to etapo edge cache
+  rezultato nepažymiu.
+- Rezultatas `captured_refresh_cycle_all_requests_200_under_threshold` reiškia,
+  kad abu autentifikuoti endpointai buvo užklausti visose trijose fazėse, aktyvūs
+  kvietimai susieti su versijos atsilikimu ir realiu read-modelio užraktu, visi
+  atsakymai sėkmingi ir greitesni nei 8 s. Lėčiausias buvo facetų kvietimas po
+  refresh (**4,77 s**); šio vieno matavimo nepakanka teigti apie bendrą p95 ar
+  kitų ciklų greitį. Atkūrimas: vėl paleisti probe matomame PowerShell su šviežiu
+  tokenu ir laukti kito natūralaus ciklo; neinicijuoti refresh rankiniu būdu.
