@@ -4,6 +4,8 @@
 **Bendras progresas:** 20/100 – patikrintas vienas iš penkių etapų. Kiekvienas etapas sudaro 20 balų; dalinis įgyvendinimas balų neprideda.  
 **Dabartinė būsena:** po trijų naujų migracijų VPS skaitančių SQL dalių suma „tik juoda“ scenarijuje sumažėjo nuo 10,915 iki 5,126 s, o „žemiau LPL + juoda“ – nuo 6,891 iki 2,239 s. [2026-10-04 API matavimo diagnostika](API_MATAVIMO_ZURNALAS_2026-10-04.md) užfiksavo sėkmingus katalogo atnaujinimo ciklus, bet per pilną dydžių refresh produktų API yra grąžinęs HTTP 500. Šakninio filtro timeout pataisa ir stabili kategorijų tvarka patvirtintos SQL Editor „Success“, atsakymo lygybe ir sėkmingu cache miss per aplikaciją. **2070** versijos [šešių porų API bandyme](API_BANDYMAS_4.jsonl) visos 12 užklausų grąžino 200, timeout nebuvo: miss mediana **3,894 s**, hit mediana **0,255 s**, didžiausias miss **6,338 s**. Imtis per maža patikimam p95 ir 8 s tikslo patvirtinimui; toliau reikia bent 120 porų ir sumažinti refresh poveikį katalogo skaitymui.
 
+**2026-10-05 eiga:** [paruoštas neblokuojančio refresh bandymas ir patikros](ATNAUJINIMO_EIGA_2026-10-05.md). Migracija VPS dar nepritaikyta; šiandienos tiesioginė VPS būsena dar nepatikrinta, nes vietinis SSH tunelio portas nepriėmė ryšio.
+
 Šis skyrius yra **einamasis planas**. Toliau esanti 2026-07-31 analizė yra istorinis auditas: jos senos būsenos ir procentai neaprašo dabartinės VPS ar kodo būklės. Keičiant etapo būseną būtina čia pat įrašyti datą, rezultatą ir nuorodą į patikros įrodymą. `patikrinta` reiškia, kad veikia reikalingas kodas, o VPS pakeitimo atveju naudotojas pateikė sėkmingą „SQL Editor“ vykdymo rezultatą ir atskirai užfiksuota skaitymo režimo patikra.
 
 ## Dabartinė atskaitos vieta

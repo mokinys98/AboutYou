@@ -265,7 +265,7 @@ def request(host: str, path: str, token: str) -> dict:
 
 
 def run(manifest_path: Path | None, api_base: str, output_path: Path,
-        per_group: int, auto_manifest: bool = False) -> None:
+        per_group: int, auto_manifest: bool = False, start_index: int = 0) -> None:
     parsed = urlparse(api_base)
     if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.path not in ("", "/") or parsed.port not in (None, 443):
         raise ValueError("--api-base must be an HTTPS origin with no path or credentials")
@@ -330,6 +330,7 @@ def run(manifest_path: Path | None, api_base: str, output_path: Path,
             raise RuntimeError("An API access token is required; never put it in a command argument or repository file")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     counts = Counter()
+    candidate_indices = Counter()
     measurements = []
     failures = 0
     aborted_reason = None
@@ -337,13 +338,23 @@ def run(manifest_path: Path | None, api_base: str, output_path: Path,
     with output_path.open("x", encoding="utf-8") as output:
         meta = {"type": "run", "started_at_utc": started_at, "api_origin": api_base,
                 "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(), "per_group": per_group,
+                "start_index_per_group": start_index,
                 "catalog_version_before": version_before}
         output.write(json.dumps(meta, ensure_ascii=False) + "\n")
         output.flush()
         for item in manifest["scenarios"]:
             group = item["group"]
+            candidate_index = candidate_indices[group]
+            candidate_indices[group] += 1
+            if candidate_index < start_index:
+                continue
             if counts[group] >= per_group:
                 continue
+            pair_version_before = catalog_version()
+            if (pair_version_before["completed"] != version_before["completed"]
+                    or pair_version_before["requested"] != pair_version_before["completed"]):
+                aborted_reason = f"Catalog version changed or refresh began before pair: {pair_version_before}"
+                break
             filters = item["cache_filters"]
             before = cache_created_at(filters)
             if before is not None:
@@ -353,9 +364,16 @@ def run(manifest_path: Path | None, api_base: str, output_path: Path,
             after_miss = cache_created_at(filters)
             hit = request(parsed.netloc, path, token) if miss["status"] == 200 and after_miss else None
             after_hit = cache_created_at(filters) if hit else None
-            valid_pair = bool(miss["status"] == 200 and hit and hit["status"] == 200 and after_miss and after_hit == after_miss)
+            pair_version_after = catalog_version()
+            stable_version = (pair_version_after["completed"] == pair_version_before["completed"]
+                              and pair_version_after["requested"] == pair_version_after["completed"])
+            valid_pair = bool(stable_version and miss["status"] == 200 and hit and hit["status"] == 200
+                              and after_miss and after_hit == after_miss)
             record = {"type": "scenario", "at_utc": datetime.now(timezone.utc).isoformat(),
                       "id": item["id"], "group": group, "params": item["params"],
+                      "candidate_index_per_group": candidate_index,
+                      "catalog_version_before": pair_version_before,
+                      "catalog_version_after": pair_version_after,
                       "cache_before": before, "cache_after_miss": after_miss,
                       "cache_after_hit": after_hit, "miss": miss, "hit": hit,
                       "valid_pair": valid_pair}
@@ -363,9 +381,8 @@ def run(manifest_path: Path | None, api_base: str, output_path: Path,
             output.flush()
             measurements.append(record)
             counts[group] += 1
-            current_version = catalog_version()
-            if current_version["completed"] != version_before["completed"] or current_version["requested"] != current_version["completed"]:
-                aborted_reason = f"Catalog version changed or refresh began: {current_version}"
+            if not stable_version:
+                aborted_reason = f"Catalog version changed or refresh began during pair: {pair_version_after}"
                 break
             if not valid_pair:
                 failures += 1
@@ -404,12 +421,15 @@ def main() -> None:
     measure.add_argument("--api-base", required=True)
     measure.add_argument("--output", type=Path, required=True)
     measure.add_argument("--per-group", type=int, choices=(1, 2, 20), default=1)
+    measure.add_argument("--start-index", type=int, choices=range(40), default=0,
+                         help="Skip this many candidates in each group for a later measurement segment")
     args = parser.parse_args()
     try:
         if args.command == "generate":
             generate(args.output)
         else:
-            run(args.manifest, args.api_base, args.output, args.per_group, args.auto_manifest)
+            run(args.manifest, args.api_base, args.output, args.per_group,
+                args.auto_manifest, args.start_index)
     except (RuntimeError, ValueError) as exc:
         print(f"Benchmark not started: {exc}", file=sys.stderr)
         raise SystemExit(2) from None
