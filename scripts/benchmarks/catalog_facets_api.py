@@ -246,6 +246,90 @@ def cache_created_at(filters: dict) -> str | None:
     return rows[0][0].isoformat() if rows else None
 
 
+def prior_valid_filters(paths: list[Path], api_base: str) -> tuple[dict[str, set[str]], list[int]]:
+    """Load verified miss/hit keys from earlier segments, across catalog versions."""
+    keys = {group: set() for group in GROUPS}
+    owners = {}
+    versions = set()
+    visited = set()
+    visiting = set()
+
+    def include(path: Path) -> None:
+        resolved = path.resolve()
+        if resolved in visited:
+            return
+        if resolved in visiting:
+            raise ValueError(f"Circular --resume-from chain: {path}")
+        visiting.add(resolved)
+        try:
+            load(path)
+        finally:
+            visiting.remove(resolved)
+        visited.add(resolved)
+
+    def load(path: Path) -> None:
+        rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+        if len(rows) < 2 or rows[0].get("type") != "run" or rows[-1].get("type") != "summary":
+            raise ValueError(f"Incomplete prior benchmark: {path}")
+        meta = rows[0]
+        if meta.get("api_origin") != api_base:
+            raise ValueError(f"Prior benchmark uses another API origin: {path}")
+        for ancestor_name in meta.get("resume_from", []):
+            ancestor = Path(ancestor_name)
+            if not ancestor.is_absolute() and not ancestor.exists():
+                ancestor = path.parent / ancestor.name
+            include(ancestor)
+        manifest_path = path.with_suffix(".manifest.json")
+        manifest_bytes = manifest_path.read_bytes()
+        if hashlib.sha256(manifest_bytes).hexdigest() != meta.get("manifest_sha256"):
+            raise ValueError(f"Prior manifest SHA-256 mismatch: {manifest_path}")
+        manifest = json.loads(manifest_bytes)
+        scenarios = {item["id"]: item for item in manifest["scenarios"]}
+        for row in rows[1:-1]:
+            if row.get("type") != "scenario" or not row.get("valid_pair"):
+                continue
+            item = scenarios.get(row.get("id"))
+            before = row.get("catalog_version_before", {})
+            after = row.get("catalog_version_after", {})
+            miss, hit = row.get("miss") or {}, row.get("hit") or {}
+            if (item is None or item["group"] != row.get("group")
+                    or miss.get("status") != 200 or hit.get("status") != 200
+                    or miss.get("body_sha256") != hit.get("body_sha256")
+                    or row.get("cache_before") is not None
+                    or not row.get("cache_after_miss")
+                    or row.get("cache_after_miss") != row.get("cache_after_hit")
+                    or before.get("completed") != after.get("completed")
+                    or before.get("requested") != before.get("completed")
+                    or after.get("requested") != after.get("completed")):
+                raise ValueError(f"Invalid prior pair {row.get('id')}: {path}")
+            key = json.dumps(item["cache_filters"], ensure_ascii=False, sort_keys=True)
+            owner = owners.setdefault(key, item["group"])
+            if owner != item["group"]:
+                raise ValueError(f"Prior filter key appears in different groups: {path}")
+            keys[owner].add(key)
+            versions.add(before["completed"])
+
+    for path in paths:
+        include(path)
+    return keys, sorted(versions)
+
+
+def access_token() -> str:
+    token = os.environ.get("CATALOG_BENCH_TOKEN", "").strip()
+    if not token:
+        if not sys.stdin.isatty():
+            raise RuntimeError("CATALOG_BENCH_TOKEN is missing and no interactive terminal is available")
+        try:
+            token = getpass.getpass("Paste a fresh API access token, then press Enter (input is hidden): ").strip()
+        except (KeyboardInterrupt, EOFError):
+            raise RuntimeError("Token entry canceled; no API request was sent") from None
+    if not token:
+        raise RuntimeError("An API access token is required; never put it in a command argument or repository file")
+    if token.lower().startswith("bearer "):
+        raise RuntimeError("Paste only the token value, without the Bearer prefix")
+    return token
+
+
 def request(host: str, path: str, token: str) -> dict:
     connection = http.client.HTTPSConnection(host, timeout=20)
     started = time.perf_counter()
@@ -265,7 +349,8 @@ def request(host: str, path: str, token: str) -> dict:
 
 
 def run(manifest_path: Path | None, api_base: str, output_path: Path,
-        per_group: int, auto_manifest: bool = False, start_index: int = 0) -> None:
+        per_group: int, auto_manifest: bool = False, start_index: int = 0,
+        resume_from: list[Path] | None = None) -> None:
     parsed = urlparse(api_base)
     if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.path not in ("", "/") or parsed.port not in (None, 443):
         raise ValueError("--api-base must be an HTTPS origin with no path or credentials")
@@ -273,19 +358,17 @@ def run(manifest_path: Path | None, api_base: str, output_path: Path,
         raise ValueError("--api-base is not the project's confirmed production API host")
     if output_path.exists():
         raise RuntimeError(f"Output already exists; choose a new --output path: {output_path}")
+    resume_from = resume_from or []
+    prior_keys, prior_versions = prior_valid_filters(resume_from, api_base)
+    prior_counts = {group: len(prior_keys[group]) for group in GROUPS}
+    prior_all_keys = set().union(*prior_keys.values())
     if auto_manifest:
         if manifest_path is not None:
             raise ValueError("--auto-manifest cannot be combined with --manifest")
         manifest_path = output_path.with_suffix(".manifest.json")
         if manifest_path.exists():
             raise RuntimeError(f"Manifest already exists; choose a new --output path: {manifest_path}")
-        token = os.environ.get("CATALOG_BENCH_TOKEN", "").strip()
-        if not token:
-            if not sys.stdin.isatty():
-                raise RuntimeError("CATALOG_BENCH_TOKEN is missing and no interactive terminal is available")
-            token = getpass.getpass("Paste the signed-in API access token (hidden input): ").strip()
-        if not token:
-            raise RuntimeError("An API access token is required; never put it in a command argument or repository file")
+        token = access_token()
         deadline = time.monotonic() + 15 * 60
         while True:
             wait_for_current_catalog(deadline)
@@ -321,15 +404,10 @@ def run(manifest_path: Path | None, api_base: str, output_path: Path,
             raise RuntimeError("Manifest was generated from another or pending catalog version; regenerate it before benchmarking")
     assert manifest_path is not None
     if not token:
-        token = os.environ.get("CATALOG_BENCH_TOKEN", "").strip()
-        if not token:
-            if not sys.stdin.isatty():
-                raise RuntimeError("CATALOG_BENCH_TOKEN is missing and no interactive terminal is available")
-            token = getpass.getpass("Paste the signed-in API access token (hidden input): ").strip()
-        if not token:
-            raise RuntimeError("An API access token is required; never put it in a command argument or repository file")
+        token = access_token()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     counts = Counter()
+    valid_counts = Counter()
     candidate_indices = Counter()
     measurements = []
     failures = 0
@@ -339,6 +417,9 @@ def run(manifest_path: Path | None, api_base: str, output_path: Path,
         meta = {"type": "run", "started_at_utc": started_at, "api_origin": api_base,
                 "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(), "per_group": per_group,
                 "start_index_per_group": start_index,
+                "resume_from": [str(path) for path in resume_from],
+                "prior_valid_pairs": sum(prior_counts.values()),
+                "prior_catalog_versions": prior_versions,
                 "catalog_version_before": version_before}
         output.write(json.dumps(meta, ensure_ascii=False) + "\n")
         output.flush()
@@ -348,14 +429,17 @@ def run(manifest_path: Path | None, api_base: str, output_path: Path,
             candidate_indices[group] += 1
             if candidate_index < start_index:
                 continue
-            if counts[group] >= per_group:
+            if prior_counts[group] + valid_counts[group] >= per_group:
+                continue
+            filters = item["cache_filters"]
+            key = json.dumps(filters, ensure_ascii=False, sort_keys=True)
+            if key in prior_all_keys:
                 continue
             pair_version_before = catalog_version()
             if (pair_version_before["completed"] != version_before["completed"]
                     or pair_version_before["requested"] != pair_version_before["completed"]):
                 aborted_reason = f"Catalog version changed or refresh began before pair: {pair_version_before}"
                 break
-            filters = item["cache_filters"]
             before = cache_created_at(filters)
             if before is not None:
                 continue  # A real DB miss requires an absent normalized key.
@@ -381,8 +465,16 @@ def run(manifest_path: Path | None, api_base: str, output_path: Path,
             output.flush()
             measurements.append(record)
             counts[group] += 1
+            if valid_pair:
+                valid_counts[group] += 1
             if not stable_version:
                 aborted_reason = f"Catalog version changed or refresh began during pair: {pair_version_after}"
+                break
+            auth_status = miss["status"] if miss["status"] in (401, 403) else hit["status"] if hit and hit["status"] in (401, 403) else None
+            if auth_status is not None:
+                failures += 1
+                aborted_reason = ("HTTP 401: signed-in session is invalid or expired; use a fresh access token"
+                                  if auth_status == 401 else "HTTP 403: signed-in user lacks access to the API")
                 break
             if not valid_pair:
                 failures += 1
@@ -394,8 +486,12 @@ def run(manifest_path: Path | None, api_base: str, output_path: Path,
         misses = [item["miss"]["elapsed_ms"] for item in valid]
         hits = [item["hit"]["elapsed_ms"] for item in valid]
         summary = {"type": "summary", "finished_at_utc": datetime.now(timezone.utc).isoformat(),
-                   "attempted": len(measurements), "valid_pairs": len(valid), "failures": failures,
-                   "aborted_reason": aborted_reason, "catalog_version_after": catalog_version(),
+                    "attempted": len(measurements), "valid_pairs": len(valid), "failures": failures,
+                    "prior_valid_pairs": sum(prior_counts.values()),
+                    "cumulative_valid_pairs": sum(prior_counts.values()) + len(valid),
+                    "per_group_cumulative_valid": {group: prior_counts[group] + valid_counts[group] for group in GROUPS},
+                    "target_per_group": per_group,
+                    "aborted_reason": aborted_reason, "catalog_version_after": catalog_version(),
                    "per_group_attempted": dict(counts),
                    "status_counts": dict(Counter(str(item[phase]["status"]) for item in measurements for phase in ("miss", "hit") if item[phase])),
                    "timeout_count": sum(item[phase]["error"] in ("TimeoutError", "socket.timeout") for item in measurements for phase in ("miss", "hit") if item[phase]),
@@ -423,13 +519,15 @@ def main() -> None:
     measure.add_argument("--per-group", type=int, choices=(1, 2, 20), default=1)
     measure.add_argument("--start-index", type=int, choices=range(40), default=0,
                          help="Skip this many candidates in each group for a later measurement segment")
+    measure.add_argument("--resume-from", type=Path, action="append", default=[],
+                         help="Prior JSONL segment to exclude by normalized filter key; repeat for multiple segments")
     args = parser.parse_args()
     try:
         if args.command == "generate":
             generate(args.output)
         else:
             run(args.manifest, args.api_base, args.output, args.per_group,
-                args.auto_manifest, args.start_index)
+                args.auto_manifest, args.start_index, args.resume_from)
     except (RuntimeError, ValueError) as exc:
         print(f"Benchmark not started: {exc}", file=sys.stderr)
         raise SystemExit(2) from None

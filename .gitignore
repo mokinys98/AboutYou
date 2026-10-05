@@ -1,6 +1,7 @@
 ay_assets/
 chrome-profile/
 node_modules/
+.venv/
 .nuxt/
 .output/
 dist/
