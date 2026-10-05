@@ -208,3 +208,139 @@ funkcinis tikslumas ir sąsajos patikimumas.
 4. Naudotojo atskirą SQL Editor migracijos „Success“ išvestį užfiksuoti, kai
    ji bus pateikta. Migracijos nekartoti vien dėl po jos gauto
    `full_refresh_installed = false`.
+
+## 08:14–08:22 UTC papildoma ciklo ir prieigos patikra
+
+- Patikrinta per esamą `127.0.0.1:15432` tunelį su `codex_reader`; TCP
+  patikra ir tikras PostgreSQL prisijungimas pavyko. Kiekvienas būsenos
+  nuskaitymas buvo atskiroje `BEGIN READ ONLY` transakcijoje, kuri užbaigta
+  `ROLLBACK`.
+- 08:14:23 UTC pradinė būsena buvo `requested_version = completed_version =
+  2111`, `last_status = clean`, `last_error = null`. Paskutinis užbaigtas
+  refresh prasidėjo 08:05:00.029 UTC ir baigėsi 08:08:59.833 UTC; trukmė
+  **239 803 ms**.
+- 08:17:42 UTC pirmą kartą pastebėtas `requested_version = 2112`, o
+  `completed_version` liko 2111 ir `last_status = pending`. Stebėjimas tęstas
+  iki 08:22:16 UTC: 2112 vis dar buvo `pending`, `refresh_started_at` ir
+  `refresh_completed_at` nepasikeitė, `last_error` liko null. Abiem užklausos
+  langais nebuvo nei `ExclusiveLock`, nei `AccessExclusiveLock` ant
+  `catalog_effective_size_membership_read`. Tai naujas refresh prašymas, bet
+  ne užbaigtas 2112 ciklas; šio bandymo metu API prieinamumo ciklo metu
+  patvirtinti negalima.
+- Papildomai bandyta tik skaityti peržiūrėti `cron.job_run_details`, kad būtų
+  galima susieti prašymą su suplanuoto darbo paleidimu. PostgreSQL grąžino
+  `permission denied for schema cron`; transakcija atšaukta. Tai prieigos prie
+  cron istorijos apribojimas, ne refresh ar migracijos klaida.
+- Browser įrankio inicijavimas grąžino `No browser is available`, o prieinamų
+  naršyklių sąrašas buvo tuščias. Todėl nebuvo prieigos prie prisijungusio
+  naudotojo sesijos ir **nebuvo siųstos autentifikuotų** `/v1/catalog` ar
+  `/v1/catalog/facets` užklausos. Žetonas nebuvo skaitomas, prašytas ar įrašytas.
+  Galiojanti 120 porų imtis lieka ankstesniame skyriuje ir šiame bandyme
+  nebuvo keista.
+- Dėl tos pačios priežasties realūs filtro tikslumo ir UI scenarijai nebuvo
+  paleisti: kelių dydžių OR, skirtingų filtrų grupių AND, `42,5`, seni dydžių
+  tokenai, `otherSizes`, override/cache invalidavimas, greitas checkbox
+  pasirinkimas bei patvirtinimas desktop ir mobile meniu. Jokių klaidingų
+  rezultatų ar UI klaidų nebuvo stebėta, nes scenarijai nepasiekė aplikacijos;
+  tai nelaikoma sėkmingu priėmimo testu.
+
+### Atkūrimas ir tęsinys
+
+1. Prijungti arba atidaryti prisijungusią Browser sesiją ir tęsti šiame
+   dokumente; sesijos žetono į pokalbį siųsti nereikia.
+2. Kito natūraliai prasidėjusio katalogo refresh metu užfiksuoti būseną prieš
+   ciklą, po jo ir API atsakymus. Nekviesti refresh funkcijos bandymo tikslais.
+   Ciklas laikomas baigtu tik kai `requested_version = completed_version`,
+   `last_status` yra `refreshed` arba `clean`, o `last_error` null.
+3. Prisijungusioje aplikacijoje patikrinti `/v1/catalog` ir
+   `/v1/catalog/facets` HTTP atsakymus prieš ciklą, jo metu ir po jo; įrašyti
+   statusą, laiką, katalogo versiją ir klaidos tekstą, bet ne žetono antraštę.
+4. Desktop ir mobile pakartoti `docs/katalogo-filtravimas` skyriuje
+   „Testavimo scenarijai“ išvardytus realius atvejus. Kiekvienam įrašyti
+   pasirinktas reikšmes, matomą rezultatą, URL/chip būseną, ekrano dydį ir
+   tikslius atkūrimo veiksmus; patikrinti, kad uždarant mobile meniu be
+   patvirtinimo juodraštis atmetamas, o patvirtinus pritaikomas.
+
+## 09:10–09:19 UTC: natūralus ciklas ir prisijungusio katalogo patikra
+
+- Per esamą VPS tunelį tik skaitymo transakcijoje: 09:14:35 UTC būsena buvo
+  `requested_version = completed_version = 2115`, `last_status = refreshed`,
+  `last_error = null`; ciklas prasidėjo 09:10:00.097 ir baigėsi 09:14:04.894 UTC,
+  trukmė **244 797 ms**. 09:19:08 UTC būsena jau buvo `clean`; tikrintų
+  `catalog_effective_size_membership_read` ilgų išskirtinių užraktų nerasta.
+  Refresh nebuvo paleistas bandymo tikslais.
+- Po šio ciklo prisijungusioje Chrome sesijoje atvertas pradinis katalogas:
+  rodomi **99 238** produktai, produkto kortelės ir filtro grupės. Produktų bei
+  facetų duomenys aplikacijoje pasiekiami po ciklo, tačiau ši naršyklės jungtis
+  neparodė DevTools Network HTTP statusų ar atsakymų trukmių. Todėl tai yra
+  sėkmingo UI duomenų pateikimo patvirtinimas, o ne tiesioginis teiginys, kad
+  užfiksuoti konkretūs `/v1/catalog` ir `/v1/catalog/facets` HTTP 200 atsakymai.
+  Ciklo metu atskirų HTTP atsakymų neužfiksavau.
+- Desktop scenarijai:
+  - `Vyrams > Batai` kategorija + dydis `42,5` parodė 828 batus. Pridėjus
+    spalvą `Black`, rezultatas sumažėjo iki 203. Produktų pavyzdžiai buvo batai;
+    skirtingos filtrų grupės veikia kaip AND.
+  - Toje pačioje kategorijoje pasirinkus dydžius `42,5` ir
+    `42,5 NORMALUS / NORMALUS`, o palikus `Black`, matyta 205 produktų;
+    matomos prekės buvo juodi batai. Tai suderinama su dydžių OR elgsena.
+  - Kataloge be kategorijos pasirinkus grupėje „Suderinamumas: telefono dėklai“
+    dydžius `42,5` ir `42,5-43`, gauta 10 produktų, tarp jų adidas bėgimo
+    bateliai „Galaxy 8“ ir „Galaxy 7“. Tai klaidingi rezultatai: telefono dėklo
+    dydžio filtras įtraukė batus. Atkūrimas: pradinis katalogas → „Dydis“ →
+    paieškoje `42,5` → pasirinkti abu dydžius telefono dėklų grupėje →
+    „Taikyti filtrus“.
+  - Dydžių meniu leido palikti kelis pasirinkimus juodraštyje, parodydavo
+    „Pakeitimai dar nepritaikyti“ ir „Taikyti filtrus“. Pridėjus trečią dydį ir
+    paspaudus „Atšaukti“, URL bei 2 pritaikyti dydžiai liko nepakitę.
+- UI būsena: pritaikius filtrus kelis kartus buvo matomas tekstas
+  „Atnaujinami filtrai…“ ir kartais „Atnaujinamos prekės…“, nors produktų
+  sąrašas ir rezultato skaičius jau buvo pateikti. Įprastos klaidos juostos ar
+  tuščio sąrašo nepastebėjau; būsenos tekstas gali užstrigti arba vėluoti.
+- Mobile meniu šiame bandyme nepatikrintas: turimas Chrome valdymas neleido
+  nustatyti mobiliojo peržiūrosporto. Mobiliojo meniu uždarymo ir juodraščio
+  atmetimo rezultatų neišgalvoju.
+- Baigus naršyklės bandymus pašalinti laikini filtrai ir atkurta pradinė
+  prisijungusio katalogo būsena (`/`); produktai ir filtrų grupės užsikrovė.
+  API našumo 120 porų imtis nepakeista ir nekartota.
+
+### Tęstiniai veiksmai
+
+1. Klaidingą telefono dėklo dydžio facetą atkurti aukščiau nurodytais veiksmais;
+   patikrinti API/indekso klasifikavimo šaltinį ir pašalinti ne batų reikšmių
+   patekimą į batų rezultatus. Šis bandymas tik atskleidė klaidą; duomenų bazė
+   nekeista.
+2. Jei reikia įrodyti HTTP kodus ir trukmes vykstant kitam natūraliam refresh,
+   naudoti prisijungusio Chrome Network įrašus arba iš anksto autorizuotą
+   matavimo įrankį; palyginti `/v1/catalog` ir `/v1/catalog/facets` prieš,
+   per ir po ciklo. Nekartoti 120 porų imties be poreikio.
+3. Atskirame mobile viewport bandyme pakartoti kelių dydžių pasirinkimą,
+   pritaikymą ir uždarymą be patvirtinimo; užfiksuoti ekrano plotį ir juodraščio
+   būseną.
+4. Patikrinti, kodėl „Atnaujinami filtrai…“ lieka matomas jau pateikus
+   rezultatus.
+
+## API refresh probe paruošimas
+
+- Sukurtas `scripts/benchmarks/catalog_refresh_probe.py`. Jis matuoja po vieną
+  `/v1/catalog` ir `/v1/catalog/facets` užklausą stabilioje būsenoje, per
+  natūralų refresh ir po jo; renka statusą, trukmę, atsakymo baitų skaičių,
+  versijas, stebimų read modelių užraktus ir pradinio `{}` facetų cache būseną.
+  Atsakymų turinys ir `Authorization` antraštė nerašomi. Užklausos nekeičia
+  cache valdymo antraštėmis. DB stebėjimas vykdomas tik `BEGIN READ ONLY` /
+  `ROLLBACK` sesijomis per patvirtintą tunelį.
+- Patikrinta: skriptas kompiliuojasi, `--help` veikia, o tiesioginė DB snapshot
+  patikra per tunelį grąžino `requested_version = completed_version = 2115`,
+  būseną `clean`, stebimuose modeliuose refresh užraktų nebuvo, `{}` facetų
+  cache įrašas buvo. Produkcinėje DB nieko nekeista.
+- Tikras API bandymas **dar nepradėtas**: įrankio paslėptas tokeno įvesties
+  terminalas naudotojui nebuvo matomas. Įvestis atšaukta prieš JSONL
+  žurnalavimo ir prieš API užklausas; joks tokenas nebuvo įrašytas ar išsiųstas.
+  Todėl `API_REFRESH_PROBE_2026-10-05.jsonl` šiame bandyme dar nesukurtas, o
+  statusai ir trukmės nepatvirtinti.
+- Atkūrimas matomame IDE PowerShell terminale: iš repo šaknies paleisti
+  `.\.venv\Scripts\python.exe scripts/benchmarks/catalog_refresh_probe.py`
+  ir įvesti šviežią API access token tik į paslėptą
+  terminalo promptą. Palikti procesą veikti: jis laukia iki 30 min. natūralaus
+  refresh, jo neinicijuoja, o pradėjęs ciklą laukia iki 6 min. pabaigos. Tada
+  išsaugoti sugeneruotą JSONL ir papildyti šį žurnalą faktiniais rezultatais.
+  120 porų imtis nekartojama.
