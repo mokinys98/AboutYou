@@ -1,5 +1,7 @@
 -- Run before 20261005090000_nonblocking_effective_size_refresh.sql.
 -- This is one bounded, read-only row for SQL Editor or the authorized tunnel.
+-- If run after migration, full_refresh_installed = false is expected;
+-- use verify_nonblocking_effective_size_refresh_read_only.sql for post-check.
 begin read only;
 
 with definition as (
