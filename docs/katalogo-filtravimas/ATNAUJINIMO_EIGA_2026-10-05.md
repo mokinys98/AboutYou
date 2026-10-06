@@ -369,3 +369,74 @@ funkcinis tikslumas ir sąsajos patikimumas.
   refresh (**4,77 s**); šio vieno matavimo nepakanka teigti apie bendrą p95 ar
   kitų ciklų greitį. Atkūrimas: vėl paleisti probe matomame PowerShell su šviežiu
   tokenu ir laukti kito natūralaus ciklo; neinicijuoti refresh rankiniu būdu.
+
+## 2026-10-06 `{}` facetų cache prewarm stebėjimas
+
+- VPS per `codex_reader` ir `BEGIN READ ONLY` patikrinta, kad
+  `invalidate_catalog_facets_cache()` kviečia
+  `catalog_facets_cached('{}'::jsonb)`. Versijos **2191** refresh baigėsi
+  `clean`; `{}` cache įrašas buvo, jo payload objektas turėjo kategorijų.
+  Trukmė `last_duration_ms = 261417` (4 min. 21 s).
+- 2026-10-05 atskaitoje pirmas `/v1/catalog/facets` atsakymas po refresh truko
+  **4770,71 ms**, kai `{}` cache dar nebuvo. Naujo ciklo **2197** probe užfiksavo
+  po-refresh facetų atsakymą per **637,88 ms** — **4132,83 ms (86,6 %) trumpiau**.
+  Tai vienas pirmo atsakymo matavimas, ne p95 įvertis.
+- [Pilnas autentifikuotas probe](API_REFRESH_PROBE_2026-10-06v1.jsonl) apėmė
+  ciklą **2197**. Prieš jį versija 2196 buvo stabili, po jo 2197 baigėsi
+  `refreshed`, trukmė **259730 ms** (4 min. 20 s), `last_error = null`, `{}`
+  cache įrašas buvo. Visų šešių API atsakymų būsenos buvo 200 ir laikai nesiekė
+  8 s ribos:
+
+  | Fazė | Katalogas | Facetai | Refresh užraktas | `{}` cache |
+  | --- | ---: | ---: | --- | --- |
+  | Prieš ciklą | 1739,67 ms | 925,76 ms | nėra | yra |
+  | Ciklo metu | 2721,82 ms | 686,37 ms | yra | yra |
+  | Po ciklo | 342,10 ms | 637,88 ms | nėra | yra |
+
+- Po-refresh API snapshotuose jau buvo prašyta versijos **2198** (`2198/2197`),
+  bet tuo metu stebimų read-modelių refresh užraktų dar nebuvo. 06:54 UTC
+  atskira read-only patikra matė 2198 ciklo aktyvius užraktus. Jis baigėsi
+  06:54:15 UTC: `2198/2198`, `clean`, `last_error = null`, trukmė **255742 ms**
+  (4 min. 16 s), `{}` cache įrašas yra, stebimų užraktų neliko. Tai antras
+  iš eilės patvirtintas ciklas su cache įrašu; šio ciklo API užklausų probe
+  nefiksavo. [Read-only įrašas](API_REFRESH_STATE_PROBE_2026-10-06_2198.jsonl).
+- Pirmas bandymas faile
+  [API_REFRESH_PROBE_2026-10-06.jsonl](API_REFRESH_PROBE_2026-10-06.jsonl)
+  nepilnas (`probe_error`, be request įrašų); jo rezultatų į našumo skaičius
+  neįtraukiau. Galutiniam vertinimui naudotas tik `v1` failas.
+- [Read-only būsenos probe](API_REFRESH_STATE_PROBE_2026-10-06.jsonl)
+  05:24:33–05:31:35 UTC ciklo nepagavo (`no_active_refresh_observed`), versija
+  liko `2191/2191`, o `{}` cache įrašas išliko. Jis refresh neinicijavo ir API
+  užklausų nesiuntė.
+
+### Papildomi bandymai v2–v4
+
+- [v2 įrašas](API_REFRESH_PROBE_2026-10-06v2.jsonl), 07:01:59–07:08:00 UTC:
+  pradinis stabilus langas per 360 s neatsirado (terminalo išvestyje matyti
+  besikeičiantys laukiami refresh prašymai). JSONL turi tik `run` ir bendrą
+  `RuntimeError` įrašą, jame nėra API užklausų. Tai nėra API trukmės matavimas.
+- [v3 įrašas](API_REFRESH_PROBE_2026-10-06v3.jsonl), 07:39:49–07:44:40 UTC:
+  pradinis DB snapshotas buvo stabili `2201/2201` būsena, tačiau abu pradiniai
+  API kvietimai grąžino HTTP 401 (`unauthorized`): katalogas **234,56 ms**,
+  facetai **52,65 ms**. Probe sustojo prieš natūralaus refresh laukimą;
+  šių laikų neįtraukiu į API veikimo palyginimą. Pakartotinis paleidimas tuo
+  pačiu v3 išvesties keliu sustojo dar prieš probe pradžią, nes failas jau buvo;
+  įrašas nekeistas. Jei bandymas kartojamas, reikia naujo failo vardo ir
+  paslėptai įvedamo galiojančio tokeno.
+- [v4 įrašas](API_REFRESH_PROBE_2026-10-06v4.jsonl), 07:48:11–07:59:23 UTC:
+  visas refresh langas užfiksuotas: `2201/2201` stabili būsena, tada
+  `2202/2201` su `ExclusiveLock`, o po ciklo `2202/2202`, `refreshed`, be
+  `last_error`; trukmė **258 413 ms** (4 min. 18 s). `{}` facetų cache įrašas
+  buvo prieš ciklą, per jį ir po jo. Visi šeši API kvietimai grąžino HTTP 400
+  su tuščiu atsakymo turiniu: katalogas **50,41 / 104,37 / 52,37 ms**, facetai
+  **48,65 / 61,70 / 68,84 ms** (prieš / per / po ciklą). Šie laikai aprašo tik
+  greitai atmestas užklausas; jie nėra sėkmingų API atsakymų ar prewarm
+  pagerėjimo matas. Žurnale įrašytas tik saugus `http_client_error` aprašas,
+  ne atsakymo turinys, todėl iš šio įrašo negalima nustatyti konkrečios 400
+  priežasties.
+- Nei v2, nei v3, nei v4 nekeičia ankstesnio galiojančio v1 palyginimo:
+  v1 tebėra vienintelis sėkmingas po-prewarm API matavimas (**637,88 ms**
+  facetams po refresh, HTTP 200). Pakartojimo reikia, kai bus aiški v4 HTTP 400
+  priežastis ir bus galima gauti 200 atsakymus; refresh bandymo metu rankiniu
+  būdu neinicijuoti. Visuose v2–v4 JSONL nerasta tokeno ar `Authorization`
+  antraštės žymių.

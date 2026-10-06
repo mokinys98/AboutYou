@@ -1,0 +1,4 @@
+{"type":"run","started_at_utc":"2026-10-06T06:56:31.134478+00:00","probe":"read_only_refresh_state_only","target_completed_version":2198,"api_requests_sent":false}
+{"type":"state","phase":"initial","database":{"requested":2198,"completed":2198,"status":"clean","duration_ms":255742,"last_error":null,"refresh_started_at":"2026-10-06T06:50:00.033501+00:00","refresh_completed_at":"2026-10-06T06:54:15.775749+00:00","checked_at_utc":"2026-10-06T06:56:31.939291+00:00","root_cache_present":true,"locks":[]}}
+{"type":"state","phase":"settled","database":{"requested":2198,"completed":2198,"status":"clean","duration_ms":255742,"last_error":null,"refresh_started_at":"2026-10-06T06:50:00.033501+00:00","refresh_completed_at":"2026-10-06T06:54:15.775749+00:00","checked_at_utc":"2026-10-06T06:56:32.347035+00:00","root_cache_present":true,"locks":[]}}
+{"type":"outcome","result":"version_2198_completed_root_cache_present","finished_at_utc":"2026-10-06T06:56:31.958986+00:00"}

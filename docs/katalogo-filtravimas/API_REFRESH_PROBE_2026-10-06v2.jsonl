@@ -1,0 +1,2 @@
+{"type":"run","started_at_utc":"2026-10-06T07:01:59.688+00:00","api_origin":"https://aboutyou-private-catalog-api.aurimas-zvirb.workers.dev","endpoints":["/v1/catalog?","/v1/catalog/facets?"],"poll_interval_seconds":5.0,"max_wait_for_refresh_minutes":30,"completion_timeout_seconds":360,"refresh_was_triggered_by_probe":false,"response_bodies_or_auth_headers_logged":false}
+{"type":"probe_error","at_utc":"2026-10-06T07:08:00.198+00:00","safe_error_summary":"RuntimeError"}
