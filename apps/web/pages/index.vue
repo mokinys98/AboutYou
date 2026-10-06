@@ -12,9 +12,11 @@ const totalCount = ref(0);
 const gridColumns = ref<3 | 4>(3);
 const expandedRootPath = ref<string | null>(null);
 let lastFacetsKey = "";
-const pendingFacets = new Map<string, Promise<CatalogFacets>>();
+const pendingFacets = new Map<string, { promise: Promise<CatalogFacets>; controller: AbortController }>();
 let facetsRequestId = 0;
 let productRequestId = 0;
+let productAbortController: AbortController | null = null;
+const catalogRequestTimeoutMs = 15_000;
 // The database caches each exact filter context. Keep the browser cache short so
 // a catalog refresh or a classification override cannot remain stale all day.
 const facetsCacheTtlMs = 5 * 60 * 1000;
@@ -90,9 +92,6 @@ function restoreCachedFacets(key: string) {
     return false;
   }
 }
-function hydrateFacetsFromCache(key: string) {
-  restoreCachedFacets(key);
-}
 function storeCachedFacets(key: string, value: CatalogFacets) {
   if (!import.meta.client) return;
   try {
@@ -104,6 +103,10 @@ function storeCachedFacets(key: string, value: CatalogFacets) {
 function clearStoredFacetCache() {
   if (!import.meta.client) return;
   for (const key of Object.keys(localStorage)) if (key.startsWith(facetsCachePrefix)) localStorage.removeItem(key);
+  for (const [key, pending] of pendingFacets) {
+    pending.controller.abort();
+    pendingFacets.delete(key);
+  }
   lastFacetsKey = "";
 }
 function handleFacetCacheInvalidation() {
@@ -114,17 +117,25 @@ function handleFacetCacheInvalidation() {
 }
 async function load(reset = true) {
   const requestId = ++productRequestId;
+  productAbortController?.abort();
+  const controller = new AbortController();
+  productAbortController = controller;
   loading.value = true; error.value = "";
   try {
     const query = apiParams(filters.value);
     if (!reset && nextCursor.value) query.set("cursor", nextCursor.value);
-    const result = await api<CatalogResponse>(`/v1/catalog?${query}`);
+    const result = await api<CatalogResponse>(`/v1/catalog?${query}`, { signal: controller.signal, timeout: catalogRequestTimeoutMs });
     if (requestId !== productRequestId) return;
     products.value = reset ? result.items : [...products.value, ...result.items];
     nextCursor.value = result.nextCursor;
     if (reset) totalCount.value = result.totalCount ?? result.items.length;
   } catch (cause) { if (requestId === productRequestId) error.value = cause instanceof Error ? cause.message : "Katalogo užkrauti nepavyko"; }
-  finally { if (requestId === productRequestId) loading.value = false; }
+  finally {
+    if (requestId === productRequestId) {
+      loading.value = false;
+      if (productAbortController === controller) productAbortController = null;
+    }
+  }
 }
 async function loadFacets(value = filters.value, options: { force?: boolean } = {}) {
   const requestId = ++facetsRequestId;
@@ -132,18 +143,33 @@ async function loadFacets(value = filters.value, options: { force?: boolean } = 
   query.delete("sort");
   const key = query.toString();
   facetsError.value = "";
-  if (key === lastFacetsKey && facets.value && !options.force) { facetsLoading.value = false; return facets.value; }
-  if (!options.force && restoreCachedFacets(key)) { facetsLoading.value = false; return facets.value; }
-  facetsLoading.value = true;
-  if (options.force) pendingFacets.delete(key);
-  let request = pendingFacets.get(key);
-  if (!request) {
-    request = api<CatalogFacets>(`/v1/catalog/facets?${query}`);
-    pendingFacets.set(key, request);
+  let pending = pendingFacets.get(key);
+  if (options.force && pending) {
+    pending.controller.abort();
+    pendingFacets.delete(key);
+    pending = undefined;
   }
+  if (pending) {
+    // A forced refresh may already be running for this key. Join it before
+    // consulting the in-memory or localStorage value, which may be older.
+    facetsLoading.value = true;
+  } else if (!options.force && key === lastFacetsKey && facets.value) {
+    facetsLoading.value = false;
+    return facets.value;
+  } else if (!options.force && restoreCachedFacets(key)) {
+    facetsLoading.value = false;
+    return facets.value;
+  } else {
+    const controller = new AbortController();
+    const promise = api<CatalogFacets>(`/v1/catalog/facets?${query}`, { signal: controller.signal, timeout: catalogRequestTimeoutMs });
+    pending = { promise, controller };
+    pendingFacets.set(key, pending);
+    facetsLoading.value = true;
+  }
+  const request = pending.promise;
   try {
     const result = await request;
-    if (pendingFacets.get(key) === request) storeCachedFacets(key, result);
+    if (pendingFacets.get(key) === pending) storeCachedFacets(key, result);
     if (requestId === facetsRequestId) {
       facets.value = result;
       lastFacetsKey = key;
@@ -155,7 +181,7 @@ async function loadFacets(value = filters.value, options: { force?: boolean } = 
       : "Filtrų įkelti nepavyko.";
     return null;
   } finally {
-    if (pendingFacets.get(key) === request) pendingFacets.delete(key);
+    if (pendingFacets.get(key) === pending) pendingFacets.delete(key);
     if (requestId === facetsRequestId) facetsLoading.value = false;
   }
 }
@@ -168,7 +194,6 @@ async function selectCategory(category: string) {
   const next: Record<string, string> = { ...filters.value, category: filters.value.category === category ? "" : category };
   delete next.categories;
   for (const key of ["sizes", "other_sizes", "materials", "patterns", "features", "styles", "product_types"]) delete next[key];
-  loading.value = true;
   try {
     await updateFilters(next);
   } catch (cause) {
@@ -180,15 +205,9 @@ const updateWatch = ({ id, isWatched }: { id: string; isWatched: boolean }) => {
   products.value = products.value.map((product) => product.id === id ? { ...product, isWatched } : product);
 };
 watch([() => route.path, () => route.query], () => {
-  const query = apiParams(filters.value);
-  query.delete("sort");
-  hydrateFacetsFromCache(query.toString());
   void Promise.all([load(true), loadFacets(filters.value)]);
 }, { deep: true });
 onMounted(() => {
-  const query = apiParams(filters.value);
-  query.delete("sort");
-  hydrateFacetsFromCache(query.toString());
   void Promise.all([loadFacets(filters.value), load()]);
 });
 onMounted(() => {

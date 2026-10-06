@@ -440,3 +440,63 @@ funkcinis tikslumas ir sąsajos patikimumas.
   priežastis ir bus galima gauti 200 atsakymus; refresh bandymo metu rankiniu
   būdu neinicijuoti. Visuose v2–v4 JSONL nerasta tokeno ar `Authorization`
   antraštės žymių.
+
+## 2026-10-06 tęsinys: dydžių klaida ir vietinis patikimumo taisymas
+
+- Prisijungusioje produkcinėje naršyklėje šakniniame kataloge dydžių paieška
+  `42,5` vis dar rodo grupę „Suderinamumas: telefono dėklai“ su `42,5` ir
+  `42,5-43`. Tai patvirtina, kad ankstesnis UI radinys nėra vien istorinis.
+- Per autorizuotą `127.0.0.1:15432` tunelį tik `BEGIN READ ONLY` transakcijose
+  nustatyta priežastis: gyva `catalog_size_domain` funkcija pirmiau tikrina
+  `iphone|ipad|galaxy|pixel|telefon|telefono dėkl` ir tik paskui batų
+  kategoriją. Bazinėje `catalog_size_facets_read` materializuotoje peržiūroje
+  yra 62 `device_cases` produktai; 53 jų pavadinime turi `Galaxy`, 20 aiškiai
+  yra batai. Būtent du `device_cases:42.5` ir `device_cases:42.5-43` effective
+  tokenai priklauso 11 `ADIDAS PERFORMANCE` „Galaxy 7/8“ bėgimo batų. Šiems
+  produktams override įrašų nėra. Root facetų cache ir effective narystė šiuo
+  metu sutampa; klaida atsiranda jau bazinėje klasifikacijoje.
+- Paruošta [migracija](../../supabase/migrations/20261006110000_remove_device_case_size_inference.sql)
+  pašalina pavadinimo pagrindu daromą telefono dėklų spėjimą. Ji **dar
+  nepritaikyta VPS** ir pati nepaleidžia refresh. Kitas natūralus katalogo
+  atnaujinimas turi perskaičiuoti bazinį dydžių vaizdą, effective narystę ir
+  root facetų cache. [Skaitymo režimo patikros
+  SQL](../../supabase/tests/verify_device_case_size_inference_read_only.sql)
+  prieš migraciją sintaksiškai įvykdytas: pirmi keturi požymiai, kaip laukta,
+  buvo `false`, o cache bei `2215/2215 clean` refresh būsena — `true`.
+- Vietiniame katalogo puslapyje papildomai apribota produktų bei facetų
+  užklausų trukmė iki 15 s, pasenusios produktų užklausos atšaukiamos, o
+  pakartotinė to paties rakto facetų užklausa prisijungia prie jau vykstančio
+  atnaujinimo prieš imdama seną browser cache. Pašalintas išankstinis
+  kategorijos `loading=true`, galėjęs užstrigti nepakeitus maršruto. Tai
+  **vietinis, dar nedeployintas** pakeitimas. `npm test`: 165/165; visų
+  workspace tipų patikra baigėsi kodu 0 (Wrangler tik pranešė, kad ribota
+  aplinka neleido įrašyti debug log failo už workspace ribų).
+- Prisijungusioje produkcinėje naršyklėje su **390 × 844 px** viewport patikrintas
+  mobile juodraštis: pasirinkus `Kiti aksesuarai > S`, `Pasirinkta` tapo 1,
+  tačiau URL liko `/`; uždarius meniu be patvirtinimo ir vėl atidarius,
+  `Pasirinkta` grįžo į 0. Pakartojus pasirinkimą ir paspaudus apatinį
+  „Taikyti filtrus“, URL tapo `/?sizes=accessories%253As`, produktų skaičius
+  tapo 2, meniu užsidarė. Po bandymo URL grąžintas į `/`, o laikinas viewport
+  pakeitimas atšauktas. Tai produkcinio UI juodraščio patikra, ne dar
+  nedeployintos užklausų pataisos patikra.
+- [Pirmas pakartotinis API probe v5](API_REFRESH_PROBE_2026-10-06v5.jsonl)
+  sustojo ties terminalo tinklo leidimų `PermissionError` prieš gaudamas HTTP
+  atsakymą; jokio API našumo mato iš jo nedarau. [V6
+  probe](API_REFRESH_PROBE_2026-10-06v6.jsonl) paleistas su tinklo leidimu ir
+  šviežiu tokenu. Ciklas **2216/2216** baigėsi `refreshed`, be klaidos, per
+  **284 342 ms** (~4 min. 44 s); `{}` facetų cache buvo visose trijose fazėse.
+  Visi šeši autentifikuoti API atsakymai buvo HTTP 200, trumpesni už 8 s; per
+  aktyvias užklausas DB prieš ir po jų rodė `2216/2215` ir refresh užraktą:
+
+  | Fazė | Katalogas | Facetai |
+  | --- | ---: | ---: |
+  | Prieš ciklą | 193,59 ms | 894,37 ms |
+  | Ciklo metu | 229,68 ms | 1 062,64 ms |
+  | Po ciklo | 312,92 ms | 609,80 ms |
+
+  Tai antras sėkmingas po-prewarm ciklo API matavimas; pirmas facetų atsakymas
+  po refresh panašus į 2197 ciklo **637,88 ms**, bet dviejų ciklų neužtenka
+  p95 išvadai. V6 JSONL turi 6 užklausas, `Authorization`, `Bearer`,
+  `access_token`, `refresh_token` ir JWT pradžios žymų jame nerasta. V4 HTTP
+  400 tiksli priežastis lieka nežinoma; su nauju tokenu šiame cikle ji
+  nepasikartojo.
