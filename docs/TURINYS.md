@@ -28,6 +28,7 @@ Progresas yra praktinis įvertis nuo `0/100` iki `100/100`:
 |---|---|---:|
 | [Rinkimo diagnostika ir pataisos](RINKIMO_DIAGNOSTIKA.md) | 2026-09-20 nustatytos rinkimo klaidos, gyvas bandymas, diagnostikos komanda ir patvirtinta VPS migracija. | Kodas patikrintas; VPS migracija atlikta; rinkiklio diegimas nepatvirtintas |
 | [ABOUT YOU duomenys ir atributai](ABOUTYOU_DUOMENU_ATRIBUTAI.md) | Kaip renkami produktai, kokie atributai saugomi ir kokios duomenų spragos dar žinomos. | **100/100 analizė** |
+| [PostgreSQL Exporter įdiegimas](POSTGRESQL_EXPORTER_IDIEGIMAS.md) | Žingsniai, kaip pridėti PostgreSQL metrikas į Prometheus ir Grafana, naudojant atskirą stebėsenos rolę. | Metrikų rinkimas patvirtintas; dashboard importas liko |
 
 ## Dokumentų gyvavimo taisyklė
 
