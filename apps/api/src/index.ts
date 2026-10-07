@@ -597,7 +597,12 @@ function filteredCatalogQuery(db: SupabaseClient, filters: CatalogFilters, count
     } else if (groupedSizes.length) query = query.overlaps("size_tokens", groupedSizes);
     else query = query.overlaps("sizes", legacySizes);
   }
-  if (filters.otherSizes.length) query = query.overlaps("other_sizes", filters.otherSizes);
+  if (filters.otherSizes.length) {
+    // PostgREST's overlaps(array) serializes by joining values with commas. Quote
+    // tokens in the PostgreSQL array literal so decimal-comma values such as
+    // "42,5" remain one array element.
+    query = query.filter("other_sizes", "ov", postgresArrayLiteral(filters.otherSizes));
+  }
   if (filters.materials.length) query = query.overlaps("materials", filters.materials);
   if (filters.patterns.length) query = query.overlaps("patterns", filters.patterns);
   if (filters.features.length) query = query.overlaps("features", filters.features);

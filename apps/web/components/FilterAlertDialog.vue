@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { canonicalCatalogSizeToken, parseCatalogSizeFilters, type Alert, type CatalogAlertFilters, type TelegramConnection } from "@catalog/shared";
+import { type Alert, type TelegramConnection } from "@catalog/shared";
+import { filterAlertPayload } from "../utils/filterAlertPayload";
 
 const props = defineProps<{ filters: Record<string, string>; totalCount: number; title: string }>();
 const api = useApi();
@@ -7,24 +8,6 @@ const open = ref(false); const saving = ref(false); const error = ref(""); const
 const name = ref(""); const connection = ref<TelegramConnection | null>(null);
 const meaningful = computed(() => Object.entries(props.filters).some(([key, value]) => value && key !== "sort"));
 
-function list(key: string) { return props.filters[key]?.split(",").map((value) => value.trim()).filter(Boolean) ?? []; }
-function alertFilters(): Partial<CatalogAlertFilters> {
-  return {
-    brands: list("brands"), brandTiers: list("brand_tiers") as CatalogAlertFilters["brandTiers"], sources: list("sources"),
-    categories: list("categories"), categoryPath: props.filters.category || undefined,
-    colors: list("colors") as CatalogAlertFilters["colors"], colorShades: list("color_shades") as CatalogAlertFilters["colorShades"],
-    sizes: parseCatalogSizeFilters(props.filters.sizes).map(canonicalCatalogSizeToken), otherSizes: parseCatalogSizeFilters(props.filters.other_sizes), materials: list("materials"), patterns: list("patterns"),
-    features: list("features"), styles: list("styles"), productTypes: list("product_types"),
-    isPremium: props.filters.premium === "true", excludeBasics: props.filters.exclude_basics === "true",
-    excludeAccessories: props.filters.exclude_accessories === "true",
-    priceMin: props.filters.price_min ? Math.round(Number(props.filters.price_min) * 100) : undefined,
-    priceMax: props.filters.price_max ? Math.round(Number(props.filters.price_max) * 100) : undefined,
-    discountMin: props.filters.discount_min ? Number(props.filters.discount_min) : undefined,
-    lplProximityPct: props.filters.lpl_proximity_pct ? Number(props.filters.lpl_proximity_pct) : undefined,
-    belowObserved30d: props.filters.below_observed_30d === "true",
-    priceComparison: props.filters.price_comparison === "source_lpl" ? "source_lpl" : "observed"
-  };
-}
 async function show() {
   open.value = true; error.value = ""; success.value = "";
   name.value = `${props.title} – naujos prekės`;
@@ -33,7 +16,7 @@ async function show() {
 async function save() {
   saving.value = true; error.value = "";
   try {
-    await api<Alert>("/v1/alerts", { method: "POST", body: { kind: "filter", name: name.value, filters: alertFilters(), conditions: { newMatches: true } } });
+    await api<Alert>("/v1/alerts", { method: "POST", body: { kind: "filter", name: name.value, filters: filterAlertPayload(props.filters), conditions: { newMatches: true } } });
     success.value = "Alertas sukurtas";
     setTimeout(() => { open.value = false; }, 650);
   } catch (cause) { error.value = cause instanceof Error ? cause.message : "Alerto sukurti nepavyko"; }
