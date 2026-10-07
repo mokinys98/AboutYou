@@ -549,3 +549,9 @@ funkcinis tikslumas ir sąsajos patikimumas.
 - `2295/2295` natūralus ciklas prasidėjo 07:05:00.024519 UTC, baigėsi 07:09:19.784814 UTC per **259,760 ms**; būsena `refreshed`, vėliau skaityta `clean`, `last_error=NULL`. Analyze žymos atsinaujino ciklo metu: items 07:05:17.783985 UTC, size facets 07:07:12.127877 UTC. Tai **2/3** kandidatų kartu su `2293` ciklu.
 - 07:22:50 UTC būsena tebebuvo `2295/2295 clean`; trečios natūralios versijos dar nebuvo prašyta. Reikia dar vieno iš eilės clean ciklo <300 s, suderintų versijų ir cache/membership lygybės. `catalog_static_size_facets_cache` lentelė neprieinama `codex_reader` SELECT teisei; pilna lygybė nepatvirtinta.
 - Produkcinio API laikai/statusai, mobile/kelių skirtukų scenarijai ir bundle identity lieka atviri. `b515758` nepateikia vėliau atsiradusių necommitintų `other_sizes` API ir alert payload pakeitimų. Bendra pažanga **20/100**, etapai 1–4 nepriimti.
+
+## 2026-10-07 12:22 Europe/Vilnius: cache pariteto patikra ir metrikų ribos
+
+- Read-only patikroje 09:17–09:22 UTC `codex_reader` turėjo `SELECT` teisę į `catalog_static_size_facets_cache`. Ciklas `2303/2303 clean` truko **274,426 ms** (09:05:00.029–09:09:34.455 UTC); 2434 agreguoti facetai tiksliai sutapo JSON, narystė turėjo **374466** eilučių. Šio ciklo cache paritetas patvirtintas.
+- `pg_stat_io` skaitomas; backend tipo kaupiamoji bazė užfiksuota 09:22:12.941386 UTC, bet `track_io_timing=off`, tad per-refresh disko ir hosto CPU matavimų nėra. `pg_stat_statements` egzistuoja `extensions` schemoje, tačiau `codex_reader` neturi schemos prieigos. Cloud Supabase atveju naudoti Dashboard resursų grafikus; savame VPS rinkti hosto OS `vmstat`/`iostat`/`pidstat` skaitiklius. Nuolatinis monitor agentas neįdiegtas.
+- Tarpinių refresh versijų istorinių įrašų nėra, todėl trijų iš eilės ciklų priėmimo patvirtinti negalima. Bendra pažanga lieka **20/100**.
