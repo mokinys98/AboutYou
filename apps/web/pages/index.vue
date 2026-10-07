@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { catalogSortOptions } from "~/utils/catalogSort";
+import { CatalogFacetRequestCache } from "~/utils/catalogFacetRequest";
+import { addCatalogFacetInvalidationListener } from "~/utils/catalogFacetInvalidation";
 
 import { buildCategoryTree, clothingCategoryTree, type CatalogCategoryFacet, type CatalogFacets, type CatalogResponse } from "@catalog/shared";
 definePageMeta({ alias: ["/naujienos"] });
@@ -11,16 +13,15 @@ const facetsLoading = ref(false); const facetsError = ref("");
 const totalCount = ref(0);
 const gridColumns = ref<3 | 4>(3);
 const expandedRootPath = ref<string | null>(null);
-let lastFacetsKey = "";
-const pendingFacets = new Map<string, { promise: Promise<CatalogFacets>; controller: AbortController }>();
+// Keep browser facets short-lived so catalog refreshes do not stay hidden all day.
+const facetsCacheTtlMs = 5 * 60 * 1000;
+const facetRequestCache = new CatalogFacetRequestCache<CatalogFacets>(facetsCacheTtlMs);
 let facetsRequestId = 0;
 let productRequestId = 0;
 let productAbortController: AbortController | null = null;
 const catalogRequestTimeoutMs = 15_000;
-// The database caches each exact filter context. Keep the browser cache short so
-// a catalog refresh or a classification override cannot remain stale all day.
-const facetsCacheTtlMs = 5 * 60 * 1000;
 const facetsCachePrefix = "catalog-facets:v4:";
+let removeFacetStorageListener: (() => void) | null = null;
 const filterKeys = ["brands", "brand_tiers", "categories", "category", "colors", "color_shades", "sources", "sizes", "other_sizes", "materials", "patterns", "features", "styles", "product_types", "premium", "exclude_basics", "exclude_accessories", "price_min", "price_max", "discount_min", "lpl_proximity_pct", "below_observed_30d", "price_comparison", "catalog_version", "sort"];
 const filters = computed<Record<string, string>>(() => Object.fromEntries(filterKeys.flatMap((key) => typeof route.query[key] === "string" && route.query[key] ? [[key, route.query[key] as string]] : [])));
 const fallbackCategoryFacets = createFallbackCategoryFacets();
@@ -86,7 +87,7 @@ function restoreCachedFacets(key: string) {
     const parsed = JSON.parse(cached) as { cachedAt?: number; value?: CatalogFacets };
     if (!parsed.cachedAt || !parsed.value || Date.now() - parsed.cachedAt > facetsCacheTtlMs) return false;
     facets.value = parsed.value;
-    lastFacetsKey = key;
+    facetRequestCache.set(key, parsed.value, parsed.cachedAt);
     return true;
   } catch {
     return false;
@@ -95,22 +96,23 @@ function restoreCachedFacets(key: string) {
 function storeCachedFacets(key: string, value: CatalogFacets) {
   if (!import.meta.client) return;
   try {
-    localStorage.setItem(facetsCacheKey(key), JSON.stringify({ cachedAt: Date.now(), value }));
+    const cachedAt = Date.now();
+    facetRequestCache.set(key, value, cachedAt);
+    localStorage.setItem(facetsCacheKey(key), JSON.stringify({ cachedAt, value }));
   } catch {
     // Ignore storage quota/privacy mode failures; the API response is still rendered.
   }
 }
 function clearStoredFacetCache() {
   if (!import.meta.client) return;
+  // Invalidate UI ownership before aborting requests; an abort may race with
+  // an already-resolved response, which must not restore old facets.
+  facetsRequestId++;
   for (const key of Object.keys(localStorage)) if (key.startsWith(facetsCachePrefix)) localStorage.removeItem(key);
-  for (const [key, pending] of pendingFacets) {
-    pending.controller.abort();
-    pendingFacets.delete(key);
-  }
-  lastFacetsKey = "";
+  facetRequestCache.invalidate();
 }
-function handleFacetCacheInvalidation() {
-  if (!import.meta.client || !localStorage.getItem("catalog-facets:invalidate")) return;
+function handleFacetCacheInvalidation(fromStorageEvent = false) {
+  if (!import.meta.client || (!fromStorageEvent && !localStorage.getItem("catalog-facets:invalidate"))) return;
   localStorage.removeItem("catalog-facets:invalidate");
   clearStoredFacetCache();
   void loadFacets(filters.value, { force: true });
@@ -143,36 +145,32 @@ async function loadFacets(value = filters.value, options: { force?: boolean } = 
   query.delete("sort");
   const key = query.toString();
   facetsError.value = "";
-  let pending = pendingFacets.get(key);
+  let pending = facetRequestCache.getPending(key);
   if (options.force && pending) {
-    pending.controller.abort();
-    pendingFacets.delete(key);
-    pending = undefined;
-  }
-  if (pending) {
-    // A forced refresh may already be running for this key. Join it before
-    // consulting the in-memory or localStorage value, which may be older.
+    pending = facetRequestCache.request(key, (signal) => api<CatalogFacets>(`/v1/catalog/facets?${query}`, { signal, timeout: catalogRequestTimeoutMs }), true);
+  } else if (pending) {
+    // Join an in-flight request before consulting a potentially older cache entry.
     facetsLoading.value = true;
-  } else if (!options.force && key === lastFacetsKey && facets.value) {
-    facetsLoading.value = false;
-    return facets.value;
-  } else if (!options.force && restoreCachedFacets(key)) {
-    facetsLoading.value = false;
-    return facets.value;
   } else {
-    const controller = new AbortController();
-    const promise = api<CatalogFacets>(`/v1/catalog/facets?${query}`, { signal: controller.signal, timeout: catalogRequestTimeoutMs });
-    pending = { promise, controller };
-    pendingFacets.set(key, pending);
+    const cached = options.force ? undefined : facetRequestCache.get(key);
+    if (cached) {
+      facets.value = cached;
+      facetsLoading.value = false;
+      return cached;
+    }
+    if (!options.force && restoreCachedFacets(key)) {
+      facetsLoading.value = false;
+      return facets.value;
+    }
+    pending = facetRequestCache.request(key, (signal) => api<CatalogFacets>(`/v1/catalog/facets?${query}`, { signal, timeout: catalogRequestTimeoutMs }), options.force);
     facetsLoading.value = true;
   }
   const request = pending.promise;
   try {
     const result = await request;
-    if (pendingFacets.get(key) === pending) storeCachedFacets(key, result);
+    if (pending.valid) storeCachedFacets(key, result);
     if (requestId === facetsRequestId) {
       facets.value = result;
-      lastFacetsKey = key;
     }
     return result;
   } catch {
@@ -181,7 +179,6 @@ async function loadFacets(value = filters.value, options: { force?: boolean } = 
       : "Filtrų įkelti nepavyko.";
     return null;
   } finally {
-    if (pendingFacets.get(key) === pending) pendingFacets.delete(key);
     if (requestId === facetsRequestId) facetsLoading.value = false;
   }
 }
@@ -212,9 +209,13 @@ onMounted(() => {
 });
 onMounted(() => {
   handleFacetCacheInvalidation();
-  window.addEventListener("storage", (event) => { if (event.key === "catalog-facets:invalidate") handleFacetCacheInvalidation(); });
+  removeFacetStorageListener = addCatalogFacetInvalidationListener(window, () => handleFacetCacheInvalidation(true));
   const saved = Number(localStorage.getItem("catalog-grid-columns"));
   if (saved === 3 || saved === 4) gridColumns.value = saved;
+});
+onUnmounted(() => {
+  removeFacetStorageListener?.();
+  removeFacetStorageListener = null;
 });
 watch(gridColumns, (value) => localStorage.setItem("catalog-grid-columns", String(value)));
 </script>
