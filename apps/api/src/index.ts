@@ -580,6 +580,41 @@ app.post("/v1/admin/ai-control/requests/:id/reconcile", requireAdmin, async (c) 
   return error ? c.json({ error: error.message }, 409) : c.json({ reconciled: true });
 });
 
+const legacyApparelSizeKeys: Record<string, string> = {
+  xxxs: "xxxs", xxs: "xxs", xs: "xs", s: "s", m: "m", l: "l", xl: "xl", xxl: "xxl", xxxl: "xxxl",
+  xxxxl: "xxxxl", xxxxxl: "xxxxxl", xxxxxxl: "xxxxxxl", xxxxxxxl: "xxxxxxxl", xxxxxxxxl: "xxxxxxxxl",
+  "---s": "xxxs", "--s": "xxs", "-s": "xs", "-l": "xl", "--l": "xxl", "---l": "xxxl",
+  "2-l": "xxl", "3-l": "xxxl", "4-l": "xxxxl", "5-l": "xxxxxl", "6-l": "xxxxxxl",
+  "7-l": "xxxxxxxl", "8-l": "xxxxxxxxl"
+};
+const legacyApparelSizeRanges: Record<string, string[]> = Object.fromEntries(
+  Object.entries(legacyApparelSizeKeys).flatMap(([leftLegacy, leftCanonical]) =>
+    Object.entries(legacyApparelSizeKeys).map(([rightLegacy, rightCanonical]) => [
+      `${leftLegacy}-${rightLegacy}`,
+      [leftCanonical, rightCanonical]
+    ] as [string, string[]])
+  )
+);
+
+function expandLegacyGroupedSizeToken(token: string): string[] {
+  const separator = token.indexOf(":");
+  if (separator < 0) return [token];
+  const domain = token.slice(0, separator);
+  const value = token.slice(separator + 1).toLocaleLowerCase("en");
+  const apparelDomains = ["clothing", "shirts", "trousers", "suitwear", "underwear", "swimwear"];
+  if (apparelDomains.includes(domain) && legacyApparelSizeRanges[value]) {
+    return legacyApparelSizeRanges[value].map((size: string) => `${domain}:${size}`);
+  }
+  if (apparelDomains.includes(domain) && legacyApparelSizeKeys[value]) {
+    return [`${domain}:${legacyApparelSizeKeys[value]}`];
+  }
+  const legacyTrouserPair = domain === "trousers" && /^(\d{2,3})-(\d{2,3})$/.exec(value);
+  if (legacyTrouserPair) return [token, `trousers:w${legacyTrouserPair[1]}-l${legacyTrouserPair[2]}`];
+  const repeatedTrouserLength = domain === "trousers" && /^(\d{2,3})-(\d{2,3})-\2$/.exec(value);
+  if (repeatedTrouserLength) return [`trousers:w${repeatedTrouserLength[1]}-l${repeatedTrouserLength[2]}`];
+  return [token];
+}
+
 function filteredCatalogQuery(db: SupabaseClient, filters: CatalogFilters, count = false) {
   let query = db.from("catalog_items_read_with_lpl").select("*", count ? { count: "exact" } : undefined);
   if (filters.lplProximityPct !== undefined) query = query.lte("lpl_price_ratio", 100 + filters.lplProximityPct);
@@ -591,7 +626,11 @@ function filteredCatalogQuery(db: SupabaseClient, filters: CatalogFilters, count
   if (filters.categoryPath) query = query.overlaps("category_paths", [filters.categoryPath]);
   else if (filters.categories.length) query = query.overlaps("categories", filters.categories);
   if (filters.sizes.length) {
-    const { grouped: groupedSizes, legacy: legacySizes } = splitSizeFilters(filters.sizes);
+    const { grouped: requestedGroupedSizes, legacy: legacySizes } = splitSizeFilters(filters.sizes);
+    // Older trouser URLs store an explicit W × L pair as `trousers:W-L`.
+    // The normalized membership now stores it as `trousers:wW-lL`; keep the
+    // old token in the OR set too because a bare numeric range can be ambiguous.
+    const groupedSizes = [...new Set(requestedGroupedSizes.flatMap(expandLegacyGroupedSizeToken))];
     if (groupedSizes.length && legacySizes.length) {
       query = query.or(`size_tokens.ov.${postgresArrayLiteral(groupedSizes)},sizes.ov.${postgresArrayLiteral(legacySizes)}`);
     } else if (groupedSizes.length) query = query.overlaps("size_tokens", groupedSizes);
