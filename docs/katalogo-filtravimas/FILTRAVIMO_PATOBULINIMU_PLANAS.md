@@ -939,3 +939,11 @@ Lieka atviri produkcinio API atsakymų laikai/statusai, mobile ir kelių skirtuk
 - Read-only patikroje 09:17–09:22 UTC `codex_reader` turėjo `SELECT` teisę į `catalog_static_size_facets_cache`. Ciklas `2303/2303 clean` truko **274,426 ms** (09:05:00.029–09:09:34.455 UTC); 2434 agreguoti facetai tiksliai sutapo JSON, narystė turėjo **374466** eilučių. Šio ciklo cache paritetas patvirtintas.
 - `pg_stat_io` skaitomas; backend tipo kaupiamoji bazė užfiksuota 09:22:12.941386 UTC, bet `track_io_timing=off`, tad per-refresh diskas ir hosto CPU neišmatuoti. `pg_stat_statements` egzistuoja `extensions` schemoje, tačiau `codex_reader` neturi schemos prieigos. Cloud aplinkoje resursų tendencijoms naudoti Supabase Dashboard; savame VPS rinkti hosto OS `vmstat`/`iostat`/`pidstat` skaitiklius. Nuolatinis monitor agentas neįdiegtas.
 - Trūksta tarpinių ciklų istorijos, todėl trijų iš eilės priėmimo patvirtinti negalima. Bendra pažanga lieka **20/100**.
+
+## 2026-10-09: visų dydžių domenų inventorizacija
+
+Per VPS tunelį tik `BEGIN READ ONLY` transakcijoje inventorizuota `catalog_size_facets_read`: 18 dydžių domenų, 2 494 skirtingos domeno / rakto / etiketės grupės. Pasikartojantis aprašų triukšmas rastas ne tik kelnėse, bet ir `shirts`, `clothing`, `underwear`, `swimwear`, `suitwear`, `shoes`, `socks`, `headwear` ir `other`. Pavyzdžiai: raidinis dydis su „Normalaus dydžio“ prierašu; skaitinis dydis su „įprastas ilgis“; batų pusiniai dydžiai su ilgio aprašu.
+
+Parengtas bendras, saugiai atpažįstamų dydžio aprašų šalinimas efektyviame facetų vaizde. Jis palieka EU skaitinius dydžius skaitiniais ir neskaido prasmingų batų, kojinių, apyrankių, diržų bei kepurių skaitinių intervalų; krepšių / aksesuarų matmenų ir įrenginių modelių nekeičia. Kelnių pora į W/L paverčiama tik turint aiškų `x` / `×`, pasikartojantį inseam arba „ilgis“ žymą. Neaiškus `29-30` paliekamas kaip intervalas, o vien tik `ilgis-30` gauna atskirą `l30` raktą.
+
+Migracijos failas [20261009110000](../../supabase/migrations/20261009110000_normalize_trouser_length_facets.sql) yra parengtas lokaliai ir **dar nelaikomas pritaikytu**. Po jo vykdymo SQL Editor reikia paleisti atskirą patikrą [VERIFY_20261009110000](VERIFY_20261009110000_normalize_trouser_length_facets.sql). Inventorizacija buvo read-only; joks VPS įrašas nekeistas.

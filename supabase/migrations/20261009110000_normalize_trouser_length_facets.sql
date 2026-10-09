@@ -1,7 +1,35 @@
--- Normalize trouser size labels whose source labels encode inseam or length
--- descriptions with hyphens. Keep the numeric waist/inseam pair when present;
--- discard only descriptive length words when no numeric inseam is supplied.
+-- Normalize known size-description suffixes across all size domains while
+-- preserving each domain's numeric system and meaningful numeric ranges.
 begin;
+
+-- Return only a recognizable leading size token when the rest of the source
+-- label is a known size/length description. Unknown labels stay untouched.
+create or replace function public.catalog_strip_known_size_description(
+  p_value text
+) returns text
+language sql immutable
+set search_path = public, pg_temp as $$
+  with source as (
+    select translate(lower(trim(coalesce(p_value, ''))), '–—−‐‑', '-----') as value
+  ), parsed as (
+    select regexp_match(value,
+      '^((?:vienas[[:space:]-]+dydis|one[[:space:]-]*size|onesize|ns|einheitsgr[oö](?:ße|sse)|(?:xxxs|xxs|xs|s|m|l|xl|xxl|xxxl|xxxxl|xxxxxl|xxxxxxl|xxxxxxxl|xxxxxxxxl|[2-8]xl|[2-8]-[ls]|-{1,8}[ls])(?:[[:space:]]*-[[:space:]]*(?:xxxs|xxs|xs|s|m|l|xl|xxl|xxxl|xxxxl|xxxxxl|xxxxxxl|xxxxxxxl|xxxxxxxxl|[2-8]xl|[2-8]-[ls]|-{1,8}[ls]))?|[0-9]{1,3}(?:[,.][0-9]+)?(?:[[:space:]]*-[[:space:]]*[0-9]{1,3}(?:[,.][0-9]+)?)?))[[:space:]-]*(?:x[[:space:]-]*)?(?:normalaus[[:space:]-]+dy[dž]?[žzd]?io|normalus[[:space:]-]+dydis|įprast(?:as|o)[[:space:]-]+dyd(?:žio|is)|usual[[:space:]-]+size|standard[[:space:]-]+size|normalus[[:space:]-]+ilgis|įprastas[[:space:]-]+ilgis|ilgis[[:space:]-]+įprastas|trumpas|labai[[:space:]-]+trumpas|ilgas|labai[[:space:]-]+ilgas|regular(?:[[:space:]-]+(?:length|fit))?|short|long|extra[[:space:]-]+long|tall|slim|length)(?:[[:space:]-]*/.*)?$') as matched
+    from source
+  )
+  select case
+    when regexp_replace(source.value, '[[:space:]_-]+', '', 'g')
+      in ('einheitsgröße', 'einheitsgroesse') then 'Vienas dydis'
+    when source.value ~ '^vienas[[:space:]-]+dydis(?:(?:[[:space:]-]*x[[:space:]-]*)|[[:space:]-]+)vieno[[:space:]-]+dyd[žz]io(?:[[:space:]-]*/.*)?$'
+      then 'Vienas dydis'
+    else (parsed.matched)[1]
+  end
+  from source cross join parsed;
+$$;
+
+revoke all on function public.catalog_strip_known_size_description(text)
+  from public, anon, authenticated;
+grant execute on function public.catalog_strip_known_size_description(text)
+  to service_role;
 
 create or replace function public.catalog_normalize_trouser_size_value(
   p_value text
@@ -13,24 +41,32 @@ set search_path = public, pg_temp as $$
   ), parsed as (
     select value,
       regexp_match(value,
-        '^(?:w[[:space:]]*)?([0-9]{2,3})[[:space:]]*[x×-][[:space:]]*([0-9]{2,3})(?:[[:space:]]*-[[:space:]]*\2)*(?:[[:space:]-]*/[[:space:]-]*(?:l[[:space:]]*)?\2)?$') as numeric_pair,
+        '^(?:w[[:space:]]*)?([0-9]{2,3})[[:space:]]*[x×][[:space:]]*([0-9]{2,3})(?:[[:space:]]*-[[:space:]]*\2)*(?:[[:space:]-]*/[[:space:]-]*(?:l[[:space:]]*)?\2)?$') as numeric_pair,
+      regexp_match(value,
+        '^([0-9]{2,3})[[:space:]]*-[[:space:]]*([0-9]{2,3})[[:space:]]*-[[:space:]]*\2(?:[[:space:]]*-[[:space:]]*\2)*(?:[[:space:]-]*/[[:space:]-]*(?:l[[:space:]]*)?\2)?$') as repeated_numeric_pair,
       regexp_match(value,
         '^(?:w[[:space:]]*)?([0-9]{2,3})[[:space:]]*[x×-][[:space:]]*([0-9]{2,3})[[:space:]-]*-[[:space:]-]*(?:įprastas[[:space:]-]+ilgis|normalus[[:space:]-]+ilgis|trumpas|labai[[:space:]-]+trumpas|ilgas|labai[[:space:]-]+ilgas|regular(?:[[:space:]-]+length)?|short|long|extra[[:space:]-]+long|tall)(?:[[:space:]-]*/.*)?$') as pair_with_length_label,
       regexp_match(value,
         '^(?:w[[:space:]]*)?([0-9]{2,3})[[:space:]]*[x×-][[:space:]]*(?:įprastas[[:space:]-]+ilgis|normalus[[:space:]-]+ilgis|trumpas|labai[[:space:]-]+trumpas|ilgas|labai[[:space:]-]+ilgas|regular(?:[[:space:]-]+length)?|short|long|extra[[:space:]-]+long|tall|slim)(?:[[:space:]-]*/.*)?$') as waist_with_length_label,
       regexp_match(value,
-        '^(?:ilgis|length)[[:space:]-]*([0-9]{2,3})(?:[[:space:]-]*/.*)?$') as length_prefix_waist
+        '^([0-9]{2,3})[[:space:]-]*(?:ilgis|length)[[:space:]-]*([0-9]{2,3})(?:[[:space:]-]*/.*)?$') as waist_length_prefix,
+      regexp_match(value,
+        '^(?:ilgis|length)[[:space:]-]*([0-9]{2,3})(?:[[:space:]-]*/.*)?$') as length_prefix_inseam
     from source
   )
   select case
     when numeric_pair is not null
       then 'w' || (numeric_pair)[1] || '-l' || (numeric_pair)[2]
+    when repeated_numeric_pair is not null
+      then 'w' || (repeated_numeric_pair)[1] || '-l' || (repeated_numeric_pair)[2]
     when pair_with_length_label is not null
       then 'w' || (pair_with_length_label)[1] || '-l' || (pair_with_length_label)[2]
     when waist_with_length_label is not null
       then (waist_with_length_label)[1]
-    when length_prefix_waist is not null
-      then (length_prefix_waist)[1]
+    when waist_length_prefix is not null
+      then 'w' || (waist_length_prefix)[1] || '-l' || (waist_length_prefix)[2]
+    when length_prefix_inseam is not null
+      then 'l' || (length_prefix_inseam)[1]
     else null
   end
   from parsed;
@@ -63,6 +99,10 @@ with source_values as (
   left join public.catalog_size_classification_overrides o
     on o.product_id = sf.product_id
   where coalesce(o.exclude_from_size_filter, false) = false
+), prepared_values as (
+  select source_values.*,
+    public.catalog_strip_known_size_description(normalization_input) as stripped_description
+  from source_values
 ), normalized_keys as (
   select
     product_id,
@@ -72,13 +112,19 @@ with source_values as (
       case when domain_key = 'trousers'
         then public.catalog_normalize_trouser_size_value(normalization_input)
       end,
+      public.catalog_effective_size_value_key(
+        domain_key,
+        coalesce(stripped_description, normalization_input)
+      ),
       public.catalog_effective_size_value_key(domain_key, normalization_input)
     ) as value_key,
     public.catalog_effective_size_value_key(source_value_key) as original_key,
     source_display_label,
     value_override,
-    sort_order
-  from source_values
+    sort_order,
+    stripped_description,
+    stripped_description is not null as had_known_description
+  from prepared_values
 ), normalized as (
   select
     product_id,
@@ -91,7 +137,9 @@ with source_values as (
       when value_key ~ '^w[0-9]{2,3}-l[0-9]{2,3}$'
         then 'W' || substring(value_key from '^w([0-9]{2,3})') || ' × L'
           || substring(value_key from '-l([0-9]{2,3})$')
+      when value_key = 'one-size' then 'Vienas dydis'
       when value_key is null then null
+      when had_known_description then value_key
       when value_key <> original_key then value_key
       else coalesce(nullif(trim(value_override->>'label'), ''), source_display_label)
     end as display_label,
@@ -104,7 +152,8 @@ with source_values as (
   from normalized
   cross join lateral unnest(
     case
-      when normalized.value_key ~ '^(xxxs|xxs|xs|s|m|l|xl|xxl|xxxl|xxxxl|xxxxxl|xxxxxxl|xxxxxxxl|xxxxxxxxl)-(xxxs|xxs|xs|s|m|l|xl|xxl|xxxl|xxxxl|xxxxxl|xxxxxxl|xxxxxxxl|xxxxxxxxl)$'
+      when normalized.domain_key in ('clothing', 'shirts', 'trousers', 'suitwear', 'underwear', 'swimwear', 'gloves', 'headwear', 'socks')
+        and normalized.value_key ~ '^(xxxs|xxs|xs|s|m|l|xl|xxl|xxxl|xxxxl|xxxxxl|xxxxxxl|xxxxxxxl|xxxxxxxxl)-(xxxs|xxs|xs|s|m|l|xl|xxl|xxxl|xxxxl|xxxxxl|xxxxxxl|xxxxxxxl|xxxxxxxxl)$'
         then string_to_array(normalized.value_key, '-')
       else array[normalized.value_key]
     end
@@ -135,6 +184,12 @@ set search_path = public, pg_temp as $$
       end,
       public.catalog_effective_size_value_key(
         split_part(p_token, ':', 1),
+        coalesce(public.catalog_strip_known_size_description(
+          substr(p_token, position(':' in p_token) + 1)
+        ), substr(p_token, position(':' in p_token) + 1))
+      ),
+      public.catalog_effective_size_value_key(
+        split_part(p_token, ':', 1),
         substr(p_token, position(':' in p_token) + 1)
       ),
       substr(p_token, position(':' in p_token) + 1)
@@ -163,17 +218,18 @@ begin
           end,
           public.catalog_effective_size_value_key(
             split_part(p_token, ':', 1),
+            coalesce(public.catalog_strip_known_size_description(
+              substr(p_token, position(':' in p_token) + 1)
+            ), substr(p_token, position(':' in p_token) + 1))
+          ),
+          public.catalog_effective_size_value_key(
+            split_part(p_token, ':', 1),
             substr(p_token, position(':' in p_token) + 1)
           )
         ) as value_key
     )
     select case
-      when domain_key = 'trousers' and raw_value ~ '^[0-9]{2,3}-[0-9]{2,3}$'
-        then array[
-          domain_key || ':' || raw_value,
-          domain_key || ':' || value_key
-        ]
-      when domain_key in ('clothing', 'shirts', 'trousers', 'suitwear', 'underwear', 'swimwear')
+      when domain_key in ('clothing', 'shirts', 'trousers', 'suitwear', 'underwear', 'swimwear', 'gloves', 'headwear', 'socks')
         and value_key ~ '^(xxxs|xxs|xs|s|m|l|xl|xxl|xxxl|xxxxl|xxxxxl|xxxxxxl|xxxxxxxl|xxxxxxxxl)-(xxxs|xxs|xs|s|m|l|xl|xxl|xxxl|xxxxl|xxxxxl|xxxxxxl|xxxxxxxl|xxxxxxxxl)$'
         then array[
           domain_key || ':' || split_part(value_key, '-', 1),
