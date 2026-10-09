@@ -16,6 +16,7 @@ services:
       - prometheus_data:/prometheus
     depends_on:
       - node-exporter
+      - postgres-exporter
     networks:
       - monitoring
 
@@ -59,9 +60,33 @@ services:
     networks:
       - monitoring
 
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.20.1
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_URI: "supabase-db:5432/postgres?sslmode=disable&options=-csearch_path%3Dextensions%2Cpg_catalog"
+      DATA_SOURCE_USER: ${POSTGRES_EXPORTER_USER:-supabase_metrics}
+      DATA_SOURCE_PASS: ${POSTGRES_EXPORTER_PASSWORD:?Set POSTGRES_EXPORTER_PASSWORD in /srv/monitoring/.env}
+    command:
+      - --collector.stat_statements
+      - --collector.long_running_transactions
+      - --collector.stat_checkpointer
+      - --collector.database_wraparound
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - monitoring
+      - supabase
+
 networks:
   monitoring:
     driver: bridge
+  supabase:
+    external: true
+    name: ${SUPABASE_DOCKER_NETWORK:-supabase_default}
 
 volumes:
   prometheus_data:
