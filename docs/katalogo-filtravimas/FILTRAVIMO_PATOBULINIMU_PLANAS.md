@@ -1,6 +1,34 @@
 # Katalogo filtravimo patobulinimų planas
 
-**Atnaujinta:** 2026-10-07 12:22 (Europe/Vilnius)
+**Atnaujinta:** 2026-10-09 (Europe/Vilnius)
+**2026-10-09 dydžių standartizavimo tikslas:** naudotojas patikslino, kad naujos
+prekės turi būti automatiškai normalizuojamos ta pačia taisykle per katalogo
+atnaujinimą, be rankinio kiekvienos prekės klasifikavimo. Paruošta
+[20261009100000 dydžių standartizavimo migracija](../../supabase/migrations/20261009100000_standardize_apparel_size_facets.sql):
+aiškius drabužių alpha dydžių aprašus suveda į S–8XL standartinius raktus;
+intervalus, pvz. `S–M`, priskiria abiem standartiniams pasirinkimams; kelnių
+`W × L` užrašymo variantus suvienodina išsaugant skirtingus liemens ir ilgio
+dydžius. Neaiškūs skaitiniai ar intervaliniai dydžiai nekeičiami, todėl jų
+klasifikavimui dar reikia kategorijos / dydžių sistemos taisyklių. Bazinė
+migracija VPS pritaikyta. Pirmasis 2026-10-09 bandymas nepavyko su
+`invalid regular expression: parentheses () not balanced`; dvi neprivalomo
+aprašo grupavimo išraiškos pataisytos. Migracijos DDL vėliau sėkmingai paleistas
+SQL Editor (`Success. No rows returned`), o naudotojo patikroje abi naujos
+funkcijos yra. `invalidate_catalog_facets_cache()` SQL Editor grąžino Zod
+validavimo klaidą, tačiau read-only VPS patikra 09:10:32 UTC rado atnaujintus
+static ir bendrą facetų cache įrašus su tuo pačiu laiku bei **372 818** narystės
+eilučių (prieš tai buvo 375 751). Materializuotoje narystėje drabužių ir
+marškinių dydžiai jau pateikti standartiniais S–8XL raktais. Tai patvirtina, kad
+refresh įvyko nepaisant SQL Editor rezultatų atvaizdavimo klaidos. Codex reader
+neturi naujų helper funkcijų EXECUTE teisės, todėl pilnas view ir materializuotos
+narystės pariteto palyginimas nebuvo vykdomas. Naudotojo parodytoje „chino“
+kategorijoje read-only šaltinio duomenys patvirtino likusius užrašus:
+`29-30-įprastas-ilgis`, `31-32-trumpas`, `34-labai-ilgas`, `ilgis-30`.
+Paruošta papildoma [kelnių ilgio normalizavimo migracija](../../supabase/migrations/20261009110000_normalize_trouser_length_facets.sql)
+ir [atskiras read-only patikros SQL](VERIFY_20261009110000_normalize_trouser_length_facets.sql).
+Ji automatiškai išlaiko skaitinę W/L porą, kai ji yra, ir pašalina tik žodinį
+ilgio aprašą, kai skaitinės poros nėra. Papildoma migracija dar nepritaikyta;
+po jos reikės atskiro cache/narystės refresh ir read-only patikros.
 **Bendras progresas:** 20/100 – 0 etapas patikrintas, 1–4 etapai dar nepriimti; dalinis įgyvendinimas balų neprideda.
 **Dabartinė būsena:** istorinis 120 miss/hit porų API matavimas tebelieka **240/240 HTTP 200**, miss p95 **4,643 s**, hit p95 **0,354 s**; tai nėra naujas matavimas. Po migracijos žinomi ciklai `2293/2293 clean` per **251,669 ms**, `2295/2295 clean` per **259,760 ms** ir `2303/2303 clean` per **274,426 ms**; visų `last_error=NULL`, abiejų vaizdų `last_analyze` atnaujintas 2303 cikle. Tarpinių versijų istorinių įrašų nėra, todėl trijų iš eilės ciklų priėmimo patvirtinti negalima. Per 09:17–09:22 UTC read-only patikroje `catalog_static_size_facets_cache` SELECT teisė buvo `true`; ciklo 2303 cache atnaujintas 09:05:00.026390 UTC, cache ir tikėtina agregacija turėjo po **2434** facetus, JSON payload sutapo tiksliai, narystė turėjo **374466** eilučių. Taigi cache/narystės paritetas patvirtintas šiam momentiniam ciklui. `pg_stat_io` skaitymas veikė ir 09:22:12.941386 UTC užfiksuota backend_type kaupiamų skaitiklių bazė, tačiau `track_io_timing=off`; tai nėra vieno refresh ciklo disko I/O matas. `pg_stat_statements` yra `extensions` schemoje, bet `codex_reader` neturi prieigos. Host CPU/disko metrikos neišmatuotos. Reikia patvirtinti tris iš eilės natūralius clean ciklus <300 s, suderintas versijas ir jų cache narystės paritetą. Produkcinio API laikas/statusas, mobile/kelių skirtukų scenarijai ir produkcinio bundle tapatybė atviri. Progresas lieka 20/100; etapai 1–4 nepriimti. Naudotojas pranešė pritaikęs migraciją, SQL Editor „Success“ išvesties nėra. [Spalio 5–7 d. eiga](ATNAUJINIMO_EIGA_2026-10-05.md). Nauji `other_sizes` API ir alert payload vietiniai pakeitimai necommitinti ir neįtraukti į ankstesnį Pages auto-update commit `b515758`; produkcinis revision neidentifikuotas.
 
@@ -911,3 +939,11 @@ Lieka atviri produkcinio API atsakymų laikai/statusai, mobile ir kelių skirtuk
 - Read-only patikroje 09:17–09:22 UTC `codex_reader` turėjo `SELECT` teisę į `catalog_static_size_facets_cache`. Ciklas `2303/2303 clean` truko **274,426 ms** (09:05:00.029–09:09:34.455 UTC); 2434 agreguoti facetai tiksliai sutapo JSON, narystė turėjo **374466** eilučių. Šio ciklo cache paritetas patvirtintas.
 - `pg_stat_io` skaitomas; backend tipo kaupiamoji bazė užfiksuota 09:22:12.941386 UTC, bet `track_io_timing=off`, tad per-refresh diskas ir hosto CPU neišmatuoti. `pg_stat_statements` egzistuoja `extensions` schemoje, tačiau `codex_reader` neturi schemos prieigos. Cloud aplinkoje resursų tendencijoms naudoti Supabase Dashboard; savame VPS rinkti hosto OS `vmstat`/`iostat`/`pidstat` skaitiklius. Nuolatinis monitor agentas neįdiegtas.
 - Trūksta tarpinių ciklų istorijos, todėl trijų iš eilės priėmimo patvirtinti negalima. Bendra pažanga lieka **20/100**.
+
+## 2026-10-09: visų dydžių domenų inventorizacija
+
+Per VPS tunelį tik `BEGIN READ ONLY` transakcijoje inventorizuota `catalog_size_facets_read`: 18 dydžių domenų, 2 494 skirtingos domeno / rakto / etiketės grupės. Pasikartojantis aprašų triukšmas rastas ne tik kelnėse, bet ir `shirts`, `clothing`, `underwear`, `swimwear`, `suitwear`, `shoes`, `socks`, `headwear` ir `other`. Pavyzdžiai: raidinis dydis su „Normalaus dydžio“ prierašu; skaitinis dydis su „įprastas ilgis“; batų pusiniai dydžiai su ilgio aprašu.
+
+Parengtas bendras, saugiai atpažįstamų dydžio aprašų šalinimas efektyviame facetų vaizde. Jis palieka EU skaitinius dydžius skaitiniais ir neskaido prasmingų batų, kojinių, apyrankių, diržų bei kepurių skaitinių intervalų; krepšių / aksesuarų matmenų ir įrenginių modelių nekeičia. Kelnių pora į W/L paverčiama tik turint aiškų `x` / `×`, pasikartojantį inseam arba „ilgis“ žymą. Neaiškus `29-30` paliekamas kaip intervalas, o vien tik `ilgis-30` gauna atskirą `l30` raktą.
+
+Migracijos failas [20261009110000](../../supabase/migrations/20261009110000_normalize_trouser_length_facets.sql) yra parengtas lokaliai ir **dar nelaikomas pritaikytu**. Po jo vykdymo SQL Editor reikia paleisti atskirą patikrą [VERIFY_20261009110000](VERIFY_20261009110000_normalize_trouser_length_facets.sql). Inventorizacija buvo read-only; joks VPS įrašas nekeistas.
