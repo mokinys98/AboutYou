@@ -1,6 +1,59 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { describe, expect, it, vi } from "vitest";
-import { EXCLUDED_BASICS_CATEGORIES, allowedCorsOrigin, app, catalogCacheUrl, catalogCursorFilter, catalogHistoryCutoff, counted, dispatchGitHubWorkflow, downloadRawArtifact, inspectProductDebugPayload, inviteErrorResponse, loadAdminDashboard, mapProductDebug, mapProductDetail, newestCatalogCutoff, normalizeBrandKey, normalizeCatalogInsights, parseFilters, postgresArrayLiteral, priceComparisonColumn, sortDefinition, splitSizeFilters, supabaseOrigin, teamMemberStatus, workflowForCron } from "./index";
+import { EXCLUDED_BASICS_CATEGORIES, allowedCorsOrigin, app, catalogCacheUrl, catalogFacetsCacheUrl, catalogCursorFilter, catalogHistoryCutoff, counted, dispatchGitHubWorkflow, downloadRawArtifact, inspectProductDebugPayload, inviteErrorResponse, loadAdminDashboard, mapProductDebug, mapProductDetail, newestCatalogCutoff, normalizeBrandKey, normalizeCatalogInsights, parseFilters, postgresArrayLiteral, priceComparisonColumn, sortDefinition, splitSizeFilters, supabaseOrigin, teamMemberStatus, workflowForCron } from "./index";
+
+async function authenticatedCatalogHarness(userId: string, cachedEntries: Array<[string, Response]> = []) {
+  const supabaseUrl = `https://${userId}.supabase.co`;
+  const { privateKey, publicKey } = await generateKeyPair("RS256");
+  const jwk = await exportJWK(publicKey);
+  jwk.kid = "catalog-test-key";
+  jwk.alg = "RS256";
+  jwk.use = "sig";
+  const token = await new SignJWT({})
+    .setProtectedHeader({ alg: "RS256", kid: jwk.kid })
+    .setIssuer(`${supabaseUrl}/auth/v1`)
+    .setSubject(userId)
+    .setExpirationTime("5m")
+    .sign(privateKey);
+
+  const entries = new Map(cachedEntries.map(([key, response]) => [key, response.clone()]));
+  const cache = {
+    match: async (request: Request) => entries.get(request.url)?.clone(),
+    put: async (request: Request, response: Response) => { entries.set(request.url, response.clone()); }
+  };
+  vi.stubGlobal("caches", { default: cache });
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init);
+    const url = new URL(request.url);
+    if (url.pathname === "/auth/v1/.well-known/jwks.json") {
+      return Response.json({ keys: [jwk] });
+    }
+    if (url.pathname === "/rest/v1/team_members") {
+      return Response.json({ email: `${userId}@example.com`, role: "admin", active: true, accepted_at: "2026-01-01T00:00:00Z" });
+    }
+    if (url.pathname.startsWith("/rest/v1/catalog_items_read") || url.pathname === "/rest/v1/rpc/catalog_facets_cached") {
+      return Response.json({ code: "57014", message: "canceling statement due to statement timeout", details: null, hint: null }, { status: 500 });
+    }
+    return new Response(null, { status: 404 });
+  });
+
+  const call = (path: string) => app.request(path, {
+    headers: { Authorization: `Bearer ${token}`, "cf-ray": "test-ray-id" }
+  }, {
+    SUPABASE_URL: supabaseUrl,
+    SUPABASE_SERVICE_ROLE_KEY: "test-service-role-key",
+    ALLOWED_ORIGIN: "http://localhost:3000"
+  });
+  return { call, entries };
+}
+
+function staleCacheResponse(body: unknown): Response {
+  return Response.json(body, { headers: {
+    "cache-control": "max-age=86400",
+    "x-catalog-cached-at": String(Date.now() - 6 * 60_000)
+  } });
+}
 
 describe("catalog API", () => {
   it("accepts grouped size tokens while preserving legacy size values", () => {
@@ -157,6 +210,58 @@ describe("catalog API", () => {
     const second = catalogCacheUrl("https://api.example/v1/catalog?sort=newest", "user-b").toString();
     expect(first).not.toBe(second);
     expect(first).toContain("watchlist_user=user-a");
+  });
+
+  it("serves a same-user stale catalog page after a database error", async () => {
+    const userId = "catalog-stale-user";
+    const cacheKey = catalogCacheUrl("http://localhost/v1/catalog", userId).toString();
+    const staleBody = { items: [{ id: "watched-product", watched: true }], nextCursor: null, totalCount: 1 };
+    const { call } = await authenticatedCatalogHarness(userId, [[cacheKey, staleCacheResponse(staleBody)]]);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      const response = await call("/v1/catalog");
+      expect(response.status).toBe(200);
+      expect(response.headers.get("x-catalog-stale")).toBe("true");
+      expect(response.headers.get("x-catalog-cached-at")).toBeNull();
+      await expect(response.json()).resolves.toEqual(staleBody);
+      const log = JSON.parse(String(consoleError.mock.calls[0]?.[0]));
+      expect(log).toEqual({ event: "catalog_read_failed", endpoint: "/v1/catalog", code: "57014", cfRay: "test-ray-id" });
+    } finally {
+      vi.unstubAllGlobals();
+      consoleError.mockRestore();
+    }
+  });
+
+  it("serves stale facets after a database error without changing the facet payload", async () => {
+    const userId = "facets-stale-user";
+    const cacheKey = catalogFacetsCacheUrl("http://localhost/v1/catalog/facets?category=vyrams").toString();
+    const staleBody = { categories: [{ id: "menswear", count: 4 }] };
+    const { call } = await authenticatedCatalogHarness(userId, [[cacheKey, staleCacheResponse(staleBody)]]);
+
+    try {
+      const response = await call("/v1/catalog/facets?category=vyrams");
+      expect(response.status).toBe(200);
+      expect(response.headers.get("x-catalog-stale")).toBe("true");
+      await expect(response.json()).resolves.toEqual(staleBody);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps catalog errors as 500 when there is no same-user cached response", async () => {
+    const userId = "catalog-cache-miss-user";
+    const otherUserCacheKey = catalogCacheUrl("http://localhost/v1/catalog", "different-user").toString();
+    const { call } = await authenticatedCatalogHarness(userId, [[otherUserCacheKey, staleCacheResponse({ items: [{ id: "private" }] })]]);
+
+    try {
+      const response = await call("/v1/catalog");
+      expect(response.status).toBe(500);
+      expect(response.headers.get("x-catalog-stale")).toBeNull();
+      await expect(response.json()).resolves.toMatchObject({ error: "canceling statement due to statement timeout" });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("parses the news filter and uses a stable 30-day cutoff", () => {
@@ -372,6 +477,26 @@ describe("catalog API", () => {
     expect(request?.method).toBe("POST");
     expect(request?.headers.get("authorization")).toBe("Bearer test-token");
     await expect(request?.json()).resolves.toEqual({ ref: "main" });
+  });
+
+  it("includes optional workflow dispatch inputs when provided", async () => {
+    let request: Request | undefined;
+    const fetcher: typeof fetch = async (input, init) => {
+      request = new Request(input, init);
+      return new Response(null, { status: 204 });
+    };
+
+    await dispatchGitHubWorkflow("sync-product-metadata.yml", {
+      SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "test-service-role-key",
+      ALLOWED_ORIGIN: "http://localhost:3000",
+      GITHUB_TOKEN: "test-token",
+      GITHUB_OWNER: "mokinys98",
+      GITHUB_REPO: "AboutYou",
+      GITHUB_REF: "main"
+    }, fetcher, { max_products: "250" });
+
+    await expect(request?.json()).resolves.toEqual({ ref: "main", inputs: { max_products: "250" } });
   });
 
   it("fails clearly when GitHub rejects a dispatch", async () => {

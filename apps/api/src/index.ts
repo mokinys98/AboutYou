@@ -60,6 +60,10 @@ const DEV_ORIGINS = new Set([
   "http://127.0.0.1:3002"
 ]);
 
+const CATALOG_CACHE_FRESH_MS = 5 * 60_000;
+const CATALOG_CACHE_STALE_MS = 24 * 60 * 60_000;
+const CATALOG_CACHE_TIME_HEADER = "x-catalog-cached-at";
+
 export function allowedCorsOrigin(origin: string, allowedOrigin: string): string | null {
   const configuredOrigins = allowedOrigin.split(",").map((value) => value.trim()).filter(Boolean);
   return configuredOrigins.includes(origin) || DEV_ORIGINS.has(origin) ? origin : null;
@@ -68,7 +72,7 @@ export function allowedCorsOrigin(origin: string, allowedOrigin: string): string
 app.use("*", async (c, next) => cors({
   origin: (origin, context) => allowedCorsOrigin(origin, context.env.ALLOWED_ORIGIN),
   allowHeaders: ["Authorization", "Content-Type"],
-  exposeHeaders: ["ETag"]
+  exposeHeaders: ["ETag", "X-Catalog-Stale"]
 })(c, next));
 export function supabaseOrigin(value: string | undefined) {
   try {
@@ -630,7 +634,9 @@ app.get("/v1/catalog", async (c) => {
   const cacheKey = new Request(cacheUrl, { method: "GET" });
   const edgeCache = getEdgeCache();
   const cached = await edgeCache.match(cacheKey);
-  if (cached) return cached;
+  if (cached && cachedCatalogResponseAge(cached) <= CATALOG_CACHE_FRESH_MS) {
+    return catalogCacheResponse(cached);
+  }
 
   let query = filteredCatalogQuery(c.get("db"), filters, !filters.cursor);
 
@@ -641,7 +647,13 @@ app.get("/v1/catalog", async (c) => {
     query = query.or(catalogCursorFilter(sort, cursor));
   }
   const { data, error, count } = await query;
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) {
+    logCatalogReadFailure(c, "/v1/catalog", error);
+    if (cached && cachedCatalogResponseAge(cached) <= CATALOG_CACHE_STALE_MS) {
+      return catalogCacheResponse(cached, true);
+    }
+    return c.json({ error: error.message }, 500);
+  }
   const rows = data ?? [];
   const hasNext = rows.length > filters.limit;
   const pageRows = rows.slice(0, filters.limit);
@@ -656,7 +668,7 @@ app.get("/v1/catalog", async (c) => {
   const etag = `"${await sha256(body)}"`;
   if (c.req.header("If-None-Match") === etag) return c.body(null, 304, { ETag: etag });
   const response = new Response(body, { headers: { "content-type": "application/json", "cache-control": "private, max-age=0", ETag: etag } });
-  c.executionCtx.waitUntil(edgeCache.put(cacheKey, new Response(body, { headers: { "content-type": "application/json", "cache-control": "max-age=300" } })));
+  c.executionCtx.waitUntil(edgeCache.put(cacheKey, catalogCacheEntry(body, etag)));
   return response;
 });
 
@@ -668,12 +680,22 @@ app.get("/v1/catalog/facets", async (c) => {
     ...facetFilters,
     categories: facetFilters.categoryPath ? [facetFilters.categoryPath] : facetFilters.categories
   };
+  const cacheKey = new Request(catalogFacetsCacheUrl(c.req.url), { method: "GET" });
+  const edgeCache = getEdgeCache();
+  const cached = await edgeCache.match(cacheKey);
+  if (cached && cachedCatalogResponseAge(cached) <= CATALOG_CACHE_FRESH_MS) {
+    return catalogCacheResponse(cached);
+  }
   const { data, error } = await c.get("db").rpc("catalog_facets_cached", { p_filters: effectiveFacetFilters });
   if (error) {
-    console.error("[catalog/facets]", { code: error.code, message: error.message, details: error.details, hint: error.hint });
+    logCatalogReadFailure(c, "/v1/catalog/facets", error);
+    if (cached && cachedCatalogResponseAge(cached) <= CATALOG_CACHE_STALE_MS) {
+      return catalogCacheResponse(cached, true);
+    }
     return c.json({ error: error.message }, 500);
   }
   const body = JSON.stringify(data ?? {});
+  c.executionCtx.waitUntil(edgeCache.put(cacheKey, catalogCacheEntry(body)));
   return new Response(body, { headers: { "content-type": "application/json", "cache-control": "private, max-age=0" } });
 });
 
@@ -1119,6 +1141,13 @@ export function catalogCacheUrl(requestUrl: string, userId: string): URL {
   return url;
 }
 
+export function catalogFacetsCacheUrl(requestUrl: string): URL {
+  const url = new URL(requestUrl);
+  url.hostname = "catalog-facets-cache.internal";
+  url.searchParams.sort();
+  return url;
+}
+
 export function sortDefinition(sort: string) {
   if (sort === "price_asc") return { column: "current_price", ascending: true } as const;
   if (sort === "price_desc") return { column: "current_price", ascending: false } as const;
@@ -1310,6 +1339,44 @@ function decodeCursor(value?: string): { value: string | number | null; id: stri
 async function sha256(value: string): Promise<string> { const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)); return Array.from(new Uint8Array(hash), (b) => b.toString(16).padStart(2, "0")).join(""); }
 function getEdgeCache(): Cache { return (caches as unknown as { default: Cache }).default; }
 
+function catalogCacheEntry(body: string, etag?: string): Response {
+  const headers = new Headers({
+    "content-type": "application/json",
+    "cache-control": `max-age=${Math.floor(CATALOG_CACHE_STALE_MS / 1000)}`,
+    [CATALOG_CACHE_TIME_HEADER]: String(Date.now())
+  });
+  if (etag) headers.set("ETag", etag);
+  return new Response(body, { headers });
+}
+
+function cachedCatalogResponseAge(response: Response): number {
+  const cachedAt = Number(response.headers.get(CATALOG_CACHE_TIME_HEADER));
+  if (!Number.isFinite(cachedAt) || cachedAt <= 0) return Number.POSITIVE_INFINITY;
+  return Math.max(0, Date.now() - cachedAt);
+}
+
+function catalogCacheResponse(response: Response, stale = false): Response {
+  const headers = new Headers(response.headers);
+  headers.delete(CATALOG_CACHE_TIME_HEADER);
+  headers.set("cache-control", "private, max-age=0");
+  if (stale) headers.set("X-Catalog-Stale", "true");
+  else headers.delete("X-Catalog-Stale");
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
+function logCatalogReadFailure(
+  c: { req: { header(name: string): string | undefined } },
+  endpoint: string,
+  error: SupabaseQueryError
+): void {
+  console.error(JSON.stringify({
+    event: "catalog_read_failed",
+    endpoint,
+    code: error.code ?? null,
+    cfRay: c.req.header("cf-ray") ?? null
+  }));
+}
+
 export function workflowForCron(cron: string): string {
   const workflow = WORKFLOW_BY_CRON[cron];
   if (!workflow) throw new Error(`Nežinomas cron grafikas: ${cron}`);
@@ -1319,7 +1386,8 @@ export function workflowForCron(cron: string): string {
 export async function dispatchGitHubWorkflow(
   workflow: string,
   env: SchedulerBindings,
-  fetcher: typeof fetch = fetch
+  fetcher: typeof fetch = fetch,
+  inputs?: Record<string, string>
 ): Promise<void> {
   if (!env.GITHUB_TOKEN) throw new Error("Nesukonfigūruotas GITHUB_TOKEN");
 
@@ -1335,7 +1403,7 @@ export async function dispatchGitHubWorkflow(
       "User-Agent": "aboutyou-private-catalog-api",
       "X-GitHub-Api-Version": "2026-03-10"
     },
-    body: JSON.stringify({ ref: env.GITHUB_REF })
+    body: JSON.stringify({ ref: env.GITHUB_REF, ...(inputs ? { inputs } : {}) })
   });
 
   if (!response.ok) {
@@ -1384,7 +1452,8 @@ export default {
     }
     const workflow = workflowForCron(controller.cron);
     try {
-      await dispatchGitHubWorkflow(workflow, env);
+      const inputs = controller.cron === "47 * * * *" ? { max_products: "250" } : undefined;
+      await dispatchGitHubWorkflow(workflow, env, fetch, inputs);
     } catch (error) {
       console.error(JSON.stringify({
         event: "github_workflow_dispatch_failed",
