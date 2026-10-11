@@ -31,7 +31,7 @@ DISK_MAX_PERCENT=80
 BACKUP_MAX_AGE_SECONDS=129600
 READ_MODEL_PENDING_MAX_AGE_SECONDS=900
 SUPABASE_HEALTH_URL=https://supabase-staging.rinkissaupigiausia.online/auth/v1/.well-known/jwks.json
-API_HEALTH_URL=https://aboutyou-private-catalog-api-staging.aurimas-zvirb.workers.dev/health
+PRODUCTION_API_HEALTH_URL=https://aboutyou-private-catalog-api.aurimas-zvirb.workers.dev/health
 SMTP_CONFIG_FILE=/srv/supabase/docker/.env
 ALERT_EMAIL_SUBJECT_PREFIX=AboutYou VPS monitor
 MONITOR_ENV

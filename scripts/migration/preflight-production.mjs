@@ -1,10 +1,8 @@
 const config = {
   phase: process.env.MIGRATION_PHASE ?? "rehearsal",
-  previewUrl: process.env.MIGRATION_PREVIEW_URL ?? "https://staging-preview.aboutyou-private-catalog-web.pages.dev",
   productionUrl: process.env.MIGRATION_PRODUCTION_URL ?? "https://aboutyou-private-catalog-web.pages.dev",
-  stagingApiUrl: process.env.MIGRATION_STAGING_API_URL ?? "https://aboutyou-private-catalog-api-staging.aurimas-zvirb.workers.dev",
   productionApiUrl: process.env.MIGRATION_PRODUCTION_API_URL ?? "https://aboutyou-private-catalog-api.aurimas-zvirb.workers.dev",
-  stagingSupabaseUrl: process.env.MIGRATION_STAGING_SUPABASE_URL ?? "https://supabase-staging.rinkissaupigiausia.online"
+  vpsSupabaseUrl: process.env.MIGRATION_VPS_SUPABASE_URL ?? "https://supabase-staging.rinkissaupigiausia.online"
 };
 
 if (!new Set(["rehearsal", "cutover"]).has(config.phase)) {
@@ -105,36 +103,23 @@ async function jwks(name, supabaseUrl) {
 
 console.log(`Migration preflight phase: ${config.phase}`);
 
-const [preview, production] = await Promise.all([
-  pageConfig("Preview", config.previewUrl),
-  pageConfig("Production", config.productionUrl)
-]);
+const production = await pageConfig("Production", config.productionUrl);
 
-record("Preview uses VPS Supabase", preview.supabaseUrl === config.stagingSupabaseUrl,
-  `actual=${preview.supabaseUrl ?? "missing"}`);
-record("Preview uses staging API", preview.apiBase === config.stagingApiUrl,
-  `actual=${preview.apiBase ?? "missing"}`);
 record("Production uses production API", production.apiBase === config.productionApiUrl,
   `actual=${production.apiBase ?? "missing"}`);
 
 if (config.phase === "rehearsal") {
-  record("Production remains on source Supabase", Boolean(production.supabaseUrl) && production.supabaseUrl !== config.stagingSupabaseUrl,
+  record("Production remains on source Supabase", Boolean(production.supabaseUrl) && production.supabaseUrl !== config.vpsSupabaseUrl,
     `actual=${production.supabaseUrl ?? "missing"}`);
 } else {
-  record("Production uses VPS Supabase", production.supabaseUrl === config.stagingSupabaseUrl,
+  record("Production uses VPS Supabase", production.supabaseUrl === config.vpsSupabaseUrl,
     `actual=${production.supabaseUrl ?? "missing"}`);
 }
 
-const [stagingBackendOrigin, productionBackendOrigin] = await Promise.all([
-  health("Staging API", config.stagingApiUrl),
-  health("Production API", config.productionApiUrl),
-]);
-
-record("Staging API uses VPS Supabase", stagingBackendOrigin === config.stagingSupabaseUrl,
-  `actual=${stagingBackendOrigin ?? "missing"}`);
+const productionBackendOrigin = await health("Production API", config.productionApiUrl);
 
 if (config.phase === "cutover") {
-  record("Production API uses VPS Supabase", productionBackendOrigin === config.stagingSupabaseUrl,
+  record("Production API uses VPS Supabase", productionBackendOrigin === config.vpsSupabaseUrl,
     `actual=${productionBackendOrigin ?? "missing"}`);
 } else if (productionBackendOrigin !== undefined) {
   record("Production API remains on source Supabase", productionBackendOrigin === production.supabaseUrl,
@@ -142,11 +127,9 @@ if (config.phase === "cutover") {
 }
 
 await Promise.all([
-  unauthenticatedCatalog("Staging API", config.stagingApiUrl),
   unauthenticatedCatalog("Production API", config.productionApiUrl),
-  cors("Preview to staging API", config.stagingApiUrl, config.previewUrl),
   cors("Production to production API", config.productionApiUrl, config.productionUrl),
-  jwks("VPS Supabase", config.stagingSupabaseUrl),
+  jwks("VPS Supabase", config.vpsSupabaseUrl),
   jwks("Production Supabase", production.supabaseUrl)
 ]);
 

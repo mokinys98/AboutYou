@@ -24,26 +24,6 @@
       "12 0 * * *"
     ]
   },
-  "env": {
-    "staging": {
-      "name": "aboutyou-private-catalog-api-staging",
-      "vars": {
-        "ALLOWED_ORIGIN": "https://staging-preview.aboutyou-private-catalog-web.pages.dev,http://localhost:3000,http://localhost:3001,http://localhost:3002",
-        "WEB_APP_URL": "https://staging-preview.aboutyou-private-catalog-web.pages.dev",
-        "TELEGRAM_BOT_USERNAME": "AboutYouTrackerBot",
-        "GITHUB_OWNER": "mokinys98",
-        "GITHUB_REPO": "AboutYou",
-        "GITHUB_REF": "main",
-        "AI_ENRICHMENT_ENABLED": "true",
-        "AI_CRON_ENABLED": "false",
-        "AI_INCENTIVE_VERIFIED": "true",
-        "AI_DAILY_TOKEN_CAP": "200000"
-      },
-      "triggers": {
-        "crons": []
-      }
-    }
-  },
   "observability": {
     "enabled": true,
     "logs": {

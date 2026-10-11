@@ -21,7 +21,7 @@ DISK_MAX_PERCENT="${DISK_MAX_PERCENT:-80}"
 BACKUP_MAX_AGE_SECONDS="${BACKUP_MAX_AGE_SECONDS:-129600}"
 READ_MODEL_PENDING_MAX_AGE_SECONDS="${READ_MODEL_PENDING_MAX_AGE_SECONDS:-900}"
 SUPABASE_HEALTH_URL="${SUPABASE_HEALTH_URL:-https://supabase-staging.rinkissaupigiausia.online/auth/v1/.well-known/jwks.json}"
-API_HEALTH_URL="${API_HEALTH_URL:-https://aboutyou-private-catalog-api-staging.aurimas-zvirb.workers.dev/health}"
+PRODUCTION_API_HEALTH_URL="${PRODUCTION_API_HEALTH_URL:-https://aboutyou-private-catalog-api.aurimas-zvirb.workers.dev/health}"
 SMTP_CONFIG_FILE="${SMTP_CONFIG_FILE:-/srv/supabase/docker/.env}"
 ALERT_EMAIL_SUBJECT_PREFIX="${ALERT_EMAIL_SUBJECT_PREFIX:-AboutYou VPS monitor}"
 
@@ -137,8 +137,7 @@ for container in "${containers[@]}"; do
 done
 
 http_check "Supabase JWKS" "$SUPABASE_HEALTH_URL" '"keys"'
-http_check "Worker API" "$API_HEALTH_URL" '"ok"[[:space:]]*:[[:space:]]*true'
-
+http_check "Production API" "$PRODUCTION_API_HEALTH_URL" '"ok"[[:space:]]*:[[:space:]]*true'
 if systemctl is-active --quiet aboutyou-supabase-backup.timer; then
   pass "backup timer active"
 else
