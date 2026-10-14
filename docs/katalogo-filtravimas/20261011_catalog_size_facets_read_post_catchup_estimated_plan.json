@@ -1,0 +1,224 @@
+{
+  "measured_at_utc": "2026-10-11T19:21:39.387091+00:00",
+  "source_view": "catalog_size_facets_read",
+  "explain": [
+    {
+      "Plan": {
+        "Node Type": "Subquery Scan",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Alias": "normalized",
+        "Startup Cost": 1148062.41,
+        "Total Cost": 1159090.54,
+        "Plan Rows": 61267,
+        "Plan Width": 208,
+        "Plans": [
+          {
+            "Node Type": "Unique",
+            "Parent Relationship": "Subquery",
+            "Parallel Aware": false,
+            "Async Capable": false,
+            "Startup Cost": 1148062.41,
+            "Total Cost": 1158784.2,
+            "Plan Rows": 61267,
+            "Plan Width": 176,
+            "Plans": [
+              {
+                "Node Type": "Sort",
+                "Parent Relationship": "Outer",
+                "Parallel Aware": false,
+                "Async Capable": false,
+                "Startup Cost": 1148062.41,
+                "Total Cost": 1149594.09,
+                "Plan Rows": 612674,
+                "Plan Width": 176,
+                "Sort Key": [
+                  "i.id",
+                  "(catalog_size_domain(i.category_paths, i.category_names, i.name))",
+                  "(catalog_size_domain_label((catalog_size_domain(i.category_paths, i.category_names, i.name))))",
+                  "(catalog_size_value_key((o.label || CASE WHEN (NULLIF(TRIM(BOTH FROM o.size_group), ''::text) IS NOT NULL) THEN ('-'::text || TRIM(BOTH FROM o.size_group)) ELSE ''::text END)))",
+                  "(CASE WHEN (NULLIF(TRIM(BOTH FROM o.size_group), ''::text) IS NOT NULL) THEN ((TRIM(BOTH FROM o.label) || ' / '::text) || TRIM(BOTH FROM o.size_group)) ELSE TRIM(BOTH FROM o.label) END)",
+                  "(catalog_size_sort_order(o.label))"
+                ],
+                "Plans": [
+                  {
+                    "Node Type": "Result",
+                    "Parent Relationship": "Outer",
+                    "Parallel Aware": false,
+                    "Async Capable": false,
+                    "Startup Cost": 138898.82,
+                    "Total Cost": 984463.86,
+                    "Plan Rows": 612674,
+                    "Plan Width": 176,
+                    "Plans": [
+                      {
+                        "Node Type": "Append",
+                        "Parent Relationship": "Outer",
+                        "Parallel Aware": false,
+                        "Async Capable": false,
+                        "Startup Cost": 138898.82,
+                        "Total Cost": 500451.4,
+                        "Plan Rows": 612674,
+                        "Plan Width": 81,
+                        "Subplans Removed": 0,
+                        "Plans": [
+                          {
+                            "Node Type": "Hash Join",
+                            "Parent Relationship": "Member",
+                            "Parallel Aware": false,
+                            "Async Capable": false,
+                            "Join Type": "Inner",
+                            "Startup Cost": 138898.82,
+                            "Total Cost": 250898.51,
+                            "Plan Rows": 340181,
+                            "Plan Width": 57,
+                            "Inner Unique": true,
+                            "Hash Cond": "(o.product_id = i.id)",
+                            "Plans": [
+                              {
+                                "Node Type": "Seq Scan",
+                                "Parent Relationship": "Outer",
+                                "Parallel Aware": false,
+                                "Async Capable": false,
+                                "Relation Name": "product_size_options",
+                                "Alias": "o",
+                                "Startup Cost": 0.0,
+                                "Total Cost": 17622.43,
+                                "Plan Rows": 340181,
+                                "Plan Width": 25,
+                                "Filter": "(selectable AND (TRIM(BOTH FROM COALESCE(label, ''::text)) <> ''::text))"
+                              },
+                              {
+                                "Node Type": "Hash",
+                                "Parent Relationship": "Inner",
+                                "Parallel Aware": false,
+                                "Async Capable": false,
+                                "Startup Cost": 133801.92,
+                                "Total Cost": 133801.92,
+                                "Plan Rows": 104792,
+                                "Plan Width": 268,
+                                "Plans": [
+                                  {
+                                    "Node Type": "Seq Scan",
+                                    "Parent Relationship": "Outer",
+                                    "Parallel Aware": false,
+                                    "Async Capable": false,
+                                    "Relation Name": "catalog_items_read",
+                                    "Alias": "i",
+                                    "Startup Cost": 0.0,
+                                    "Total Cost": 133801.92,
+                                    "Plan Rows": 104792,
+                                    "Plan Width": 268
+                                  }
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "Node Type": "Nested Loop",
+                            "Parent Relationship": "Member",
+                            "Parallel Aware": false,
+                            "Async Capable": false,
+                            "Join Type": "Inner",
+                            "Startup Cost": 140228.84,
+                            "Total Cost": 246489.51,
+                            "Plan Rows": 272493,
+                            "Plan Width": 112,
+                            "Inner Unique": false,
+                            "Plans": [
+                              {
+                                "Node Type": "Hash Join",
+                                "Parent Relationship": "Outer",
+                                "Parallel Aware": false,
+                                "Async Capable": false,
+                                "Join Type": "Right Anti",
+                                "Startup Cost": 140228.82,
+                                "Total Cost": 172955.02,
+                                "Plan Rows": 30277,
+                                "Plan Width": 373,
+                                "Inner Unique": true,
+                                "Hash Cond": "(o_1.product_id = i_1.id)",
+                                "Plans": [
+                                  {
+                                    "Node Type": "Seq Scan",
+                                    "Parent Relationship": "Outer",
+                                    "Parallel Aware": false,
+                                    "Async Capable": false,
+                                    "Relation Name": "product_size_options",
+                                    "Alias": "o_1",
+                                    "Startup Cost": 0.0,
+                                    "Total Cost": 14359.29,
+                                    "Plan Rows": 652629,
+                                    "Plan Width": 16
+                                  },
+                                  {
+                                    "Node Type": "Hash",
+                                    "Parent Relationship": "Inner",
+                                    "Parallel Aware": false,
+                                    "Async Capable": false,
+                                    "Startup Cost": 133801.92,
+                                    "Total Cost": 133801.92,
+                                    "Plan Rows": 104792,
+                                    "Plan Width": 373,
+                                    "Plans": [
+                                      {
+                                        "Node Type": "Seq Scan",
+                                        "Parent Relationship": "Outer",
+                                        "Parallel Aware": false,
+                                        "Async Capable": false,
+                                        "Relation Name": "catalog_items_read",
+                                        "Alias": "i_1",
+                                        "Startup Cost": 0.0,
+                                        "Total Cost": 133801.92,
+                                        "Plan Rows": 104792,
+                                        "Plan Width": 373
+                                      }
+                                    ]
+                                  }
+                                ]
+                              },
+                              {
+                                "Node Type": "Memoize",
+                                "Parent Relationship": "Inner",
+                                "Parallel Aware": false,
+                                "Async Capable": false,
+                                "Startup Cost": 0.01,
+                                "Total Cost": 0.17,
+                                "Plan Rows": 9,
+                                "Plan Width": 32,
+                                "Cache Key": "i_1.sizes, i_1.other_sizes",
+                                "Cache Mode": "binary",
+                                "Plans": [
+                                  {
+                                    "Node Type": "Function Scan",
+                                    "Parent Relationship": "Outer",
+                                    "Parallel Aware": false,
+                                    "Async Capable": false,
+                                    "Function Name": "unnest",
+                                    "Alias": "value",
+                                    "Startup Cost": 0.01,
+                                    "Total Cost": 0.15,
+                                    "Plan Rows": 9,
+                                    "Plan Width": 32,
+                                    "Filter": "(TRIM(BOTH FROM COALESCE(value, ''::text)) <> ''::text)"
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "Settings": {
+        "effective_cache_size": "128MB"
+      }
+    }
+  ]
+}
