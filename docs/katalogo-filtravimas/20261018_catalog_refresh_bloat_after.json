@@ -1,0 +1,212 @@
+{
+  "source": "Codex authorized read-only VPS PostgreSQL connection; snapshot query matches supabase/tests/snapshot_catalog_refresh_bloat_read_only.sql",
+  "verification": {
+    "run_id": 1,
+    "started_at": "2026-10-17 21:12:10.974058+00:00",
+    "outcome": "refreshed",
+    "duration_ms": 133407,
+    "target_version": 3241,
+    "outcome_ok": true,
+    "phase_count": 9,
+    "successful_phases": 9,
+    "phase_order": [
+      "catalog_items_read",
+      "catalog_items_read_analyze",
+      "catalog_item_facet_values_read",
+      "catalog_size_facets_read",
+      "catalog_size_facets_read_analyze",
+      "effective_size_membership",
+      "static_size_facets_cache",
+      "facet_cache_delete",
+      "root_facet_cache_prewarm"
+    ],
+    "phase_count_ok": true,
+    "phase_order_ok": true,
+    "version_completed_ok": true,
+    "cron_still_paused_ok": true
+  },
+  "phases": [
+    {
+      "phase_id": 1,
+      "phase": "catalog_items_read",
+      "started_at": "2026-10-17 21:12:10.977349+00:00",
+      "duration_ms": 26456,
+      "outcome": "success",
+      "error_sqlstate": null
+    },
+    {
+      "phase_id": 2,
+      "phase": "catalog_items_read_analyze",
+      "started_at": "2026-10-17 21:12:37.435139+00:00",
+      "duration_ms": 2543,
+      "outcome": "success",
+      "error_sqlstate": null
+    },
+    {
+      "phase_id": 3,
+      "phase": "catalog_item_facet_values_read",
+      "started_at": "2026-10-17 21:12:39.978377+00:00",
+      "duration_ms": 58766,
+      "outcome": "success",
+      "error_sqlstate": null
+    },
+    {
+      "phase_id": 4,
+      "phase": "catalog_size_facets_read",
+      "started_at": "2026-10-17 21:13:38.744877+00:00",
+      "duration_ms": 28636,
+      "outcome": "success",
+      "error_sqlstate": null
+    },
+    {
+      "phase_id": 5,
+      "phase": "catalog_size_facets_read_analyze",
+      "started_at": "2026-10-17 21:14:07.381931+00:00",
+      "duration_ms": 258,
+      "outcome": "success",
+      "error_sqlstate": null
+    },
+    {
+      "phase_id": 6,
+      "phase": "effective_size_membership",
+      "started_at": "2026-10-17 21:14:07.642346+00:00",
+      "duration_ms": 11857,
+      "outcome": "success",
+      "error_sqlstate": null
+    },
+    {
+      "phase_id": 7,
+      "phase": "static_size_facets_cache",
+      "started_at": "2026-10-17 21:14:19.500257+00:00",
+      "duration_ms": 924,
+      "outcome": "success",
+      "error_sqlstate": null
+    },
+    {
+      "phase_id": 8,
+      "phase": "facet_cache_delete",
+      "started_at": "2026-10-17 21:14:20.425585+00:00",
+      "duration_ms": 19,
+      "outcome": "success",
+      "error_sqlstate": null
+    },
+    {
+      "phase_id": 9,
+      "phase": "root_facet_cache_prewarm",
+      "started_at": "2026-10-17 21:14:20.444858+00:00",
+      "duration_ms": 3935,
+      "outcome": "success",
+      "error_sqlstate": null
+    }
+  ],
+  "rows": [
+    {
+      "checked_at_utc": "2026-10-17 21:15:20.864731+00:00",
+      "stats_reset_at": null,
+      "relation_name": "catalog_effective_size_membership_read",
+      "relkind": "m",
+      "n_live_tup": 374011,
+      "n_dead_tup": 29249,
+      "n_tup_ins": 17829344,
+      "n_tup_upd": 0,
+      "n_tup_del": 360462,
+      "vacuum_count": 0,
+      "autovacuum_count": 50,
+      "last_vacuum": null,
+      "last_autovacuum": "2026-10-09 08:04:23.328148+00:00",
+      "heap_bytes": 57065472,
+      "index_bytes": 37748736,
+      "total_bytes": 94863360
+    },
+    {
+      "checked_at_utc": "2026-10-17 21:15:20.865227+00:00",
+      "stats_reset_at": null,
+      "relation_name": "catalog_facets_cache",
+      "relkind": "r",
+      "n_live_tup": 1,
+      "n_dead_tup": 19,
+      "n_tup_ins": 582,
+      "n_tup_upd": 4,
+      "n_tup_del": 590,
+      "vacuum_count": 0,
+      "autovacuum_count": 10,
+      "last_vacuum": null,
+      "last_autovacuum": "2026-10-09 10:59:27.013561+00:00",
+      "heap_bytes": 16384,
+      "index_bytes": 131072,
+      "total_bytes": 1523712
+    },
+    {
+      "checked_at_utc": "2026-10-17 21:15:20.865520+00:00",
+      "stats_reset_at": null,
+      "relation_name": "catalog_item_facet_values_read",
+      "relkind": "m",
+      "n_live_tup": 2671709,
+      "n_dead_tup": 128,
+      "n_tup_ins": 12327248,
+      "n_tup_upd": 0,
+      "n_tup_del": 2938783,
+      "vacuum_count": 0,
+      "autovacuum_count": 28,
+      "last_vacuum": null,
+      "last_autovacuum": "2026-10-17 20:30:18.356747+00:00",
+      "heap_bytes": 211722240,
+      "index_bytes": 251772928,
+      "total_bytes": 463585280
+    },
+    {
+      "checked_at_utc": "2026-10-17 21:15:20.866265+00:00",
+      "stats_reset_at": null,
+      "relation_name": "catalog_items_read",
+      "relkind": "m",
+      "n_live_tup": 108665,
+      "n_dead_tup": 14235,
+      "n_tup_ins": 53022418,
+      "n_tup_upd": 0,
+      "n_tup_del": 65150457,
+      "vacuum_count": 1,
+      "autovacuum_count": 361,
+      "last_vacuum": "2026-10-10 22:29:17.595014+00:00",
+      "last_autovacuum": "2026-10-17 20:33:35.608487+00:00",
+      "heap_bytes": 1075789824,
+      "index_bytes": 5529280512,
+      "total_bytes": 6605529088
+    },
+    {
+      "checked_at_utc": "2026-10-17 21:15:20.870649+00:00",
+      "stats_reset_at": null,
+      "relation_name": "catalog_size_facets_read",
+      "relkind": "m",
+      "n_live_tup": 377059,
+      "n_dead_tup": 5427,
+      "n_tup_ins": 1486026,
+      "n_tup_upd": 0,
+      "n_tup_del": 5560,
+      "vacuum_count": 0,
+      "autovacuum_count": 4,
+      "last_vacuum": null,
+      "last_autovacuum": "2026-10-17 20:14:51.872571+00:00",
+      "heap_bytes": 37838848,
+      "index_bytes": 62128128,
+      "total_bytes": 100016128
+    },
+    {
+      "checked_at_utc": "2026-10-17 21:15:20.871795+00:00",
+      "stats_reset_at": null,
+      "relation_name": "catalog_static_size_facets_cache",
+      "relkind": "r",
+      "n_live_tup": 1,
+      "n_dead_tup": 22,
+      "n_tup_ins": 0,
+      "n_tup_upd": 1195,
+      "n_tup_del": 0,
+      "vacuum_count": 0,
+      "autovacuum_count": 23,
+      "last_vacuum": null,
+      "last_autovacuum": "2026-10-09 03:50:16.340899+00:00",
+      "heap_bytes": 8192,
+      "index_bytes": 16384,
+      "total_bytes": 253952
+    }
+  ]
+}

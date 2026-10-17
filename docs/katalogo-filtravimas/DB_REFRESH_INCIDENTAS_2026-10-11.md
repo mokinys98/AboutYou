@@ -1,4 +1,4 @@
-# DB bloat ir katalogo refresh incidentas — 2026-10-11
+﻿# DB bloat ir katalogo refresh incidentas — 2026-10-11
 
 ## Būsena
 
@@ -282,3 +282,330 @@ plano laikas sumažėjo nuo 12,306 s iki 2,396 s. Tai nėra viso cron laiko
 dydžių šaltinis ir kontroliuojamas refresh; dabartinis vienas sėkmingas
 ciklas neleidžia pažadėti, kad kiekvienas būsimas penkių minučių ciklas
 baigsis laiku.
+
+## 2026-10-14 klasifikatoriaus migracijos patikra ir dabartinė būsena
+
+Vartotojas pranešė, kad `20261011210000_optimize_catalog_size_domain_predicates.sql`
+pritaikė, bet atskiros patikros dar nevykdė. Codex leistinu read-only tuneliu
+patvirtino naują funkcijos fingerprint `5f1b4d6e0b1bfa2a534ae7080930e312`,
+savininką `postgres`, literalinius lietuviškus fragmentus ir regex šakų
+nebuvimą. Palyginus VPS funkciją su naujomis taisyklėmis per visus 104 687
+dabartinius produktus gauta 0 neatitikimų. Tai atskira diegimo patikra; pilnas
+`catalog_size_facets_read` šaltinio planas po pakeitimo dar nebuvo vykdomas.
+
+Read-only refresh būsenos snapshot: `requested_version=2974`,
+`completed_version=2707`, `last_status=pending`, paskutinis sėkmingas refresh
+2026-10-11 19:10:50 UTC; tuo momentu refresh advisory / materializuotų vaizdų
+užraktų nebuvo. Pagrindinis vaizdas: 0 įvertintų dead tuple, ~1,01 GiB heap ir
+~5,15 GiB indeksų. Facet reikšmių vaizdas: ~39 tūkst. dead tuple; dydžių
+vaizdas: ~59 tūkst. Tai `pg_stat_all_tables` įverčiai.
+
+`codex_reader` neturi `cron` schemos `USAGE`, todėl cron aktyvumo būsena šiuo
+tuneliu nepasiekiama. Sukurta [SQL Editor read-only dabartinės būsenos patikra](../../supabase/tests/verify_catalog_refresh_current_state_read_only.sql),
+kuri vienoje eilutėje pateikia `cron_active`, vykdomo darbo / užrakto požymius,
+versijų tarpą ir paskutinio refresh laikus. Prieš pilno dydžių šaltinio plano
+matavimą būtina gauti šį rezultatą; jei cron aktyvus ar užraktas laikomas,
+brangus `EXPLAIN ANALYZE` atidedamas iki ramaus lango.
+
+## 2026-10-14 po klasifikatoriaus migracijos: aktualūs planai
+
+Vartotojo 19:36:59 UTC pateikta read-only SQL Editor eilutė patvirtino, kad
+cron sustabdytas, vykdomo refresh ir refresh užraktų nėra. Versijų
+būsena: 2974 prašoma, 2707 baigta, last_status=pending. Codex read-only
+tuneliu patvirtino klasifikatoriaus funkcijos fingerprint
+5f1b4d6e0b1bfa2a534ae7080930e312; 104 687 produktų palyginimas grąžino 0
+neatitikimų.
+
+Po migracijos Codex read-only tuneliu išmatavo catalog_items_read šaltinį
+per 8 196,747 ms (104 834 eil.), catalog_item_facet_values_read per
+8 756,074 ms (2 445 296 eil.) ir pilną catalog_size_facets_read šaltinį
+per 72 463,683 ms (369 784 eil.). Pastarasis yra 9,141 s ilgesnis už spalio
+11 d. planą, bet šakų eilučių pasiskirstymas pakito: variantų
+343 317, legacy 27 015. Skirtingų snapshot palyginimas neįrodo migracijos
+sulėtėjimo; viso šaltinio pagreitėjimas nepatvirtintas.
+
+Efektyvių dydžių narystės view planui Codex tunelio vaidmuo neturi
+EXECUTE teisės funkcijai catalog_strip_known_size_description.
+SQL Editor matavimo failas yra
+[explain_catalog_effective_size_membership_after_component_precompute_read_only.sql](../../supabase/tests/explain_catalog_effective_size_membership_after_component_precompute_read_only.sql).
+Kol kas po klasifikatoriaus pakeitimo nėra naujo viso refresh paleidimo;
+cron paliktas išjungtas.
+
+Papildomas 2026-10-14 read-only eksperimentas nustat?, kad pilnas
+catalog_size_facets_read ?altinis po migracijos truko 72,464 s.
+Catalog_size_domain() funkcija per produkt? vaizd? truko 22,698 s; tiesiogin?
+position() i?rai?ka per tuos pa?ius 104 834 produktus truko 1,496 s.
+Bandomasis vieno domeno skai?iavimas produktui ir sujungimas su 343 317
+pasirenkamomis dyd?i? eilut?mis truko 1,876 s. Tai pagrind?ia klasifikatoriaus
+skai?iavim? vien? kart? produktui, ta?iau dar neapima viso dyd?i? view
+normalizavimo / DISTINCT / indeks? ir neatstoja pilno source plano.
+Pilni JSON planai ir i?vados prid?ti ? CRON_REFRESH_CHRONOLOGINE_ANALIZE_2026-10-11.md.
+
+
+
+## 2026-10-14 papildomas read-only įrodymas
+
+Vartotojas patvirtino, kad 5 min. cron tebėra sustabdytas: 2974 prašyta,
+2707 baigta, 267 versijų tarpas, jokių vykdomų job ar refresh lock 19:36:59 UTC.
+Tunelio read-only sesijos 19:47-19:59 UTC tą tarpą patvirtino ir nerado refresh
+lock; Codex negalėjo savarankiškai nuskaityti cron lentelės dėl trūkstamo
+`USAGE`, todėl cron būsenos vėlesne minute neteigiu.
+
+Dabartinės dydžių šaltinio užklausos inline kandidatas, su
+`item_inputs AS MATERIALIZED` domenui vieną kartą produktui apskaičiuoti,
+baigėsi per 19,656 s ir grąžino 369 784 eilutes. Kandidatas su funkcijos
+kvietimu truko 36,637 s. Dabartinė užklausa ir funkcijos kandidatas tame pačiame
+šaltinių snapshot sutapo eilutė po eilutės (`EXCEPT ALL`: 0 skirtumų; abi
+369 784 eilutės). Teisingo inline CASE palyginimas su įdiegta
+`catalog_size_domain()` funkcija apėmė 104 687 produktus, rado 0 neatitikimų
+ir truko 23,459 s.
+
+Senajame materializuotame view tebėra 372 616 eilučių; prieš jį kandidatas turi
+7 340 papildomų, o senas view turi 10 172 kandidato neturinčias eilutes. Tai
+rodo pasenusio materializuoto rezultato neatitikimą dabartiniam šaltinių
+snapshot, o ne neatitikimą tarp dviejų šaltinio SELECT variantų. Vis dėlto
+naujo `REFRESH MATERIALIZED VIEW` realus laikas nebuvo matuotas. 19,656 s
+šaltinio SELECT nėra pagrindas garantuoti viso cron ciklo pabaigą per 5 min.;
+cron lieka sustabdytas, kol bus saugiai patikrintas visų fazių bendras laikas.
+
+Galimas optimizuotas MV užima vietą šalia seno (senasis: apie 41 MB heap ir
+95 MB indeksų), o priklausomybę į jį turi paprastas
+`catalog_size_facets_read_effective` view. Prieš galutinį swap reikia stage MV
+atskirai užpildyti ir sulyginti su dabartiniu šaltiniu, išsaugoti rollback MV,
+tris indeksus ir `service_role` grant, pakeisti paprasto view šaltinį ir tik
+tada atnaujinti narystės MV. Jokie šie nuotoliniai pakeitimai ar cron
+paleidimas Codex nebuvo atlikti.
+
+
+### Stage bandymo paruošimas
+
+Vietiniame repozitoriume parengta tuščio shadow MV migracija, atskiras
+vienkartinis `REFRESH` ir dvi read-only patikros. Jie VPS dar netaikyti.
+Tolimesni indeksų, grantų, view priklausomybių pakeitimai ir pilno cron ciklo
+matavimas priklauso nuo sėkmingo stage užpildymo bei `differing_rows=0`.
+
+
+20:01:10 UTC po analizės Codex read-only tuneliu patvirtino:
+`requested_version=2975`, `completed_version=2707`, tarpas 268, `pending`,
+refresh lockų 0. Lyginant su naudotojo 19:36:59 rezultatu, prašyta versija
+padidėjo viena, nors refresh nevyksta. Tarpas yra versijos, ne sukauptų 268
+atskirų cron paleidimų skaičius: refresh apvalkalas fiksuoja tikslinę versiją
+paleidimo pradžioje ir po sėkmės pažymi ją baigta.
+
+## 2026-10-17 stage populiavimo b?kl?
+
+Vartotojas patvirtino SQL Editor?yje, kad cron sustabdytas ir stage MV
+u?pildytas: 16:58:01 UTC `stage_populated=true`, ?vertis 367831 eilu?i?,
+heap 35 MB. Pirmoji b?senos patikra anks?iau teisingai parod? tu??i? stage.
+Senas patikros SQL band? skai?iuoti eilutes i? `CASE` ?akos; PostgreSQL
+atmet? nuorod? ? neu?pildyt? MV dar u?klausos planavimo metu. Patikra pataisyta,
+o tikslus `count(*)` perkeltas ? atskir? fail?, skirt? naudoti tik po
+`stage_populated=true`.
+
+Read-only tunelio patikra patvirtino tiksl? stage eilu?i? skai?i? 367831.
+Lygyb? su dabartiniu source nepatvirtinta: pirmas palyginimas rado 7 skirtumus
+(?altinis 367828; stage 367831), kitas vieno statement snapshot ? 39 skirtumus
+(?altinis 367824; stage 367831). Per laik? `requested_version` pasikeit? i?
+3223 ? 3224; `completed_version=2707`, `last_status=pending`, paskutinis
+s?kmingas refresh ? 2026-10-11 19:10:50 UTC. ?altinio pasikeitimas gali paai?kinti
+stage pasenim?, bet turim? ?rodym? tam nepakanka; candidate query klaida taip pat
+neatmesta. Stage nekeisti ? produkcin? keli? ir ne?jungti cron, kol n?ra
+`differing_rows=0` patikros su patikimu bendrai versijai atitinkan?iu snapshot.
+
+Papildomas read-only patikrinimas 17:01 UTC nustat?, kad `product_size_options`
+turi `fetched_at` lauk?, o pavyzdini? nesutampan?i? produkt? dyd?i? ?ra?ai buvo
+atnaujinti 16:58:52?17:00:14 UTC, t. y. po vartotojo 16:58:01 UTC patvirtinto
+stage u?pildymo. Pavyzd?iui, dir?? produktui stage tur?jo dyd?ius 100, o
+naujesn?s `product_size_options` eilut?s jau pateik? 90, 95 ir 100. Tai
+patvirtina, kad bent dalis skirtum? atsirado d?l ?altinio pakeitim? po stage
+suk?rimo; vis? 39 skirtum? prie?astis ir kandidato pilna lygyb? dar n?ra
+patvirtintos.
+
+Parengtas, bet nevykdytas [vienos repeatable-read transakcijos stage atnaujinimo
+ir lygyb?s SQL](../../supabase/manual/20261017_refresh_and_verify_optimized_catalog_size_facets_stage_once.sql).
+Jis apsauginiais patikrinimais reikalauja sustabdyto cron, atnaujina tik shadow
+stage MV ir tame pa?iame duomen? snapshot pateikia tikslius abiej? kryp?i?
+skirtumus. Jei `differing_rows` ne 0, production priklausomyb?s nekei?iamos.
+SQL Editor upstream timeout atveju prie? kartojim? tikrinama stage b?sena.
+
+## 2026-10-17 17:06 UTC: stage source sulygintas viename snapshot
+
+Vartotojo paleistas `20261017_refresh_and_verify_optimized_catalog_size_facets_stage_once.sql`
+s?kmingai atnaujino tik shadow stage ir tame pa?iame `REPEATABLE READ`
+snapshot palygino su source: `requested_version=3224`, `completed_version=2707`,
+`source_rows=367826`, `stage_rows=367826`, `differing_rows=0`. Tai patvirtina
+kandidato lygyb? ?ioje transakcijoje, bet dar ne viso cron ciklo laik? ar
+produkcin? perjungim?.
+
+Read-only ACL patikra parod?, kad dabartinis stage turi `SELECT` teises
+`anon` ir `authenticated` rol?ms (taip pat `service_role`), o senasis
+`catalog_size_facets_read` leid?ia SELECT tik `service_role` ir savininkui.
+Paruo?ta atskira teis? susiaurinimo migracija ir jos read-only patikra;
+nuotoliniu b?du jos dar netaikiau.
+
+Cron fazi? kontekstas lieka svarbus: 2026-10-11 kontroliuojamas refresh anks?iau
+baig?si `effective_size_membership` faz?s statement timeout po ~260,6 s.
+V?lesnis ?ios faz?s `EXPLAIN ANALYZE` po komponent? i?ankstinio skai?iavimo
+SQL Editor?yje taip pat buvo upstream timeout ties 30 s. Naujas stage dyd?i?
+?altinis ?ios brangios faz?s nepa?alina. Paruo?tas
+[read-only EXPLAIN pagal stage source](../../supabase/tests/explain_catalog_effective_size_membership_from_optimized_stage_read_only.sql),
+kuris naudoja dabartin? VPS `catalog_size_facets_read_effective` view
+apibr??t?, bet joje ?altin? nukreipia ? optimizuot? stage. J? reikia i?matuoti
+prie? perjungimo migracijos rengim?. Visas cron teb?ra sustabdytas pagal
+vartotojo SQL Editor rezultat?; s?kmingas 5 min. ciklas dar ne?rodytas.
+
+Dabartinis produkcinis `catalog_size_facets_read` u?ima 135 MB i? viso:
+41 MB heap ir 39/29/26 MB trys indeksai. Stage u?ima 35 MB heap ir dar neturi
+indeks?. Per laikin? rollback lang? indeks? atk?rimas padidins DB u?imam? viet?;
+po patvirtinto perjungimo sen? MV reik?t? pa?alinti tik atskiru, patikrintu
+sprendimu. Stage ir production dar neperjungti.
+
+## 2026-10-17 17:35?17:53 UTC: stage ACL ir planas
+
+Vartotojo read-only SQL Editor patikra 17:35:22 patvirtino, kad optimizuotas
+stage yra u?pildytas materialized view, `anon`, `authenticated` ir `PUBLIC`
+neturi `SELECT`, o `service_role` turi. Tai patvirtina, kad
+`20261017171000_lock_down_optimized_catalog_size_stage.sql` pritaikyta.
+Stage teb?ra diagnostinis objektas; jis dar nepakeit? production
+`catalog_size_facets_read`.
+
+Vartotojo `EXPLAIN (ANALYZE, BUFFERS, SETTINGS)` pilnam naryst?s SELECT,
+naudojant stage ir VPS esam? effective-size normalizavimo apibr??t?, gr??ino
+374 337 tarpini? eilu?i? ir sugrupavo ? 364 804 eilutes per 7 927 ms. Stage
+nuskaitymas su override sujungimu u?truko apie 384 ms; normalizavimo,
+komponent? apdorojimo ir grupavimo dalis sudar? likusi? laiko dal?. Atlikti
+sort'ai naudojo disk? (apie 29 824 kB ir 26 744 kB), EXPLAIN nurod? 9 631
+bloko temp read ir 9 650 temp written. Tod?l kritin? SELECT dalis, anks?iau
+u?trukusi apie 260,6 s ir at?aukta, su stage ?altiniu dabar i?matuota ~7,9 s.
+Tai stiprus ?rodymas, kad ?altinio planas pagreit?jo, bet ne faktinio
+`REFRESH MATERIALIZED VIEW CONCURRENTLY` laikas ir ne visas cron ciklas.
+
+Codex authorized read-only tuneliu 17:53:02 UTC patikrino b?sen?:
+`requested_version=3229`, `completed_version=2707`, `last_status=pending`,
+versij? tarpas 522. Paskutinis u?fiksuotas pilnas s?kmingas refresh vis dar
+2026-10-11 19:10:50 UTC, trukm? 235 965 ms. Stage turi 367 826 eilu?i? ir 35
+MB heap, bet neturi indeks?; senas production dyd?i? MV turi 372 616 eilu?i?,
+41 MB heap ir tris valid?ius/ready indeksus, kartu 94 MB. `effective` view
+priklausomyb? teb?ra susieta su senu MV. Stage perjungimas reikalaut? unique
+indekso `CONCURRENTLY` refresh'ui, priklausomyb?s perri?imo ir rollback plano;
+kol kas niekas i? to remote nebuvo vykdyta.
+
+Kadangi tarp 17:06 lygyb?s patikros ir dabar pra?jo laiko, o `requested_version`
+pakilo iki 3229, prie? bet kok? swap reikia dar kart? atnaujinti stage ir
+patvirtinti `differing_rows=0` viename snapshot. Tada galima ?diegti
+suderinamus indeksus ir atlikti vien? kontroliuojam? viso refresh bandym?,
+cron paliekant sustabdyt?; tik jo s?km?, trukm? <300 000 ms ir versij?
+atsilikimo/heap b?kl?s patikra leis svarstyti cron gr??inim?. ?iuo momentu
+penki? minu?i? garantija dar ne?rodyta.
+
+Toliau paruo?tas atskiras, tik shadow stage lie?iantis indeks? ?ingsnis:
+`20261017180000_index_optimized_catalog_size_stage.sql`. 17:53 read-only
+patikra stage'e rado 367 826 eilutes, visas su unikaliu `(product_id, token)`
+raktu (0 dublikat?), tod?l galima kurti `REFRESH ... CONCURRENTLY` b?tin?
+unikal? indeks? ir production formato domain/token indeksus. Migracija turi
+s?lygas d?l sustabdyto cron, neu?imto refresh, stage savininko/popoliuotumo ir
+rakt? unikalumo; ji nekei?ia production view ar cron. Prie? j? taikant reikia
+pakartoti vieno snapshot stage refresh/lygyb?s fail?, nes source versija po
+17:06 padid?jo. Po migracijos atskiras read-only patikrinimas turi patvirtinti
+indeks? valid/ready b?sen? ir ACL; ?is migracijos ?ingsnis kol kas nepatvirtintas
+kaip pritaikytas.
+
+
+## 2026-10-17 18:37 UTC: po SQL Editor kliento klaidos patikrinta read-only
+
+Vartotojo ekrane po stage refresh/lygyb?s failo rodytas `invalid_type` JSON
+n?ra PostgreSQL klaidos teksto, tod?l vien UI vaizdas nepatvirtino ar atmet?
+transakcijos pabaig?. Nekartojant jokio write veiksmo, Codex per autorizuot?
+read-only tunel? 18:37:30 UTC tame pa?iame SELECT snapshot palygino dabartin?
+source su stage: source 367783, stage 367783, `differing_rows=0`, abiej? kryp?i?
+skirtumai 0. Stage `reltuples` taip pat buvo 367783; ankstesn? read-only
+b?sena rod? 367826. Tai patvirtina dabartin? stage duomen? lygyb?, bet ne SQL
+Editor kliento vykdymo patvirtinim? ar cron b?sen?. `requested_version=3230`,
+`completed_version=2707`, `pending`.
+
+Atsi?velgiant ? nulinius skirtumus, stage indeks? shadow migracija gali b?ti
+kitas saugus ?ingsnis: ji pati dar kart? SQL Editor pus?je patikrins, kad cron
+sustabdytas ir refresh lock n?ra, prie? liesdama tik stage indeksus.
+
+
+## 2026-10-17 19:13 UTC: indexed stage ir v?l pasikeit?s source
+
+Vartotojo read-only indeks? i?ra?as patvirtino tris stage indeksus: visi
+`indisvalid=true`, `indisready=true`; unikalus `(product_id, token)` indeksas
+18 MB, domeno indeksas 20 MB, token indeksas 19 MB. Tunelio read-only patikra
+19:13 UTC patvirtino stage `relispopulated=true`, heap 35 MB, i? viso su
+indeksais 92 MB. Bendra laikina kopijos vieta ?alia senos 135 MB production
+lentel?s yra apie 92 MB; sen? MV pa?alinus po s?kmingo perjungimo, skirtumas
+b?t? apie 43 MB ma?iau nei dabar.
+
+Tame pa?iame read-only snapshot stage jau buvo atsilik?s nuo source:
+source 367750 eilu?i?, stage 367783, `differing_rows=233` (100 tik source,
+133 tik stage), `requested_version=3234`, `completed_version=2707`.
+Tod?l stage negalima perjungti ar laikyti patvirtintu production kandidatu.
+Paruo?tas preflight ir vieno `REFRESH MATERIALIZED VIEW CONCURRENTLY` failai;
+tai pamatuos stage refresh'? su indeksais ir atnaujins tik izoliuot? stage.
+Po jo Codex patikrins source-stage lygyb? read-only tuneliu. Pilnas cron ciklas
+vis tiek liks atskirai nepatvirtintas.
+
+
+## 2026-10-17 19:38?19:40 UTC: indexed stage atnaujintas ir patikrintas
+
+Vartotojas SQL Editor patvirtino preflight: cron sustabdytas, aktyvaus run ir
+refresh lock n?ra, stage u?pildytas, `postgres` savininkas, visi indeksai valid?s.
+Tada vieno sakinio `REFRESH MATERIALIZED VIEW CONCURRENTLY` stage komandai
+SQL Editor gr??ino `Success`. Codex read-only tuneliu 19:40 UTC patvirtino, kad
+stage po atnaujinimo sutampa su source viename snapshot: 367750 eilu?i? abiejose
+pus?se, 0 skirtum?; pats read-only palyginimas truko 22,036 s. Stage dabar
+u?ima 92 MB su indeksais, `n_dead_tup` ?vertis buvo 133. Vartotojas nepateik?
+refresh trukm?s, tod?l kandidatinio concurrent refresh faz?s ms laikas lieka
+ne?inomas. `requested_version=3236`, `completed_version=2707`, `pending`.
+
+Read-only patikra parod?, kad dabartin? `catalog_size_facets_read_effective`
+view vis dar remiasi senu MV; jos savininkas `postgres`, o `service_role` turi
+SELECT. Parengtas guarded transakcinis production perjungimas su tiksliu source
+ir stage sulyginimu tame pa?iame `REPEATABLE READ` snapshot, senu MV i?saugotu
+kaip u?rakintu backup, ir atskira read-only cutover patikra. Atskirai parengtas
+rollback SQL, kuris atstato sen? MV ir view priklausomyb?; po rollback vis tiek
+reik?t? naujo s?kmingo read-model refresh, kad priklausomas membership/cache
+modelis b?t? suvienodintas. Nei cutover, nei rollback, nei cron pakeitimas
+nuotoliniu b?du nebuvo atliktas.
+
+## 2026-10-17 19:59 UTC: cutover SQL klaida ir read-only busenos patikra
+
+Vartotojo paleista cutover migracija grazino PostgreSQL klaida `42P01: relation "stage_rows" does not exist`. Klaida yra paruosto SQL trukumas: lyginimo CTE naudojo `stage_rows`, bet jo neapibreze. Migracijos failas pataisytas vietoje: pridetas materializuotas `stage_rows` CTE, o abi `EXCEPT ALL` kryptys dabar skaito is jo. Iki vartotojui pateikiant atnaujinta faila remote pokytis nera laikomas pritaikytu.
+
+Codex atliko tik leidziama read-only tunelio apzvalga. 19:59 UTC bukle: `requested_version=3237`, `completed_version=2707`, `pending`; `catalog_size_facets_read` vis dar yra uzpildytas senasis MV, o optimizuota stage tebera atskiras uzpildytas MV. Backup pavadinimas `catalog_size_facets_read_backup_20261017` dar neegzistuoja. Efektyvus view tebeturi priklausomybe nuo senojo canonical MV. Tai patvirtina, kad pagal stebeta katalogo busena perjungimas neivyko; klaidos atveju ankstesniu DDL transakcijos rezultatu savaime nepreziumuojame.
+
+Kitas zingsnis: vartotojas turi is naujo ikelti pataisyta migracijos faila SQL Editor ir ji paleisti, cron paliekant sustabdytas. Po sekmingo vykdymo atskirai read-only patikrinsime canonical/backup/stage pavadinimus, ACL, view priklausomybe, source-stage sulyginimo irasa ir cron busena. Tai dar nera pilno 5 minuciu cron refresh irodymas; cron ijungimas lauks atskiro kontroliuoto pilno refresh ir jo trukmes / backlog patikros.
+
+## 2026-10-17 20:05 UTC: stage paseno nuo gyvo dydziu saltinio
+
+Po cutover apsaugos klaidos Codex palygino duomenis read-only, naudodamas tiksliai is migracijos UTF-8 failo paimta CTE. 20:05 UTC snapshot'e source turejo 367753, stage 367750 eiluciu; `EXCEPT ALL` rado 65 source-only ir 62 stage-only eilutes (127 skirtumu, 81 produktas). Visi 81 neatitinkantys produktai turejo `product_size_options.fetched_at` naujesni nei 2026-10-17 19:40 UTC. Nuo 19:40 UTC saltinyje atnaujintos 883 `product_size_options` eilutes 154 produktams. Tai patvirtina, kad stage po ankstesnio atnaujinimo paseno del velesniu dydziu parinkciu pakeitimu; vien cron sustabdymas siu saltinio rasymu nesustabdo.
+
+Cutover migracija sustojo savo source-stage apsaugoje dar pries rename/revoke/view DDL. Nauja read-only patikra 20:07 UTC patvirtino, kad senasis canonical MV ir optimizuota stage abu tebepopuliuoti, backup pavadinimo nera, o refresh state yra `requested_version=3238`, `completed_version=2707`, `pending`.
+
+Cutover migracija papildyta taip, kad po pradiniu cron/lock/owner/index/ACL apsaugu ji atnaujina tik shadow stage, o po to tame paciame `REPEATABLE READ` transakcijos snapshot'e perskaiciuoja source ir reikalauja tikslios eiluciu lygybes pries bet koki production pervadinima. Tai uzdaro atskiru stage refresh ir cutover tarpa, kuriame pasikeite dydziu saltinis. Naujausia SQL versija dar nepritaikyta VPS. Cron lieka sustabdytas; po sekmingo cutover bus atskira read-only patikra ir tik tada kontroliuojamas pilnas refresh bandymas.
+
+## 2026-10-17 20:16 UTC: optimizuotas size MV cutover patvirtintas read-only
+
+Vartotojas pateike tris production indeksus; visi `indisvalid=true`, `indisready=true`, unikalus `(product_id, token)` indeksas. Codex read-only tuneliu 20:16 UTC papildomai patvirtino, kad `catalog_size_facets_read` yra uzpildytas MV su trimis optimizuotais indeksais, 92 MB total dydziu, `service_role` SELECT ir be anon/authenticated SELECT. Senasis uzpildytas MV issaugotas `catalog_size_facets_read_backup_20261017` vardu (135 MB), API rolms prieigos neturi. `catalog_size_facets_read_effective` priklauso nuo naujo production MV ir neberodo i backup. Taigi cutover patvirtintas; backup paliekamas rollback galimybei.
+
+Read-only state vis dar rodo `requested_version=3239`, `completed_version=2707`, tarpa 532, `pending`; paskutinis pilnas refresh buvo 2026-10-11 19:10 UTC. `catalog_items_read` planner/live eilutes sutampa paklaidos ribose (104792/104687), paskutine ANALYZE statistika yra. Refresh lock'u tikrinimo metu nebuvo. Codex `codex_reader` neturi SELECT teises i cron schema, todel dabartine cron aktyvumo busena is tunelio nepatvirtinta; naujas catch-up SQL pries vykdyma tikrina, kad jobas sustabdytas.
+
+Parengtas vienkartinis post-cutover catch-up failas `20261017_catch_up_catalog_refresh_after_size_cutover_once.sql` ir atskira read-only patikra `verify_catalog_refresh_after_size_cutover_read_only.sql`. Jie dar nevykdyti. Po ju reikalausime `status=refreshed`, trukmes <300000 ms, uzdaryto version gap ir jokio refresh lock; cron lieka sustabdytas iki tu irodymu.
+
+## 2026-10-17 20:22 UTC: vartotojo patikra patvirtino cutover ir sustabdyta cron
+
+Vartotojo sujungta read-only patikra parode tris indeksu eilutes su pasikartojancia cutover busena: `cron_paused=true`, production MV uzpildytas (92 MB), savininkas `postgres`, SELECT turi tik `service_role`; senas backup uzpildytas ir nepasiekiamas anon/authenticated/service_role; effective view naudoja nauja MV ir atsietas nuo backup. Visi trys optimizuoti indeksai validus ir ready; unique indeksas yra unikalus. Tai uzbaigia cutover patvirtinima.
+
+Refresh state dar `requested_version=3239`, `completed_version=2707`, tarpas 532, `pending`, paskutinis uzbaigimas 2026-10-11 19:10 UTC. Cron patvirtintas sustabdytas. Kitas leistinas zingsnis yra vienkartinis kontroliuotas catch-up su preflight apsaugomis; tada atskira read-only patikra patvirtins duration, gap, lock ir status. Cron neijungti, kol neirodyta, kad pilnas refresh uztrunka maziau nei 5 min. ir nepalieka backlog.
+
+## 2026-10-17 20:26 UTC: catch-up preflight aptiko aktyvu refresh lock
+
+Vartotojo vienkartinis catch-up failas sustojo apsaugoje `A catalog refresh lock is still held`; `process_catalog_items_read_refresh()` siame bandyme nebuvo iskviesta. Codex read-only tuneliu 20:26 UTC rado procesa PID 2138034, application `postgres-meta 0.0.0-automated`, kuris laike advisory lock `catalog_items_read_refresh` ir `ExclusiveLock` ant `catalog_items_read`. State liko `requested_version=3239`, `completed_version=2707`, `pending`; jokio naujo refresh uzbaigimo nera. `codex_reader` neturi teises matyti kito backend query/state detaliu, todel paruosta `diagnose_catalog_refresh_lock_holder_read_only.sql`, kuria SQL Editor postgres role gali parodyti sesijos query/start/state. Catch-up nekartoti, kol sesija identifikuota arba lock dinges, tada dar karta patikrinti state ir lock.
+
+## 2026-10-17 po 20:31 UTC: refresh uzbaigtas, bet >5 min.; funkciju ACL neatitinka repo
+
+Read-only lock patikra grazino `NO_MATCHING_REFRESH_LOCK`; `requested_version=completed_version=3239`, `last_status=refreshed`. `last_duration_ms=324124` (5:24.124), `last_error` tuscias, taigi backlog panaikintas, bet 5 min. tikslas dar nepasiektas. Cron lieka pristabdytas.
+
+Read-only DB katalogo ACL isklotine rodo, kad `anon`, `authenticated` ir `service_role` turi EXECUTE i `request_catalog_items_read_refresh()` ir SECURITY DEFINER `process_catalog_items_read_refresh()`. Vidine rebuild funkcija prieinama tik `postgres`. Gyvi `pg_default_acl` irasai public schemoje pagal nutylejima suteikia EXECUTE toms trims API rolms naujai kuriamoms funkcijoms. Repo `20260714205054_stabilize_catalog_refresh.sql` aiskiai atima sias teises nuo anon/authenticated, taciau gyvas funkciju ACL sutampa su default ACL. Repo paieska nerado velesnio aiškaus GRANT sioms dviem funkcijoms; VPS migraciju istorijos lentele `supabase_migrations.schema_migrations` per skaitymo tuneli nerasta. Todel dar negalima tiksliai nustatyti, ar migracija nebuvo pritaikyta, ar funkcijos po jos buvo sukurtos is naujo. Tai teisiu neatitikimo diagnostika, ne refresh vykdymo leidimo problema SQL Editor postgres rolei. Remote ACL nekeistos.

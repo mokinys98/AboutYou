@@ -18,45 +18,57 @@
 - Do not rely on the login itself to enforce read-only access: `codex_reader` has `BYPASSRLS`, its default transaction mode is writable, and some objects grant write or `SECURITY DEFINER` function privileges through `PUBLIC`. Never run writes, DDL, migrations, or privilege changes on the VPS through the tunnel, even if PostgreSQL would allow them.
 - Local code, migrations, and tests may be edited or run in the workspace. The user applies all VPS database changes manually in Supabase SQL Editor using the handoff below. Codex may perform read-only diagnostics and post-application verification through the authorized tunnel without a new permission request.
 
-### Known VPS migration handoff
+### Known VPS database access and change handoff
 
-VPS database migrations are applied manually by the user through Supabase SQL
-Editor. Codex prepares the SQL file; the user opens SQL Editor, loads the file
-(or pastes its full contents), and runs it.
+Codex may independently use the project's authorized VPS Supabase connection for
+read-only queries, inspection, diagnostics, and verification. Use the existing
+PuTTY SSH tunnel and the `codex_reader` PostgreSQL login from the Windows
+`%APPDATA%\postgresql\pgpass.conf` file. The tunnel endpoint is
+`127.0.0.1:15432`; check that it works before connecting. Do not request
+connection details, SSH keys, passwords, or `.env` secrets.
 
-- Do not propose or execute migrations through PowerShell, SSH, PuTTY, SCP,
-  Docker exec, `psql`, Supabase CLI push, or similar terminal workflows.
-- Do not request VPS connection details, SSH keys, passwords, or `.env` secrets
-  for this handoff.
+- For each database work session, start a transaction with `BEGIN READ ONLY`.
+  Run only read-only SQL, avoid functions or commands with side effects, keep
+  result sets bounded where practical, then `ROLLBACK` and close the connection.
+- Do not use project `.env` secrets, service-role keys, REST/RPC endpoints,
+  Supabase MCP tools, or other remote access routes for database inspection.
+  Never print or copy passwords into the repository, commands, logs, or chat.
+- `codex_reader` may have `BYPASSRLS`, and some objects may expose write or
+  `SECURITY DEFINER` privileges. Do not rely on login permissions to make a
+  query safe: use the read-only transaction and issue only read-only SQL.
+- If a read-only query needs elevated database access beyond `codex_reader`,
+  do not obtain or use elevated credentials. Provide the complete read-only SQL
+  query for the user to run in Supabase SQL Editor and state the expected result.
+  The user can share the result for Codex to continue the inspection.
 
-For each migration:
+All remote database changes, including CRUD operations, DDL, migrations, and
+privilege changes, are applied manually by the user through Supabase SQL Editor.
+Codex prepares the SQL; it must not apply changes on the user's behalf or
+through PowerShell, SSH, PuTTY, SCP, Docker exec, `psql`, Supabase CLI push, or
+similar terminal workflows.
 
-1. Create the complete migration file in `supabase/migrations/` and provide a
-   clickable link with its exact filename. Use SQL compatible with SQL Editor;
-   do not include shell commands or `psql` meta-commands such as `\ir` or `\set`.
-2. Explain briefly what the migration changes and tell the user to load that
-   file into their VPS Supabase SQL Editor and run it. If the file changes after
-   an earlier handoff, explicitly tell the user to load the latest contents.
-3. Provide a separate read-only verification SQL query with the expected
-   result. The user may run it in SQL Editor; Codex may also run it through the
-   authorized read-only tunnel after the user reports applying the migration.
-4. Treat any PostgreSQL error as a failed migration. Inspect the pasted error
-   and provide read-only diagnostic SQL before proposing another attempt; do
-   not assume that all preceding statements were rolled back. In particular,
-   for `must be owner of function`, inspect `pg_proc.proowner`; do not drop
-   functions, change owners, grant role membership, or broaden privileges merely
-   to bypass the error.
+For each requested remote change:
+
+1. Prepare the complete SQL in the appropriate file under `supabase/migrations/`
+   and provide a clickable link with its exact filename. Make it compatible with
+   SQL Editor; do not include shell commands or `psql` meta-commands such as
+   `\ir` or `\set`.
+2. Briefly explain the change and tell the user to load the file into their VPS
+   Supabase SQL Editor and run it. If the file changes after handoff, explicitly
+   tell the user to load the latest contents.
+3. Provide a separate read-only verification query and its expected result. The
+   user may run it in SQL Editor; Codex may also verify through the authorized
+   read-only connection after the user reports applying the change.
+4. Treat any PostgreSQL error as a failed change. Inspect the pasted error and
+   provide read-only diagnostic SQL before proposing another attempt; do not
+   assume preceding statements were rolled back. For `must be owner of function`,
+   inspect `pg_proc.proowner`. Do not drop functions, change owners, grant role
+   membership, or broaden privileges to bypass the error.
 5. Record remote application as verified only after the user provides successful
-   execution output. Record read-only verification results separately, using
-   either the user's pasted SQL Editor results or Codex's authorized read-only
-   tunnel queries. Preparing or committing a SQL file does not mean the
-   migration has been applied.
-
-Codex must not operate SQL Editor or apply the migration on the user's behalf.
-Its role is to prepare the file and verification SQL, inspect the user's pasted
-results or run authorized read-only verification, and document the outcome.
-
-
+   execution output. Record read-only verification separately, based on the
+   user's SQL Editor results or Codex's authorized read-only query. Preparing
+   or committing a SQL file does not mean the change was applied.
+   
 # Codex project instructions
 
 For complex coding tasks, use the `astra-orchestrator` skill when its trigger conditions match.
@@ -65,5 +77,10 @@ The root agent owns architecture, decomposition, integration, and final verifica
 Prefer specialized subagents for bounded exploration, implementation, testing, review, and technical research.
 
 Do not delegate trivial work merely for parallelism.
-Do not let multiple implementation agents edit the same files without explicit ownership boundaries.
+Do not let multiple implementation agents edit the same files without explicit ownership boundaries. 
 User instructions always take precedence over this orchestration policy.
+
+# Chat instructions.
+
+When writing instructions for a user always show them in list as TODO 
+What step to execute after what step, in simple terms like you would task a junior programer. Write explanation what that step would do

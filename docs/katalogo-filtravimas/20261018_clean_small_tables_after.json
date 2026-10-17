@@ -1,0 +1,55 @@
+{
+  "source": "Codex read-only VPS sample after next scheduled clean cron slot",
+  "latest_run": {
+    "run_id": 3,
+    "started_at": "2026-10-17 21:25:00.020340+00:00",
+    "completed_at": "2026-10-17 21:25:00.022960+00:00",
+    "outcome": "clean",
+    "duration_ms": 3,
+    "target_version": 3241
+  },
+  "rows": [
+    {
+      "checked_at_utc": "2026-10-17 21:25:26.437831+00:00",
+      "relation_name": "catalog_read_model_refresh_state",
+      "n_live_tup": 1,
+      "n_dead_tup": 36,
+      "n_tup_ins": 0,
+      "n_tup_upd": 7961,
+      "n_tup_del": 0,
+      "autovacuum_count": 136,
+      "last_autovacuum": "2026-10-17 12:26:55.283223+00:00",
+      "heap_bytes": 8192,
+      "index_bytes": 16384,
+      "total_bytes": 65536
+    },
+    {
+      "checked_at_utc": "2026-10-17 21:25:26.438773+00:00",
+      "relation_name": "catalog_refresh_phases",
+      "n_live_tup": 9,
+      "n_dead_tup": 0,
+      "n_tup_ins": 9,
+      "n_tup_upd": 0,
+      "n_tup_del": 0,
+      "autovacuum_count": 0,
+      "last_autovacuum": null,
+      "heap_bytes": 8192,
+      "index_bytes": 32768,
+      "total_bytes": 49152
+    },
+    {
+      "checked_at_utc": "2026-10-17 21:25:26.439068+00:00",
+      "relation_name": "catalog_refresh_runs",
+      "n_live_tup": 3,
+      "n_dead_tup": 0,
+      "n_tup_ins": 3,
+      "n_tup_upd": 0,
+      "n_tup_del": 0,
+      "autovacuum_count": 0,
+      "last_autovacuum": null,
+      "heap_bytes": 8192,
+      "index_bytes": 32768,
+      "total_bytes": 49152
+    }
+  ]
+}
